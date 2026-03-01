@@ -421,7 +421,7 @@ class DocxTable extends DocxBlock {
               builder.element(
                 'w:jc',
                 nest: () {
-                  builder.attribute('w:val', alignment!.name);
+                  builder.attribute('w:val', alignment!.xmlValue);
                 },
               );
             }

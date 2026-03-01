@@ -1,3 +1,14 @@
+## 1.1.7
+
+### Fixed
+- **Paragraph Justification**: Fixed critical issue where `DocxAlign.justify` caused document corruption by incorrectly mapping to `w:val="justify"`. Now correctly maps to `w:val="both"`.
+
+### Added
+- **Image Borders**: Added support for image outlines (Simple Frame) via the `border` parameter in `DocxImage` and `DocxInlineImage`.
+- **Regression Tests**: Added `test/justification_and_border_test.dart` to verify alignment mapping and image border generation.
+
+---
+
 ## 1.1.6
 
 ### Fixed

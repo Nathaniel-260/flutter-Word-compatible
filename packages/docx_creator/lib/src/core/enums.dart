@@ -8,6 +8,21 @@ library;
 /// Text alignment within a paragraph or table cell.
 enum DocxAlign { left, center, right, justify }
 
+extension DocxAlignExtension on DocxAlign {
+  String get xmlValue {
+    switch (this) {
+      case DocxAlign.left:
+        return 'left';
+      case DocxAlign.center:
+        return 'center';
+      case DocxAlign.right:
+        return 'right';
+      case DocxAlign.justify:
+        return 'both';
+    }
+  }
+}
+
 // ============================================================
 // COLOR (Flexible Class)
 // ============================================================
