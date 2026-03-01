@@ -41,9 +41,13 @@ class DocxParagraph extends DocxBlock {
   /// Child elements (typically [DocxText] runs).
   final List<DocxInline> children;
 
-  /// Text alignment.
+  /// Alignment for the paragraph (left, center, right, justify)
   final DocxAlign align;
 
+  /// Vertical text alignment within the paragraph line (e.g. relative to an inline image).
+  final DocxTextAlignment? textAlignment;
+
+  /// Optional style ID to apply to this paragraph.
   /// Style ID (e.g., 'Normal', 'Heading1').
   final String? styleId;
 
@@ -115,6 +119,7 @@ class DocxParagraph extends DocxBlock {
   const DocxParagraph({
     this.children = const [],
     this.align = DocxAlign.left,
+    this.textAlignment,
     this.styleId,
     this.spacingAfter,
     this.spacingBefore,
@@ -269,6 +274,7 @@ class DocxParagraph extends DocxBlock {
   DocxParagraph copyWith({
     List<DocxInline>? children,
     DocxAlign? align,
+    DocxTextAlignment? textAlignment,
     String? styleId,
     int? spacingAfter,
     int? spacingBefore,
@@ -297,6 +303,7 @@ class DocxParagraph extends DocxBlock {
     return DocxParagraph(
       children: children ?? this.children,
       align: align ?? this.align,
+      textAlignment: textAlignment ?? this.textAlignment,
       styleId: styleId ?? this.styleId,
       spacingAfter: spacingAfter ?? this.spacingAfter,
       spacingBefore: spacingBefore ?? this.spacingBefore,
@@ -474,6 +481,13 @@ class DocxParagraph extends DocxBlock {
                 });
               }
 
+              // 8.5 textAlignment
+              if (textAlignment != null) {
+                builder.element('w:textAlignment', nest: () {
+                  builder.attribute('w:val', textAlignment!.xmlValue);
+                });
+              }
+
               // 9. outlineLvl
               if (outlineLevel != null) {
                 builder.element('w:outlineLvl', nest: () {
@@ -502,6 +516,7 @@ class DocxParagraph extends DocxBlock {
   bool get _hasProperties =>
       styleId != null ||
       align != DocxAlign.left ||
+      textAlignment != null ||
       spacingAfter != null ||
       spacingBefore != null ||
       lineSpacing != null ||
