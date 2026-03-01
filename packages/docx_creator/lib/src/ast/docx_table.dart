@@ -648,6 +648,7 @@ class DocxTableRow extends DocxNode {
                   'w:trHeight',
                   nest: () {
                     builder.attribute('w:val', height.toString());
+                    builder.attribute('w:hRule', 'exact');
                   },
                 );
               }

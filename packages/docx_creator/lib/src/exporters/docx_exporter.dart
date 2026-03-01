@@ -479,7 +479,7 @@ class DocxExporter {
           builder.element(
             'w:headerReference',
             nest: () {
-              builder.attribute('w:type', 'first');
+              builder.attribute('w:type', 'default');
               builder.attribute('r:id', 'rId5');
             },
           );

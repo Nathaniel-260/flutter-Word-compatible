@@ -1,3 +1,12 @@
+## 1.1.8
+
+### Fixed
+- **Paragraph Vertical Alignment**: Added `DocxTextAlignment` enum and `textAlignment` property to `DocxParagraph` to support vertical text alignment (Issue #72).
+- **Header Visibility**: Fixed issue where custom headers were only visible on the first page by defaulting `headerReference` to `w:type="default"` (Issue #73).
+- **Table Row Height Enforcement**: Ensured strict matching of custom table row heights by adding `w:hRule="exact"` to the generated `w:trHeight` tag (Issue #74).
+
+---
+
 ## 1.1.7
 
 ### Fixed

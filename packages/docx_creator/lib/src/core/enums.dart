@@ -24,6 +24,17 @@ extension DocxAlignExtension on DocxAlign {
 }
 
 // ============================================================
+// VERTICAL TEXT ALIGNMENT
+// ============================================================
+
+/// Vertical text alignment within a line (e.g., relative to an image).
+enum DocxTextAlignment { auto, baseline, bottom, center, top }
+
+extension DocxTextAlignmentExtension on DocxTextAlignment {
+  String get xmlValue => name;
+}
+
+// ============================================================
 // COLOR (Flexible Class)
 // ============================================================
 
