@@ -120,12 +120,11 @@ await DocxExporter().exportToFile(doc, 'from_markdown.docx');
 7. [HTML Parser](#html-parser)
 8. [Markdown Parser](#markdown-parser)
 9. [DOCX Reader &amp; Editor](#docx-reader--editor)
-10. [DOCX Reader &amp; Editor](#docx-reader--editor)
-11. [PDF Reader](#pdf-reader)
-12. [PDF Export](#pdf-export)
-13. [Sections &amp; Page Layout](#sections--page-layout)
-14. [Font Embedding](#font-embedding)
-15. [API Reference](#api-reference)
+10. [PDF Reader](#pdf-reader)
+11. [PDF Export](#pdf-export)
+12. [Sections &amp; Page Layout](#sections--page-layout)
+13. [Font Embedding](#font-embedding)
+14. [API Reference](#api-reference)
 
 ---
 
@@ -853,9 +852,6 @@ final doc = DocxDocumentBuilder()
     DocxText('Custom font text', fontFamily: 'Roboto'),
   ]))
   .build();
-```
-
-  .build();
 
 ```
 
@@ -956,4 +952,3 @@ MIT License - see [LICENSE](LICENSE) for details.
 ## Contributing
 
 Contributions welcome! Please read our contributing guidelines and submit PRs to the main repository.
-```

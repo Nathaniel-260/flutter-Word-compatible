@@ -411,11 +411,11 @@ class DocxInlineImage extends DocxInline {
                         });
 
                         // Dash style
-                        String prstDash = 'solid';
-                        if (border!.style == DocxBorder.dashed)
-                          prstDash = 'dash';
-                        if (border!.style == DocxBorder.dotted)
-                          prstDash = 'dot';
+                        final prstDash = {
+                              DocxBorder.dashed: 'dash',
+                              DocxBorder.dotted: 'dot',
+                            }[border!.style] ??
+                            'solid';
 
                         builder.element('a:prstDash', nest: () {
                           builder.attribute('val', prstDash);
