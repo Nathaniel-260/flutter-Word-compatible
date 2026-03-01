@@ -470,7 +470,7 @@ class DocxParagraph extends DocxBlock {
               // 8. jc (Alignment)
               if (align != DocxAlign.left) {
                 builder.element('w:jc', nest: () {
-                  builder.attribute('w:val', align.name);
+                  builder.attribute('w:val', align.xmlValue);
                 });
               }
 

@@ -8,26 +8,31 @@ A **developer-first DOCX generation library** for Dart. Create, parse, read, and
 
 ## ✨ Features
 
-| Feature                        | Description                                         |
-| ------------------------------ | --------------------------------------------------- |
-| 🔧**Fluent Builder API** | Chain methods to create documents quickly           |
-| 🌐**HTML Parser**        | Convert HTML to DOCX with 141 CSS named colors      |
-| 📝**Markdown Parser**    | Parse Markdown including tables and nested lists    |
-| 📖**DOCX Reader**        | Load and edit existing .docx files                  |
-| 📕**PDF Reader**         | Parse PDF files to DOCX structure                   |
-| 📄**PDF Export**         | Export documents directly to PDF (pure Dart)        |
-| 🎨**Drawing Shapes**     | 70+ preset shapes (rectangles, arrows, stars, etc.) |
-| 🖼️**Images**           | Embed local, remote, or base64 images (Inline & Floating) |
-| 📊**Tables**             | Styled tables, merged cells, borders, & conditional styles  |
-| 📋**Lists**              | Bullet, numbered, and nested lists (9 levels)       |
-| 🔤**Fonts**              | Embed custom fonts with OOXML obfuscation           |
-| 📄**Sections**           | Headers, footers, page orientation, backgrounds     |
-| 📌**Footnotes**          | Full support for footnotes and endnotes             |
-| 🧢**Drop Caps**          | Stylized drop caps for paragraph beginnings         |
-| 🎨**Theme Support**      | Theme colors, tints, shades, and font themes        |
-| 🧬**Advanced Styling**   | Proper inheritance from docDefaults and style hierarchy |
+| Feature                        | Description                                                |
+| ------------------------------ | ---------------------------------------------------------- |
+| 🔧**Fluent Builder API** | Chain methods to create documents quickly                  |
+| 🌐**HTML Parser**        | Convert HTML to DOCX with 141 CSS named colors             |
+| 📝**Markdown Parser**    | Parse Markdown including tables and nested lists           |
+| 📖**DOCX Reader**        | Load and edit existing .docx files                         |
+| 📕**PDF Reader**         | Parse PDF files to DOCX structure                          |
+| 📄**PDF Export**         | Export documents directly to PDF (pure Dart)               |
+| 🎨**Drawing Shapes**     | 70+ preset shapes (rectangles, arrows, stars, etc.)        |
+| 🖼️**Images**           | Embed local, remote, or base64 images (Inline & Floating)  |
+| 📊**Tables**             | Styled tables, merged cells, borders, & conditional styles |
+| 📋**Lists**              | Bullet, numbered, and nested lists (9 levels)              |
+| 🔤**Fonts**              | Embed custom fonts with OOXML obfuscation                  |
+| 📄**Sections**           | Headers, footers, page orientation, backgrounds            |
+| 📌**Footnotes**          | Full support for footnotes and endnotes                    |
+| 🧢**Drop Caps**          | Stylized drop caps for paragraph beginnings                |
+| 🎨**Theme Support**      | Theme colors, tints, shades, and font themes               |
+| 🧬**Advanced Styling**   | Proper inheritance from docDefaults and style hierarchy    |
 
 ---
+## Help Maintenance
+
+I've been maintaining quite many repos these days and burning out slowly. If you could help me cheer up, buying me a cup of coffee will make my life really happy and get much energy out of it.
+
+<a href="https://www.buymeacoffee.com/alihassan13" target="_blank"><img src="https://www.buymeacoffee.com/assets/img/custom_images/purple_img.png" alt="Buy Me A Coffee" style="height: auto !important;width: auto !important;" ></a>
 
 ## 📦 Installation
 
@@ -115,7 +120,6 @@ await DocxExporter().exportToFile(doc, 'from_markdown.docx');
 7. [HTML Parser](#html-parser)
 8. [Markdown Parser](#markdown-parser)
 9. [DOCX Reader &amp; Editor](#docx-reader--editor)
-9. [DOCX Reader &amp; Editor](#docx-reader--editor)
 10. [PDF Reader](#pdf-reader)
 11. [PDF Export](#pdf-export)
 12. [Sections &amp; Page Layout](#sections--page-layout)
@@ -163,22 +167,22 @@ await PdfExporter().exportToFile(mdDoc, 'from_markdown.pdf');
 
 ### Supported Features
 
-| Feature | Support |
-|---------|---------|
-| Headings (H1-H6) | ✅ |
-| Bold/Italic | ✅ |
-| Underline/Strikethrough | ✅ |
-| Custom Font Sizes | ✅ |
-| Superscript/Subscript | ✅ |
-| Text Colors | ✅ |
-| Background Colors | ✅ |
-| Text Alignment | ✅ |
-| Bullet Lists | ✅ |
-| Numbered Lists | ✅ |
-| Tables | ✅ |
-| Images (PNG) | ✅ |
-| Page Sizes (A4, Letter) | ✅ |
-| Multi-page | ✅ |
+| Feature                 | Support |
+| ----------------------- | ------- |
+| Headings (H1-H6)        | ✅      |
+| Bold/Italic             | ✅      |
+| Underline/Strikethrough | ✅      |
+| Custom Font Sizes       | ✅      |
+| Superscript/Subscript   | ✅      |
+| Text Colors             | ✅      |
+| Background Colors       | ✅      |
+| Text Alignment          | ✅      |
+| Bullet Lists            | ✅      |
+| Numbered Lists          | ✅      |
+| Tables                  | ✅      |
+| Images (PNG)            | ✅      |
+| Page Sizes (A4, Letter) | ✅      |
+| Multi-page              | ✅      |
 
 ---
 
@@ -744,22 +748,22 @@ for (final element in pdf.elements) {
 
 ### Supported Features
 
-| Feature | Status |
-|---------|--------|
-| Text extraction | ✅ |
-| Text formatting (bold, italic) | ✅ |
-| Font detection | ✅ |
-| Font sizes and colors | ✅ |
-| Paragraph grouping | ✅ |
-| Images (JPEG, PNG, FlateDecode) | ✅ |
-| Table detection | ✅ (beta) |
-| Multi-page documents | ✅ |
-| PDF 1.4 standard format | ✅ |
-| PDF 1.5+ XRef streams | ✅ |
-| Object streams | ✅ |
-| FlateDecode compression | ✅ |
-| LZWDecode compression | ✅ |
-| ASCII85/ASCIIHex encoding | ✅ |
+| Feature                         | Status    |
+| ------------------------------- | --------- |
+| Text extraction                 | ✅        |
+| Text formatting (bold, italic)  | ✅        |
+| Font detection                  | ✅        |
+| Font sizes and colors           | ✅        |
+| Paragraph grouping              | ✅        |
+| Images (JPEG, PNG, FlateDecode) | ✅        |
+| Table detection                 | ✅ (beta) |
+| Multi-page documents            | ✅        |
+| PDF 1.4 standard format         | ✅        |
+| PDF 1.5+ XRef streams           | ✅        |
+| Object streams                  | ✅        |
+| FlateDecode compression         | ✅        |
+| LZWDecode compression           | ✅        |
+| ASCII85/ASCIIHex encoding       | ✅        |
 
 ### Limitations
 
@@ -848,9 +852,7 @@ final doc = DocxDocumentBuilder()
     DocxText('Custom font text', fontFamily: 'Roboto'),
   ]))
   .build();
-```
 
-  .build();
 ```
 
 > **Note:** Fonts are automatically obfuscated per the OpenXML specification.

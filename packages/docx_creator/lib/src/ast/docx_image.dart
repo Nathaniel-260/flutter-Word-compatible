@@ -88,6 +88,9 @@ class DocxInlineImage extends DocxInline {
   /// Stores unknown anchor attributes for round-trip preservation.
   final XmlExtensionMap? anchorExtensions;
 
+  /// Optional border/outline for the image.
+  final DocxBorderSide? border;
+
   // Internal: Set by the exporter when processing
   String? _relationshipId;
   int? _uniqueId;
@@ -121,6 +124,7 @@ class DocxInlineImage extends DocxInline {
     this.effectExtentR = 0,
     this.effectExtentB = 0,
     this.anchorExtensions,
+    this.border,
     super.id,
   });
 
@@ -384,6 +388,43 @@ class DocxInlineImage extends DocxInline {
                         );
                       },
                     );
+
+                    // Image Border (Outline)
+                    if (border != null && border!.style != DocxBorder.none) {
+                      builder.element('a:ln', nest: () {
+                        // Width in EMUs (1 pt = 12700 EMU). sz is in eighths of a pt.
+                        // EMU = (sz / 8) * 12700
+                        final int emuWidth = (border!.size * 12700 / 8).toInt();
+                        builder.attribute('w', emuWidth.toString());
+
+                        // Fill
+                        builder.element('a:solidFill', nest: () {
+                          if (border!.color != DocxColor.auto) {
+                            builder.element('a:srgbClr', nest: () {
+                              builder.attribute('val', border!.color.hex);
+                            });
+                          } else {
+                            builder.element('a:schemeClr', nest: () {
+                              builder.attribute('val', 'tx1');
+                            });
+                          }
+                        });
+
+                        // Dash style
+                        if (border != null) {
+                          final prstDash = switch (border!.style) {
+                            DocxBorder.dashed => 'dash',
+                            DocxBorder.dotted => 'dot',
+                            _ => 'solid',
+                          };
+
+                          builder.element('a:prstDash', nest: () {
+                            builder.attribute('val', prstDash);
+                          });
+                        }
+                      });
+                    }
+
                     builder.element(
                       'a:prstGeom',
                       nest: () {
@@ -419,6 +460,7 @@ class DocxImage extends DocxBlock {
     double height = 150,
     String? altText,
     this.align = DocxAlign.center,
+    DocxBorderSide? border,
     super.id,
   }) : _inlineImage = DocxInlineImage(
           bytes: bytes,
@@ -426,6 +468,7 @@ class DocxImage extends DocxBlock {
           width: width,
           height: height,
           altText: altText,
+          border: border,
         );
 
   // Expose properties from inner image for backward compatibility
@@ -460,7 +503,7 @@ class DocxImage extends DocxBlock {
             builder.element(
               'w:jc',
               nest: () {
-                builder.attribute('w:val', align.name);
+                builder.attribute('w:val', align.xmlValue);
               },
             );
           },
