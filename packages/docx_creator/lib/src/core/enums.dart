@@ -31,20 +31,7 @@ extension DocxAlignExtension on DocxAlign {
 enum DocxTextAlignment { auto, baseline, bottom, center, top }
 
 extension DocxTextAlignmentExtension on DocxTextAlignment {
-  String get xmlValue {
-    switch (this) {
-      case DocxTextAlignment.auto:
-        return 'auto';
-      case DocxTextAlignment.baseline:
-        return 'baseline';
-      case DocxTextAlignment.bottom:
-        return 'bottom';
-      case DocxTextAlignment.center:
-        return 'center';
-      case DocxTextAlignment.top:
-        return 'top';
-    }
-  }
+  String get xmlValue => name;
 }
 
 // ============================================================

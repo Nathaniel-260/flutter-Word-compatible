@@ -47,7 +47,6 @@ class DocxParagraph extends DocxBlock {
   /// Vertical text alignment within the paragraph line (e.g. relative to an inline image).
   final DocxTextAlignment? textAlignment;
 
-  /// Optional style ID to apply to this paragraph.
   /// Style ID (e.g., 'Normal', 'Heading1').
   final String? styleId;
 
