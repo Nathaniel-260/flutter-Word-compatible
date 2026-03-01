@@ -411,15 +411,17 @@ class DocxInlineImage extends DocxInline {
                         });
 
                         // Dash style
-                        final prstDash = {
-                              DocxBorder.dashed: 'dash',
-                              DocxBorder.dotted: 'dot',
-                            }[border!.style] ??
-                            'solid';
+                        if (border != null) {
+                          final prstDash = switch (border!.style) {
+                            DocxBorder.dashed => 'dash',
+                            DocxBorder.dotted => 'dot',
+                            _ => 'solid',
+                          };
 
-                        builder.element('a:prstDash', nest: () {
-                          builder.attribute('val', prstDash);
-                        });
+                          builder.element('a:prstDash', nest: () {
+                            builder.attribute('val', prstDash);
+                          });
+                        }
                       });
                     }
 
