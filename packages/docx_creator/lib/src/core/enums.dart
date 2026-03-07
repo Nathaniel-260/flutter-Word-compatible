@@ -12,11 +12,11 @@ extension DocxAlignExtension on DocxAlign {
   String get xmlValue {
     switch (this) {
       case DocxAlign.left:
-        return 'left';
+        return 'start';
       case DocxAlign.center:
         return 'center';
       case DocxAlign.right:
-        return 'right';
+        return 'end';
       case DocxAlign.justify:
         return 'both';
     }

@@ -389,6 +389,14 @@ class DocxInlineImage extends DocxInline {
                       },
                     );
 
+                    builder.element(
+                      'a:prstGeom',
+                      nest: () {
+                        builder.attribute('prst', 'rect');
+                        builder.element('a:avLst');
+                      },
+                    );
+
                     // Image Border (Outline)
                     if (border != null && border!.style != DocxBorder.none) {
                       builder.element('a:ln', nest: () {
@@ -424,14 +432,6 @@ class DocxInlineImage extends DocxInline {
                         }
                       });
                     }
-
-                    builder.element(
-                      'a:prstGeom',
-                      nest: () {
-                        builder.attribute('prst', 'rect');
-                        builder.element('a:avLst');
-                      },
-                    );
                   },
                 );
               },

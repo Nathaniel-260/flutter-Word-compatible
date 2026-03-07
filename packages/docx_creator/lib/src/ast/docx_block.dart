@@ -474,11 +474,9 @@ class DocxParagraph extends DocxBlock {
               }
 
               // 8. jc (Alignment)
-              if (align != DocxAlign.left) {
-                builder.element('w:jc', nest: () {
-                  builder.attribute('w:val', align.xmlValue);
-                });
-              }
+              builder.element('w:jc', nest: () {
+                builder.attribute('w:val', align.xmlValue);
+              });
 
               // 8.5 textAlignment
               if (textAlignment != null) {
@@ -512,31 +510,7 @@ class DocxParagraph extends DocxBlock {
     );
   }
 
-  bool get _hasProperties =>
-      styleId != null ||
-      align != DocxAlign.left ||
-      textAlignment != null ||
-      spacingAfter != null ||
-      spacingBefore != null ||
-      lineSpacing != null ||
-      lineRule != null ||
-      indentLeft != null ||
-      indentRight != null ||
-      indentFirstLine != null ||
-      borderTop != null ||
-      borderBottomSide != null ||
-      borderLeft != null ||
-      borderRight != null ||
-      borderBetween != null ||
-      paddingTop != null ||
-      paddingBottom != null ||
-      paddingLeft != null ||
-      paddingRight != null ||
-      shadingFill != null ||
-      outlineLevel != null ||
-      pageBreakBefore ||
-      numId != null ||
-      cnfStyle != null;
+  bool get _hasProperties => true;
 
   void _buildBorder(XmlBuilder builder, String tag, DocxBorderSide side,
       {int? spaceOverride}) {
