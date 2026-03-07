@@ -1,3 +1,15 @@
+## 1.1.9
+
+### Fixed
+- **Image Borders**: Corrected XML element order (`a:prstGeom` before `a:ln`) in `DocxInlineImage` to ensure borders are properly rendered in Microsoft Word.
+- **Paragraph Alignment**: Fixed issue where left-aligned paragraphs in table cells incorrectly inherited table styles by always emitting explicit justification tags (`w:jc`).
+- **Paragraph Padding**: Fixed unwanted horizontal lines appearing when using `paddingTop` or `paddingBottom` by defaulting to invisible `nil` borders (Issue #70).
+
+### Improved
+- **Alignment Mapping**: Updated `DocxAlign` to use modern `start` and `end` values for better compatibility and RTL support.
+
+---
+
 ## 1.1.8
 
 ### Fixed
