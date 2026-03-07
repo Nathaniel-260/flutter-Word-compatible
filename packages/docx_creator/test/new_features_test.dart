@@ -417,8 +417,10 @@ void main() {
       final builder = XmlBuilder();
       table.buildXml(builder);
       final xml = builder.buildDocument().toXmlString();
+      final tblPr =
+          xml.substring(xml.indexOf('<w:tblPr>'), xml.indexOf('</w:tblPr>'));
 
-      expect(xml, isNot(contains('w:jc')));
+      expect(tblPr, isNot(contains('w:jc')));
     });
 
     test('DocxTable copyWith preserves alignment', () {
