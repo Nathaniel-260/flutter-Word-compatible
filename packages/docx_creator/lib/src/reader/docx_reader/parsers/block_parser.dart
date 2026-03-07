@@ -4,10 +4,16 @@ import '../../../../docx_creator.dart';
 
 /// Parses block-level content (paragraphs, lists, tables).
 class BlockParser {
+  /// The context for the current reader session.
   final ReaderContext context;
+
+  /// The parser used for inline elements (text, images, etc.).
   final InlineParser inlineParser;
+
+  /// The parser used for table elements.
   final TableParser tableParser;
 
+  /// Creates a [BlockParser] with the specified [context].
   BlockParser(this.context)
       : inlineParser = InlineParser(context),
         tableParser = TableParser(context, InlineParser(context));

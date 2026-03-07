@@ -63,7 +63,10 @@ class NumberingParser {
           levels: _abstractNums[abstractNumId] ?? [],
         );
       }
-    } catch (e) {}
+    } catch (e) {
+      // Graceful degradation: Numbering parsing errors should not break the
+      // entire document parsing process.
+    }
   }
 
   /// Parse picture bullet definitions from w:numPicBullet elements.

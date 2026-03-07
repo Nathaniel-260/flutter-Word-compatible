@@ -56,6 +56,7 @@ class ContentTypesGenerator {
   final Map<String, String> _extensions = {};
   final Map<String, String> _overrides = {};
 
+  /// Initializes a [ContentTypesGenerator] with standard extensions and overrides.
   ContentTypesGenerator() {
     _extensions.addAll(defaultExtensions);
     _overrides.addAll(standardOverrides);

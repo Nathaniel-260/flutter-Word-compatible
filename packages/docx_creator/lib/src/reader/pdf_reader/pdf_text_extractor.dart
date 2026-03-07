@@ -727,7 +727,10 @@ class PdfTextExtractor {
             try {
               final textLines = _processTextArray(arrayToken, state);
               lines.addAll(textLines);
-            } catch (e) {}
+            } catch (e) {
+              // Ignore parsing errors for individual text arrays to allow
+              // partial extraction from malformed PDF streams.
+            }
             currentOperands = [arrayToken];
           }
           break;

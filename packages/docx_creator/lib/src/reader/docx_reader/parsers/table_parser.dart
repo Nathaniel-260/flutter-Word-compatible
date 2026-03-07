@@ -3,9 +3,13 @@ import 'package:xml/xml.dart';
 
 /// Parses table elements (w:tbl).
 class TableParser {
+  /// The context for the current reader session.
   final ReaderContext context;
+
+  /// The parser used for inline elements within table cells.
   final InlineParser inlineParser;
 
+  /// Creates a [TableParser] with the specified [context] and [inlineParser].
   TableParser(this.context, this.inlineParser);
 
   /// Parse a table element into DocxTable.

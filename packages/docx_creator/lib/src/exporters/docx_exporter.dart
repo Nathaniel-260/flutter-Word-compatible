@@ -10,18 +10,23 @@ import '../utils/file_saver.dart';
 
 /// Exports [DocxBuiltDocument] to .docx format.
 class DocxExporter {
+  /// Map of image paths to bytes for inclusion in the DOCX archive.
   final Map<String, Uint8List> _images = {};
+
   int _imageCounter = 0;
   int _uniqueIdCounter = 1;
   int _numIdCounter = 1;
-  // final List<bool> _listTypes = []; // Removed in favor of _listAbstractNumMap
+
   final List<Uint8List> _imageBullets = [];
   final Map<int, int> _listAbstractNumMap = {}; // numId -> abstractNumId
   final Map<int, int> _abstractNumImageBulletMap =
       {}; // abstractNumId -> imageBulletIndex
   final Map<int, int> _preservedNumIds = {}; // sourceNumId -> exportedNumId
   final Map<int, int> _listStartOverrides = {}; // exportedNumId -> startIndex
+
   DocxBackgroundImage? _backgroundImage;
+
+  /// The font manager used to handle embedded fonts during export.
   final FontManager fontManager = FontManager();
 
   /// ID generator for unique element IDs (available for advanced usage).

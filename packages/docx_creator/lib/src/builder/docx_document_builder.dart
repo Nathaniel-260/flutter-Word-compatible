@@ -243,26 +243,61 @@ class DocxDocumentBuilder {
 
 /// A built document ready for export.
 class DocxBuiltDocument {
+  /// The list of block-level elements in the document.
   final List<DocxNode> elements;
+
+  /// The default section properties for the document.
   final DocxSectionDef? section;
+
+  /// The list of embedded fonts in the document.
   final List<EmbeddedFont> fonts;
+
+  /// The list of footnotes in the document.
   final List<DocxFootnote>? footnotes;
+
+  /// The list of endnotes in the document.
   final List<DocxEndnote>? endnotes;
 
-  // Raw XML content preserved from original document (for round-tripping)
+  /// The style definitions XML content.
   final String? stylesXml;
+
+  /// The numbering definitions XML content.
   final String? numberingXml;
+
+  /// The settings XML content.
   final String? settingsXml;
+
+  /// The font table XML content.
   final String? fontTableXml;
+
+  /// The font table relationships XML content.
   final String? fontTableRelsXml;
+
+  /// The theme XML content.
   final String? themeXml;
+
+  /// The content types XML content.
   final String? contentTypesXml;
+
+  /// The root relationships XML content.
   final String? rootRelsXml;
+
+  /// The header background XML content.
   final String? headerBgXml;
+
+  /// The header background relationships XML content.
   final String? headerBgRelsXml;
+
+  /// The footnotes XML content.
   final String? footnotesXml;
+
+  /// The endnotes XML content.
   final String? endnotesXml;
+
+  /// The numbering relationships XML content.
   final String? numberingRelsXml;
+
+  /// Images used in numbering (e.g., picture bullets).
   final Map<String, Uint8List> numberingImages;
 
   /// Parsed theme information (styles, colors, fonts).

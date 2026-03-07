@@ -4,8 +4,10 @@ import '../../../../docx_creator.dart';
 
 /// Parses inline content (runs, text, hyperlinks).
 class InlineParser {
+  /// The context for the current reader session.
   final ReaderContext context;
 
+  /// Creates an [InlineParser] with the specified [context].
   InlineParser(this.context);
 
   /// Parse inline children from a container element.
