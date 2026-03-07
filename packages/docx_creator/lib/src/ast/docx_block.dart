@@ -405,8 +405,8 @@ class DocxParagraph extends DocxBlock {
                         final space = (padding / 20).round();
                         final color = shadingFill ?? 'auto';
                         builder.element(tag, nest: () {
-                          builder.attribute('w:val', 'single');
-                          builder.attribute('w:sz', '4');
+                          builder.attribute('w:val', 'nil');
+                          builder.attribute('w:sz', '0');
                           builder.attribute('w:space', space.toString());
                           builder.attribute('w:color', color);
                         });
