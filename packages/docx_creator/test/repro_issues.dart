@@ -34,5 +34,22 @@ void main() {
       expect(text.isUnderline, true, reason: 'Should be underlined');
       expect(text.isStrike, true, reason: 'Should have strikethrough');
     });
+
+    test(
+        'Reproduction of Issues: Hyperlink with existing decoration (strikethrough)',
+        () async {
+      // Added async here as DocxParser.fromHtml is async
+      const html = '<s><a href="https://example.com">link</a></s>';
+      final elements =
+          await DocxParser.fromHtml(html); // Changed to fromHtml and await
+      final paragraph =
+          elements.first as DocxParagraph; // Changed doc.elements to elements
+      final text = paragraph.children.first as DocxText;
+
+      expect(text.content, contains('link'));
+      expect(text.href, equals('https://example.com'));
+      expect(text.decorations, contains(DocxTextDecoration.strikethrough));
+      expect(text.decorations, contains(DocxTextDecoration.underline));
+    });
   });
 }

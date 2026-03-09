@@ -161,9 +161,13 @@ class InlineParser {
     for (var grandChild in hyperlink.findAllElements('w:r')) {
       final run = parseRun(grandChild, parentStyle: parentStyle);
       if (run is DocxText && href != null) {
+        final newDecorations = List<DocxTextDecoration>.from(run.decorations);
+        if (!newDecorations.contains(DocxTextDecoration.underline)) {
+          newDecorations.add(DocxTextDecoration.underline);
+        }
         results.add(run.copyWith(
           href: href,
-          decorations: [DocxTextDecoration.underline],
+          decorations: newDecorations,
           color: DocxColor.blue,
         ));
       } else {

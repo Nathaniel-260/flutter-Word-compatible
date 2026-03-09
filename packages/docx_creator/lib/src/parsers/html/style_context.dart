@@ -131,6 +131,14 @@ class HtmlStyleContext {
         case 'mark':
           ctx = ctx.copyWith(highlight: DocxHighlight.yellow);
           break;
+        case 'a':
+          if (!ctx.decorations.contains(DocxTextDecoration.underline)) {
+            ctx = ctx.copyWith(decorations: [
+              ...ctx.decorations,
+              DocxTextDecoration.underline
+            ]);
+          }
+          break;
       }
     }
 
