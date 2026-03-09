@@ -117,7 +117,7 @@ class InlineParser {
         textElem.innerText,
         fontWeight: finalProps.fontWeight ?? DocxFontWeight.normal,
         fontStyle: finalProps.fontStyle ?? DocxFontStyle.normal,
-        decoration: finalProps.decoration ?? DocxTextDecoration.none,
+        decorations: finalProps.decorations,
         color: effectiveColor,
         shadingFill: parsedProps.shadingFill, // Only direct shading
         fontSize: directFontSize ??
@@ -163,7 +163,7 @@ class InlineParser {
       if (run is DocxText && href != null) {
         results.add(run.copyWith(
           href: href,
-          decoration: DocxTextDecoration.underline,
+          decorations: [DocxTextDecoration.underline],
           color: DocxColor.blue,
         ));
       } else {

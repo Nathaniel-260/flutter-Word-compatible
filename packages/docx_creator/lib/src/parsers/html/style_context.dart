@@ -8,7 +8,7 @@ class HtmlStyleContext {
   final double? fontSize;
   final DocxFontWeight fontWeight;
   final DocxFontStyle fontStyle;
-  final DocxTextDecoration decoration;
+  final List<DocxTextDecoration> decorations;
   final DocxHighlight highlight;
   final String? shadingFill;
   final String? href;
@@ -28,7 +28,7 @@ class HtmlStyleContext {
     this.fontSize,
     this.fontWeight = DocxFontWeight.normal,
     this.fontStyle = DocxFontStyle.normal,
-    this.decoration = DocxTextDecoration.none,
+    this.decorations = const [],
     this.highlight = DocxHighlight.none,
     this.shadingFill,
     this.href,
@@ -49,7 +49,7 @@ class HtmlStyleContext {
     double? fontSize,
     DocxFontWeight? fontWeight,
     DocxFontStyle? fontStyle,
-    DocxTextDecoration? decoration,
+    List<DocxTextDecoration>? decorations,
     DocxHighlight? highlight,
     String? shadingFill,
     String? href,
@@ -69,7 +69,7 @@ class HtmlStyleContext {
       fontSize: fontSize ?? this.fontSize,
       fontWeight: fontWeight ?? this.fontWeight,
       fontStyle: fontStyle ?? this.fontStyle,
-      decoration: decoration ?? this.decoration,
+      decorations: decorations ?? this.decorations,
       highlight: highlight ?? this.highlight,
       shadingFill: shadingFill ?? this.shadingFill,
       href: href ?? this.href,
@@ -105,12 +105,22 @@ class HtmlStyleContext {
           ctx = ctx.copyWith(fontStyle: DocxFontStyle.italic);
           break;
         case 'u':
-          ctx = ctx.copyWith(decoration: DocxTextDecoration.underline);
+          if (!ctx.decorations.contains(DocxTextDecoration.underline)) {
+            ctx = ctx.copyWith(decorations: [
+              ...ctx.decorations,
+              DocxTextDecoration.underline
+            ]);
+          }
           break;
         case 's':
         case 'del':
         case 'strike':
-          ctx = ctx.copyWith(decoration: DocxTextDecoration.strikethrough);
+          if (!ctx.decorations.contains(DocxTextDecoration.strikethrough)) {
+            ctx = ctx.copyWith(decorations: [
+              ...ctx.decorations,
+              DocxTextDecoration.strikethrough
+            ]);
+          }
           break;
         case 'sup':
           ctx = ctx.copyWith(isSuperscript: true);
@@ -136,11 +146,19 @@ class HtmlStyleContext {
       }
 
       if (style.contains('text-decoration') && style.contains('underline')) {
-        ctx = ctx.copyWith(decoration: DocxTextDecoration.underline);
+        if (!ctx.decorations.contains(DocxTextDecoration.underline)) {
+          ctx = ctx.copyWith(
+              decorations: [...ctx.decorations, DocxTextDecoration.underline]);
+        }
       }
 
       if (style.contains('text-decoration') && style.contains('line-through')) {
-        ctx = ctx.copyWith(decoration: DocxTextDecoration.strikethrough);
+        if (!ctx.decorations.contains(DocxTextDecoration.strikethrough)) {
+          ctx = ctx.copyWith(decorations: [
+            ...ctx.decorations,
+            DocxTextDecoration.strikethrough
+          ]);
+        }
       }
 
       final sizeMatch = RegExp(r"font-size:\s*(\d+)").firstMatch(style);
@@ -186,7 +204,7 @@ class HtmlStyleContext {
       fontSize: fontSize,
       fontWeight: fontWeight,
       fontStyle: fontStyle,
-      decoration: decoration,
+      decorations: decorations,
       highlight: highlight,
       shadingFill: null, // Explicitly cleared
       href: href,

@@ -608,9 +608,13 @@ class PdfReader {
       }
 
       final colorHex = _rgbToHex(line.colorR, line.colorG, line.colorB);
-      DocxTextDecoration decoration = DocxTextDecoration.none;
-      if (line.isUnderline) decoration = DocxTextDecoration.underline;
-      if (line.isStrikethrough) decoration = DocxTextDecoration.strikethrough;
+      final List<DocxTextDecoration> decorations = [];
+      if (line.isUnderline) {
+        decorations.add(DocxTextDecoration.underline);
+      }
+      if (line.isStrikethrough) {
+        decorations.add(DocxTextDecoration.strikethrough);
+      }
 
       children.add(DocxText(
         line.text,
@@ -618,7 +622,7 @@ class PdfReader {
         fontWeight: line.isBold ? DocxFontWeight.bold : DocxFontWeight.normal,
         fontStyle: line.isItalic ? DocxFontStyle.italic : DocxFontStyle.normal,
         color: colorHex != '000000' ? DocxColor(colorHex) : null,
-        decoration: decoration,
+        decorations: decorations,
         isSuperscript: line.textRise > 0,
         isSubscript: line.textRise < 0,
       ));

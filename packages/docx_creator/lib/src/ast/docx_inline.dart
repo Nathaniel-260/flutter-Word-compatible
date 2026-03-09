@@ -22,7 +22,7 @@ class DocxText extends DocxInline {
   final String content;
   final DocxFontWeight fontWeight;
   final DocxFontStyle fontStyle;
-  final DocxTextDecoration decoration;
+  final List<DocxTextDecoration> decorations;
   final DocxColor? color;
   final DocxHighlight highlight;
   final String? shadingFill; // Background color hex
@@ -67,7 +67,7 @@ class DocxText extends DocxInline {
     this.content, {
     this.fontWeight = DocxFontWeight.normal,
     this.fontStyle = DocxFontStyle.normal,
-    this.decoration = DocxTextDecoration.none,
+    this.decorations = const [],
     this.color,
     this.highlight = DocxHighlight.none,
     this.shadingFill,
@@ -114,7 +114,7 @@ class DocxText extends DocxInline {
     super.id,
   })  : fontWeight = DocxFontWeight.bold,
         fontStyle = DocxFontStyle.normal,
-        decoration = DocxTextDecoration.none,
+        decorations = const [],
         characterSpacing = null,
         href = null,
         themeColor = null,
@@ -146,7 +146,7 @@ class DocxText extends DocxInline {
     super.id,
   })  : fontWeight = DocxFontWeight.normal,
         fontStyle = DocxFontStyle.italic,
-        decoration = DocxTextDecoration.none,
+        decorations = const [],
         characterSpacing = null,
         href = null,
         themeColor = null,
@@ -178,7 +178,7 @@ class DocxText extends DocxInline {
     super.id,
   })  : fontWeight = DocxFontWeight.bold,
         fontStyle = DocxFontStyle.italic,
-        decoration = DocxTextDecoration.none,
+        decorations = const [],
         characterSpacing = null,
         href = null,
         themeColor = null,
@@ -210,7 +210,7 @@ class DocxText extends DocxInline {
     super.id,
   })  : fontWeight = DocxFontWeight.normal,
         fontStyle = DocxFontStyle.normal,
-        decoration = DocxTextDecoration.underline,
+        decorations = const [DocxTextDecoration.underline],
         characterSpacing = null,
         href = null,
         themeColor = null,
@@ -242,7 +242,7 @@ class DocxText extends DocxInline {
     super.id,
   })  : fontWeight = DocxFontWeight.normal,
         fontStyle = DocxFontStyle.normal,
-        decoration = DocxTextDecoration.strikethrough,
+        decorations = const [DocxTextDecoration.strikethrough],
         characterSpacing = null,
         href = null,
         themeColor = null,
@@ -273,7 +273,7 @@ class DocxText extends DocxInline {
     super.id,
   })  : fontWeight = DocxFontWeight.normal,
         fontStyle = DocxFontStyle.normal,
-        decoration = DocxTextDecoration.underline,
+        decorations = const [DocxTextDecoration.underline],
         color = DocxColor.blue,
         highlight = DocxHighlight.none,
         characterSpacing = null,
@@ -302,7 +302,7 @@ class DocxText extends DocxInline {
       super.id})
       : fontWeight = DocxFontWeight.normal,
         fontStyle = DocxFontStyle.normal,
-        decoration = DocxTextDecoration.none,
+        decorations = const [],
         highlight = DocxHighlight.none,
         fontFamily = 'Courier New',
         fonts = null,
@@ -337,7 +337,7 @@ class DocxText extends DocxInline {
     super.id,
   })  : fontWeight = DocxFontWeight.normal,
         fontStyle = DocxFontStyle.normal,
-        decoration = DocxTextDecoration.none,
+        decorations = const [],
         characterSpacing = null,
         href = null,
         themeColor = null,
@@ -364,7 +364,7 @@ class DocxText extends DocxInline {
       super.id})
       : fontWeight = DocxFontWeight.normal,
         fontStyle = DocxFontStyle.normal,
-        decoration = DocxTextDecoration.none,
+        decorations = const [],
         color = null,
         highlight = DocxHighlight.none,
         fontFamily = null,
@@ -395,7 +395,7 @@ class DocxText extends DocxInline {
       super.id})
       : fontWeight = DocxFontWeight.normal,
         fontStyle = DocxFontStyle.normal,
-        decoration = DocxTextDecoration.none,
+        decorations = const [],
         color = null,
         highlight = DocxHighlight.none,
         fontFamily = null,
@@ -429,7 +429,7 @@ class DocxText extends DocxInline {
     super.id,
   })  : fontWeight = DocxFontWeight.normal,
         fontStyle = DocxFontStyle.normal,
-        decoration = DocxTextDecoration.none,
+        decorations = const [],
         color = null,
         highlight = DocxHighlight.none,
         characterSpacing = null,
@@ -461,7 +461,7 @@ class DocxText extends DocxInline {
     super.id,
   })  : fontWeight = DocxFontWeight.normal,
         fontStyle = DocxFontStyle.normal,
-        decoration = DocxTextDecoration.none,
+        decorations = const [],
         color = null,
         highlight = DocxHighlight.none,
         characterSpacing = null,
@@ -488,7 +488,7 @@ class DocxText extends DocxInline {
     String? content,
     DocxFontWeight? fontWeight,
     DocxFontStyle? fontStyle,
-    DocxTextDecoration? decoration,
+    List<DocxTextDecoration>? decorations,
     DocxColor? color,
     DocxHighlight? highlight,
     String? shadingFill,
@@ -518,7 +518,7 @@ class DocxText extends DocxInline {
       content ?? this.content,
       fontWeight: fontWeight ?? this.fontWeight,
       fontStyle: fontStyle ?? this.fontStyle,
-      decoration: decoration ?? this.decoration,
+      decorations: decorations ?? this.decorations,
       color: color ?? this.color,
       highlight: highlight ?? this.highlight,
       shadingFill: shadingFill ?? this.shadingFill,
@@ -553,8 +553,10 @@ class DocxText extends DocxInline {
 
   bool get isBold => fontWeight == DocxFontWeight.bold;
   bool get isItalic => fontStyle == DocxFontStyle.italic;
-  bool get isUnderline => decoration == DocxTextDecoration.underline;
-  bool get isStrike => decoration == DocxTextDecoration.strikethrough;
+  bool get isUnderline => decorations.contains(DocxTextDecoration.underline);
+  bool get isStrike => decorations.contains(DocxTextDecoration.strikethrough);
+  DocxTextDecoration get decoration =>
+      decorations.isNotEmpty ? decorations.first : DocxTextDecoration.none;
   bool get isLink => href != null;
 
   String? get effectiveColorHex => color?.hex;
@@ -788,8 +790,7 @@ class DocxText extends DocxInline {
   bool get _hasFormatting =>
       isBold ||
       isItalic ||
-      isUnderline ||
-      isStrike ||
+      decorations.isNotEmpty ||
       isDoubleStrike ||
       isOutline ||
       isShadow ||
@@ -804,7 +805,6 @@ class DocxText extends DocxInline {
       fontFamily != null ||
       fonts != null ||
       highlight != DocxHighlight.none ||
-      characterSpacing != null ||
       characterSpacing != null ||
       textBorder != null ||
       themeFill != null ||

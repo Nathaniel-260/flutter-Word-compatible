@@ -1,3 +1,15 @@
+## 1.2.0
+
+### Added
+- **Multiple Text Decorations**: Added support for combining multiple text decorations (e.g., Bold + Underline + Strikethrough) on a single `DocxText` node.
+- **Improved Decoration API**: Updated `DocxText` to use a `decorations` list, while maintaining backward compatibility with `isUnderline` and `isStrike` getters.
+
+### Fixed
+- **Heading Parsing**: Resolved an issue in `HtmlBlockParser` where nested elements (like `<b>` or `<i>`) inside heading tags (`h1`-`h6`) were being lost during HTML parsing.
+- **Reader Compatibility**: Updated `DocxReader` and `PdfReader` to support multiple decorations.
+
+---
+
 ## 1.1.9
 
 ### Fixed
