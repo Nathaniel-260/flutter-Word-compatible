@@ -369,7 +369,9 @@ class DocxParser {
       text,
       fontWeight: ctx.fontWeight,
       fontStyle: ctx.fontStyle,
-      decoration: ctx.decoration,
+      decorations: [
+        ctx.decoration,
+      ],
       color: ctx.colorHex != null ? DocxColor(ctx.colorHex!) : DocxColor.black,
       fontSize: ctx.fontSize,
       highlight: ctx.highlight,

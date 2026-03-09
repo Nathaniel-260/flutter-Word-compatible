@@ -138,7 +138,7 @@ class HtmlInlineParser {
       text,
       fontWeight: ctx.fontWeight,
       fontStyle: ctx.fontStyle,
-      decoration: ctx.decoration,
+      decorations: ctx.decorations,
       color: ctx.colorHex != null ? DocxColor(ctx.colorHex!) : DocxColor.black,
       fontSize: ctx.fontSize,
       highlight: ctx.highlight,

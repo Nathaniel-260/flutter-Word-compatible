@@ -42,9 +42,10 @@ Future<void> main() async {
         DocxText('Normal text, '),
         DocxText('bold text, ', fontWeight: DocxFontWeight.bold),
         DocxText('italic text, ', fontStyle: DocxFontStyle.italic),
-        DocxText('underlined text, ', decoration: DocxTextDecoration.underline),
+        DocxText('underlined text, ',
+            decorations: [DocxTextDecoration.underline]),
         DocxText('strikethrough text.',
-            decoration: DocxTextDecoration.strikethrough),
+            decorations: [DocxTextDecoration.strikethrough]),
       ]))
 
       // Combined formatting
@@ -54,7 +55,7 @@ Future<void> main() async {
         DocxText('bold + italic + underline',
             fontWeight: DocxFontWeight.bold,
             fontStyle: DocxFontStyle.italic,
-            decoration: DocxTextDecoration.underline),
+            decorations: [DocxTextDecoration.underline]),
       ]))
 
       // Colors
@@ -241,12 +242,12 @@ Future<void> main() async {
         DocxText('Google',
             href: 'https://www.google.com',
             color: DocxColor.blue,
-            decoration: DocxTextDecoration.underline),
+            decorations: [DocxTextDecoration.underline]),
         DocxText(' or '),
         DocxText('GitHub',
             href: 'https://github.com',
             color: DocxColor.blue,
-            decoration: DocxTextDecoration.underline),
+            decorations: [DocxTextDecoration.underline]),
         DocxText(' for more information.'),
       ]))
 

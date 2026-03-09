@@ -29,7 +29,7 @@ class ResolvedStyle {
   // Run properties
   final DocxFontWeight fontWeight;
   final DocxFontStyle fontStyle;
-  final DocxTextDecoration decoration;
+  final List<DocxTextDecoration> decorations;
   final DocxColor color;
   final double fontSize;
   final String fontFamily;
@@ -62,7 +62,7 @@ class ResolvedStyle {
     this.indentFirstLine = 0,
     this.fontWeight = DocxFontWeight.normal,
     this.fontStyle = DocxFontStyle.normal,
-    this.decoration = DocxTextDecoration.none,
+    this.decorations = const [],
     this.color = DocxColor.black,
     this.fontSize = 11.0, // Default 11pt
     this.fontFamily = 'Calibri',
@@ -96,7 +96,7 @@ class ResolvedStyle {
       indentFirstLine: style.indentFirstLine ?? 0,
       fontWeight: style.fontWeight ?? DocxFontWeight.normal,
       fontStyle: style.fontStyle ?? DocxFontStyle.normal,
-      decoration: style.decoration ?? DocxTextDecoration.none,
+      decorations: style.decorations,
       color: style.color ?? DocxColor.black,
       fontSize: style.fontSize ?? 11.0,
       fontFamily: style.fontFamily ?? 'Calibri',
@@ -130,7 +130,7 @@ class ResolvedStyle {
     int? indentFirstLine,
     DocxFontWeight? fontWeight,
     DocxFontStyle? fontStyle,
-    DocxTextDecoration? decoration,
+    List<DocxTextDecoration>? decorations,
     DocxColor? color,
     double? fontSize,
     String? fontFamily,
@@ -161,7 +161,7 @@ class ResolvedStyle {
       indentFirstLine: indentFirstLine ?? this.indentFirstLine,
       fontWeight: fontWeight ?? this.fontWeight,
       fontStyle: fontStyle ?? this.fontStyle,
-      decoration: decoration ?? this.decoration,
+      decorations: decorations ?? this.decorations,
       color: color ?? this.color,
       fontSize: fontSize ?? this.fontSize,
       fontFamily: fontFamily ?? this.fontFamily,
@@ -278,9 +278,9 @@ class StyleResolver {
       fontStyle: overlay.fontStyle != DocxFontStyle.normal
           ? overlay.fontStyle
           : base.fontStyle,
-      decoration: overlay.decoration != DocxTextDecoration.none
-          ? overlay.decoration
-          : base.decoration,
+      decorations: overlay.decorations.isNotEmpty
+          ? overlay.decorations
+          : base.decorations,
       color: overlay.color != DocxColor.black ? overlay.color : base.color,
       fontSize: overlay.fontSize != 11.0 ? overlay.fontSize : base.fontSize,
       fontFamily: overlay.fontFamily != 'Calibri'
@@ -318,7 +318,8 @@ class StyleResolver {
       indentFirstLine: direct.indentFirstLine ?? base.indentFirstLine,
       fontWeight: direct.fontWeight ?? base.fontWeight,
       fontStyle: direct.fontStyle ?? base.fontStyle,
-      decoration: direct.decoration ?? base.decoration,
+      decorations:
+          direct.decorations.isNotEmpty ? direct.decorations : base.decorations,
       color: direct.color ?? base.color,
       fontSize: direct.fontSize ?? base.fontSize,
       fontFamily: direct.fontFamily ?? base.fontFamily,

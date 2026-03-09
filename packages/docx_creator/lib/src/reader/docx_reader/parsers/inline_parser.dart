@@ -117,7 +117,7 @@ class InlineParser {
         textElem.innerText,
         fontWeight: finalProps.fontWeight ?? DocxFontWeight.normal,
         fontStyle: finalProps.fontStyle ?? DocxFontStyle.normal,
-        decoration: finalProps.decoration ?? DocxTextDecoration.none,
+        decorations: finalProps.decorations,
         color: effectiveColor,
         shadingFill: parsedProps.shadingFill, // Only direct shading
         fontSize: directFontSize ??
@@ -161,9 +161,13 @@ class InlineParser {
     for (var grandChild in hyperlink.findAllElements('w:r')) {
       final run = parseRun(grandChild, parentStyle: parentStyle);
       if (run is DocxText && href != null) {
+        final newDecorations = List<DocxTextDecoration>.from(run.decorations);
+        if (!newDecorations.contains(DocxTextDecoration.underline)) {
+          newDecorations.add(DocxTextDecoration.underline);
+        }
         results.add(run.copyWith(
           href: href,
-          decoration: DocxTextDecoration.underline,
+          decorations: newDecorations,
           color: DocxColor.blue,
         ));
       } else {

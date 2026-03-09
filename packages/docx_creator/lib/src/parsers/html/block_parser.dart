@@ -67,7 +67,7 @@ class HtmlBlockParser {
 
     final built = DocumentBuilder.buildBlockElement(
       tag: tag,
-      children: [],
+      children: children,
       textContent: _getText(element),
     );
 

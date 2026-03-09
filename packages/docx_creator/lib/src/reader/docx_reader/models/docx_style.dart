@@ -37,7 +37,7 @@ class DocxStyle {
   // Run Properties
   final DocxFontWeight? fontWeight;
   final DocxFontStyle? fontStyle;
-  final DocxTextDecoration? decoration;
+  final List<DocxTextDecoration> decorations;
   final DocxColor? color;
   final double? fontSize;
   final DocxFont? fonts;
@@ -87,7 +87,7 @@ class DocxStyle {
     this.borderBottom,
     this.fontWeight,
     this.fontStyle,
-    this.decoration,
+    this.decorations = const [],
     this.color,
     this.fontSize,
     this.fonts,
@@ -152,7 +152,7 @@ class DocxStyle {
       // R Props (merged)
       fontWeight: rProps.fontWeight,
       fontStyle: rProps.fontStyle,
-      decoration: rProps.decoration,
+      decorations: rProps.decorations,
       color: rProps.color,
       fontSize: rProps.fontSize,
       fonts: rProps.fonts,
@@ -203,7 +203,8 @@ class DocxStyle {
       // R props
       fontWeight: other.fontWeight ?? fontWeight,
       fontStyle: other.fontStyle ?? fontStyle,
-      decoration: other.decoration ?? decoration,
+      decorations:
+          other.decorations.isNotEmpty ? other.decorations : decorations,
       color: other.color ?? color,
       fontSize: other.fontSize ?? fontSize,
       fonts: fonts?.merge(other.fonts) ?? other.fonts,
@@ -380,7 +381,7 @@ class DocxStyle {
 
     DocxFontWeight? fontWeight;
     DocxFontStyle? fontStyle;
-    DocxTextDecoration? decoration;
+    List<DocxTextDecoration> decorations = [];
     DocxColor? color;
     String? shadingFill;
     double? fontSize;
@@ -411,10 +412,10 @@ class DocxStyle {
       if (rPr.getElement('w:b') != null) fontWeight = DocxFontWeight.bold;
       if (rPr.getElement('w:i') != null) fontStyle = DocxFontStyle.italic;
       if (rPr.getElement('w:u') != null) {
-        decoration = DocxTextDecoration.underline;
+        decorations.add(DocxTextDecoration.underline);
       }
       if (rPr.getElement('w:strike') != null) {
-        decoration = DocxTextDecoration.strikethrough;
+        decorations.add(DocxTextDecoration.strikethrough);
       }
 
       final colorElem = rPr.getElement('w:color');
@@ -544,7 +545,7 @@ class DocxStyle {
       id: 'temp',
       fontWeight: fontWeight,
       fontStyle: fontStyle,
-      decoration: decoration,
+      decorations: decorations,
       color: color,
       shadingFill: shadingFill,
       themeFill: themeFill,
