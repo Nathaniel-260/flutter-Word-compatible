@@ -10,8 +10,11 @@ import 'dart:io';
 import 'package:ffi/ffi.dart';
 import 'package:flutter/foundation.dart';
 import 'package:jni/jni.dart' as jni;
+import 'package:jni/jni.dart';
 import 'package:objective_c/objective_c.dart' as objc;
 
+import 'src/android/android/view/View.dart' as androidview;
+import 'src/android/android/webkit/WebView.dart' as androidwebkit;
 import 'src/android/java/lang/Runnable.dart' as javalang;
 import 'src/android_bindings.dart' as android;
 import 'src/native_pdf_engine_ios_bindings.dart' as ios;
@@ -475,8 +478,11 @@ void _convertAndroid(
           final androidContext = android.Context.fromReference(
             androidActivity.reference,
           );
-          final webView = android.WebView(androidContext);
 
+          // Enable slow whole document draw for Android L and above to capture full document
+          androidwebkit.WebView.enableSlowWholeDocumentDraw();
+
+          final webView = android.WebView(androidContext);
           NativePdf._activeWebView = webView; // Keep reference
 
           // 2. Configure Settings
@@ -484,14 +490,16 @@ void _convertAndroid(
           settings?.setJavaScriptEnabled(true);
           settings?.setDomStorageEnabled(true);
 
-          // 3. Set layout manually to fixed size (e.g. A4 or 1024x768)
+          // 3. Set layout manually to fixed width, height will be adjusted later
           final width = 1024;
-          final height = 768;
+          int height = 768; // Initial height
 
           // Cast WebView to View to access layout() and draw()
-          final webViewAsView = android.View.fromReference(webView.reference);
+          final webViewAsView = androidview.View.fromReference(
+            webView.reference,
+          );
 
-          // Force layout
+          // Force initial layout
           webViewAsView.layout(0, 0, width, height);
 
           // 4. Load Content
@@ -507,9 +515,7 @@ void _convertAndroid(
             );
           }
 
-          // 5. Poll for completion
-          // onPageFinished is robust, but requires subclassing WebViewClient which is hard in JNI.
-          // We use getProgress loop as a workaround.
+          // Ensure page is fully loaded
           int attempts = 0;
           while ((webView.getProgress() < 100) && attempts < 100) {
             // 10s timeout
@@ -517,14 +523,23 @@ void _convertAndroid(
             attempts++;
           }
 
-          if (attempts >= 100) {
-            debugPrint(
-              "Timeout waiting for page load, proceeding with partial render...",
-            );
-          }
-
           // Allow a bit more time for rendering after 100%
-          await Future.delayed(Duration(milliseconds: 500));
+          await Future.delayed(Duration(milliseconds: 1000));
+
+          // Adjust layout height based on content
+          final contentHeight = webView.getContentHeight();
+          if (contentHeight > 0) {
+            // getContentHeight returns value in DP, layout expects pixels.
+            // Since we don't have density binding, we'll use a safe factor (2.0 is common)
+            // or just trust the value if it's already in pixels (depends on Android version/WebView mode).
+            // We also add some padding.
+            height = (contentHeight * 2.0).toInt() + 100;
+            if (height < 768) height = 768;
+            webViewAsView.layout(0, 0, width, height);
+
+            // Wait for layout to settle
+            await Future.delayed(Duration(milliseconds: 200));
+          }
 
           // 6. Generate PDF
           final pdfDoc = android.PdfDocument();
@@ -579,6 +594,9 @@ void _convertAndroid(
 
           // 8. Close
           pdfDoc.close();
+          // 5. Poll for completion
+          // onPageFinished is robust, but requires subclassing WebViewClient which is hard in JNI.
+          // We use getProgress loop as a workaround.
         } catch (e) {
           completer.completeError(e);
         }
