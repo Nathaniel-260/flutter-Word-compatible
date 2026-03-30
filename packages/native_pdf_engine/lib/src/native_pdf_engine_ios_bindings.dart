@@ -41117,7 +41117,7 @@ extension WKWebViewConfiguration$Methods on WKWebViewConfiguration {
     objc.checkOsVersionInternal(
       'WKWebViewConfiguration.setShowsSystemScreenTimeBlockingView:',
       iOS: (false, (26, 0, 0)),
-      macOS: (false, (26, 0, 0)),
+      macOS: (true, null),
     );
     _objc_msgSend_1s56lr9(
       object$.ref.pointer,
@@ -41246,7 +41246,7 @@ extension WKWebViewConfiguration$Methods on WKWebViewConfiguration {
     objc.checkOsVersionInternal(
       'WKWebViewConfiguration.showsSystemScreenTimeBlockingView',
       iOS: (false, (26, 0, 0)),
-      macOS: (false, (26, 0, 0)),
+      macOS: (true, null),
     );
     return _objc_msgSend_91o635(
       object$.ref.pointer,
@@ -48254,7 +48254,7 @@ extension WKNavigationDelegate$Methods on WKNavigationDelegate {
     objc.checkOsVersionInternal(
       'WKNavigationDelegate.webView:shouldGoToBackForwardListItem:willUseInstantBack:completionHandler:',
       iOS: (false, (26, 0, 0)),
-      macOS: (false, (26, 0, 0)),
+      macOS: (true, null),
     );
     if (!objc.respondsToSelector(
       object$.ref.pointer,
@@ -52881,7 +52881,7 @@ extension WKWebView$Methods on WKWebView {
     objc.checkOsVersionInternal(
       'WKWebView.fetchDataOfTypes:completionHandler:',
       iOS: (false, (26, 0, 0)),
-      macOS: (false, (26, 0, 0)),
+      macOS: (true, null),
     );
     _objc_msgSend_13b1z7j(
       object$.ref.pointer,
@@ -53073,7 +53073,7 @@ extension WKWebView$Methods on WKWebView {
     objc.checkOsVersionInternal(
       'WKWebView.isBlockedByScreenTime',
       iOS: (false, (26, 0, 0)),
-      macOS: (false, (26, 0, 0)),
+      macOS: (true, null),
     );
     return _objc_msgSend_91o635(
       object$.ref.pointer,
@@ -53531,7 +53531,7 @@ extension WKWebView$Methods on WKWebView {
     objc.checkOsVersionInternal(
       'WKWebView.restoreData:completionHandler:',
       iOS: (false, (26, 0, 0)),
-      macOS: (false, (26, 0, 0)),
+      macOS: (true, null),
     );
     _objc_msgSend_o762yo(
       object$.ref.pointer,

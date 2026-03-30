@@ -33,6 +33,8 @@ class NativePdfWindows {
       throw Exception('Failed to create PDF engine');
     }
 
+    // Use Arena to automatically free all native allocations
+    final arena = Arena();
     final completer = Completer<Uint8List?>();
 
     // Callback
@@ -46,9 +48,8 @@ class NativePdfWindows {
     ) {
       if (success) {
         if (data != nullptr && length > 0) {
-          final bytes = data.asTypedList(length);
-          // Copy the bytes because the pointer is valid only during callback
-          completer.complete(Uint8List.fromList(bytes));
+          // Copy bytes — pointer only valid during callback
+          completer.complete(Uint8List.fromList(data.asTypedList(length)));
         } else {
           completer.complete(null);
         }
@@ -56,11 +57,11 @@ class NativePdfWindows {
         final msg = errorMsg.cast<Utf8>().toDartString();
         completer.completeError(Exception(msg));
       }
-      callback.close(); // Clean up the listener port
+      callback.close(); // Clean up listener port
     });
 
-    final cContent = content.toNativeUtf8();
-    final cOutputPath = (outputPath ?? "").toNativeUtf8();
+    final cContent = content.toNativeUtf8(allocator: arena);
+    final cOutputPath = (outputPath ?? "").toNativeUtf8(allocator: arena);
 
     try {
       _bindings!.NativePdf_Generate(
@@ -74,8 +75,8 @@ class NativePdfWindows {
 
       return await completer.future;
     } finally {
-      calloc.free(cContent);
-      calloc.free(cOutputPath);
+      // Arena frees cContent + cOutputPath automatically
+      arena.releaseAll();
       _bindings!.NativePdf_DestroyEngine(engine);
     }
   }
