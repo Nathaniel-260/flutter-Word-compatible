@@ -1,3 +1,15 @@
+## 0.0.6
+
+### JNI 1.0 Migration & Breaking Changes
+* **Migrated to `jni: ^1.0.0` and `jnigen: ^0.16.0`:** Updated codebase to work with the latest major versions of JNI and JNIgen.
+* **Added `jni_flutter` dependency:** Now uses `jni_flutter` for accessing the current Android activity, replacing the deprecated `jni.Jni.androidActivity`.
+* **Updated Android Property Accessors:** Refactored Android platform code to use new property-style getters/setters (e.g., `webView.settings`, `webView.progress`) introduced in `jnigen` 0.16.0.
+* **Simplified Binding Casting:** Replaced `fromReference` calls with direct `as` casting for strongly-typed JNI objects.
+
+### Improvements
+* **Enhanced Android Layout Stability:** Increased the settling delay from 200ms to 400ms after a layout change to more reliably capture content height.
+* **Swift String Extensions:** Refactored Java string creation to use the `.toJString()` extension method for cleaner code.
+
 ## 0.0.5
 
 ### Stability & Reliability

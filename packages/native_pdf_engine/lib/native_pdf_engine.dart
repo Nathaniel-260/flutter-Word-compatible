@@ -10,6 +10,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:jni/jni.dart' as jni;
 import 'package:jni/jni.dart';
+import 'package:jni_flutter/jni_flutter.dart' as jniflutter;
 import 'package:objective_c/objective_c.dart' as objc;
 
 import 'src/android/android/view/View.dart' as androidview;
@@ -517,7 +518,7 @@ void _convertAndroid(
   required bool isUrl,
 }) async {
   try {
-    final activity = jni.Jni.androidActivity(
+    final activity = jniflutter.androidActivity(
       PlatformDispatcher.instance.engineId!,
     );
     if (activity == null) {
@@ -528,7 +529,7 @@ void _convertAndroid(
     }
 
     // Cast to strongly typed Activity
-    final androidActivity = android.Activity.fromReference(activity.reference);
+    final androidActivity = activity as android.Activity;
 
     // Use a Completer to bridge the async gap from the UI thread callback
     final completer = Completer<Uint8List?>();
@@ -542,29 +543,26 @@ void _convertAndroid(
           android.ByteArrayOutputStream? bos;
           try {
             // 1. Create WebView
-            final androidContext = android.Context.fromReference(
-              androidActivity.reference,
-            );
+            final androidContext = androidActivity as android.Context;
 
             // Enable slow whole document draw for Android L and above to capture full document
             androidwebkit.WebView.enableSlowWholeDocumentDraw();
 
             final webView = android.WebView(androidContext);
-            NativePdf._activeWebView = webView; // Keep reference
+            NativePdf._activeWebView = webView;
 
             // 2. Configure Settings
-            final settings = webView.getSettings();
-            settings?.setJavaScriptEnabled(true);
-            settings?.setDomStorageEnabled(true);
+            final settings = webView.settings;
+
+            settings?.javaScriptEnabled = true;
+            settings?.domStorageEnabled = true;
 
             // 3. Set layout manually to fixed width, height will be adjusted later
             final width = 1024;
             int height = 768; // Initial height
 
             // Cast WebView to View to access layout() and draw()
-            final webViewAsView = androidview.View.fromReference(
-              webView.reference,
-            );
+            final webViewAsView = webView as androidview.View;
 
             // Force initial layout
             webViewAsView.layout(0, 0, width, height);
@@ -574,17 +572,17 @@ void _convertAndroid(
               webView.loadUrl(content.toJString());
             } else {
               webView.loadDataWithBaseURL(
-                jni.JString.fromString(""),
+                "".toJString(),
                 content.toJString(),
                 "text/html".toJString(),
                 "utf-8".toJString(),
-                jni.JString.fromString(""),
+                "".toJString(),
               );
             }
 
             // Ensure page is fully loaded
             int attempts = 0;
-            while ((webView.getProgress() < 100) && attempts < 100) {
+            while ((webView.progress < 100) && attempts < 100) {
               // 10s timeout
               await Future.delayed(Duration(milliseconds: 100));
               attempts++;
@@ -594,14 +592,14 @@ void _convertAndroid(
             await Future.delayed(Duration(milliseconds: 1000));
 
             // Adjust layout height based on content
-            final contentHeight = webView.getContentHeight();
+            final contentHeight = webView.contentHeight;
             if (contentHeight > 0) {
               height = (contentHeight * 2.0).toInt() + 100;
               if (height < 768) height = 768;
               webViewAsView.layout(0, 0, width, height);
 
               // Wait for layout to settle
-              await Future.delayed(Duration(milliseconds: 200));
+              await Future.delayed(Duration(milliseconds: 400));
             }
 
             // 6. Generate PDF
@@ -617,7 +615,7 @@ void _convertAndroid(
 
             // Start Page
             final page = pdfDoc.startPage(pageInfo);
-            final canvas = page?.getCanvas();
+            final canvas = page?.canvas;
 
             if (canvas != null) {
               // Draw WebView to Canvas

@@ -9,7 +9,7 @@ topics:
   - webview
   - ffi
   - jni
-version: 0.0.5
+version: 0.0.6
 
 environment:
   sdk: ">=3.8.0 <4.0.0"
@@ -22,13 +22,14 @@ dependencies:
   ffi: ^2.2.0
   logging: ^1.3.0
   path: ^1.9.1
-  jni: ^0.15.2
+  jni: ^1.0.0
+  jni_flutter: 1.0.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
-  jnigen: ^0.15.0
+  jnigen: ^0.16.0
   ffigen: ^20.1.1
 
 flutter:
