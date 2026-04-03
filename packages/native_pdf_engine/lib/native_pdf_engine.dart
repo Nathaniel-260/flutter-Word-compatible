@@ -4,23 +4,14 @@
 library;
 
 import 'dart:async';
-import 'dart:ffi' as ffi;
 import 'dart:io';
+import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart';
-import 'package:jni/jni.dart' as jni;
-import 'package:jni/jni.dart';
-import 'package:jni_flutter/jni_flutter.dart' as jniflutter;
-import 'package:objective_c/objective_c.dart' as objc;
-
-import 'src/android/android/view/View.dart' as androidview;
-import 'src/android/android/webkit/WebView.dart' as androidwebkit;
-import 'src/android/java/lang/Runnable.dart' as javalang;
-import 'src/android_bindings.dart' as android;
-import 'src/native_pdf_engine_ios_bindings.dart' as ios;
-import 'src/native_pdf_engine_linux.dart' as linux;
-import 'src/native_pdf_engine_macos_bindings.dart' as macos;
-import 'src/native_pdf_engine_windows.dart' as windows;
+import 'src/android_bindings/android_pdf_engine.dart';
+import 'src/ios/ios_pdf_engine.dart';
+import 'src/linux/native_pdf_engine_linux.dart';
+import 'src/macos/macos_pdf_engine.dart';
+import 'src/windows/native_pdf_engine_windows.dart';
 
 /// High-level PDF generation API for iOS and macOS.
 ///
@@ -30,12 +21,6 @@ class NativePdf {
   NativePdf._(); // Prevent instantiation
 
   static Completer<dynamic>? _pendingCompleter;
-
-  // Keep strong references to prevent garbage collection
-  static Object? _activeWebView;
-  static Object? _activeDelegate;
-  static String? _activeOutputPath;
-  static Object? _activeCompletionHandler;
 
   /// Convert HTML string to PDF file.
   ///
@@ -49,23 +34,40 @@ class NativePdf {
       throw StateError('A PDF generation is already in progress');
     }
     _pendingCompleter = Completer<void>();
-    _activeOutputPath = outputPath;
 
     try {
       if (Platform.isIOS) {
-        _convertIOS(html, outputPath: outputPath, isUrl: false);
+        IOSPdfEngine.convertIOS(
+          html,
+          outputPath: outputPath,
+          isUrl: false,
+          completeWithSuccess: _completeWithSuccess,
+          completeWithError: _completeWithError,
+        );
       } else if (Platform.isMacOS) {
-        _convertMacOS(html, outputPath: outputPath, isUrl: false);
+        MacOSPdfEngine.convertMacOS(
+          html,
+          outputPath: outputPath,
+          isUrl: false,
+          completeWithSuccess: _completeWithSuccess,
+          completeWithError: _completeWithError,
+        );
       } else if (Platform.isAndroid) {
-        _convertAndroid(html, outputPath: outputPath, isUrl: false);
+        AndroidPdfEngine.convertAndroid(
+          html,
+          outputPath: outputPath,
+          isUrl: false,
+          completeWithSuccess: _completeWithSuccess,
+          completeWithError: _completeWithError,
+        );
       } else if (Platform.isWindows) {
-        await windows.NativePdfWindows.convert(
+        await NativePdfWindows.convert(
           html,
           outputPath: outputPath,
           isUrl: false,
         );
       } else if (Platform.isLinux) {
-        await linux.NativePdfLinux.convert(
+        await NativePdfLinux.convert(
           html,
           outputPath: outputPath,
           isUrl: false,
@@ -101,27 +103,45 @@ class NativePdf {
       throw StateError('A PDF generation is already in progress');
     }
     _pendingCompleter = Completer<void>();
-    _activeOutputPath = outputPath;
 
     try {
+      final file = File(outputPath);
+      if (!await file.parent.exists()) {
+        await file.parent.create(recursive: true);
+      }
+
       if (Platform.isIOS) {
-        _convertIOS(url, outputPath: outputPath, isUrl: true);
+        IOSPdfEngine.convertIOS(
+          url,
+          outputPath: outputPath,
+          isUrl: true,
+          completeWithSuccess: _completeWithSuccess,
+          completeWithError: _completeWithError,
+        );
       } else if (Platform.isMacOS) {
-        _convertMacOS(url, outputPath: outputPath, isUrl: true);
+        MacOSPdfEngine.convertMacOS(
+          url,
+          outputPath: outputPath,
+          isUrl: true,
+          completeWithSuccess: _completeWithSuccess,
+          completeWithError: _completeWithError,
+        );
       } else if (Platform.isAndroid) {
-        _convertAndroid(url, outputPath: outputPath, isUrl: true);
+        AndroidPdfEngine.convertAndroid(
+          url,
+          outputPath: outputPath,
+          isUrl: true,
+          completeWithSuccess: _completeWithSuccess,
+          completeWithError: _completeWithError,
+        );
       } else if (Platform.isWindows) {
-        await windows.NativePdfWindows.convert(
+        await NativePdfWindows.convert(
           url,
           outputPath: outputPath,
           isUrl: true,
         );
       } else if (Platform.isLinux) {
-        await linux.NativePdfLinux.convert(
-          url,
-          outputPath: outputPath,
-          isUrl: true,
-        );
+        await NativePdfLinux.convert(url, outputPath: outputPath, isUrl: true);
       } else {
         throw UnsupportedError(
           'Platform not supported. Supported: iOS, macOS, Android, Windows, Linux.',
@@ -152,24 +172,41 @@ class NativePdf {
       throw StateError('A PDF generation is already in progress');
     }
     _pendingCompleter = Completer<Uint8List>();
-    _activeOutputPath = null;
 
     try {
       if (Platform.isIOS) {
-        _convertIOS(html, isUrl: false);
+        IOSPdfEngine.convertIOS(
+          html,
+          outputPath: null,
+          isUrl: false,
+          completeWithSuccess: _completeWithSuccess,
+          completeWithError: _completeWithError,
+        );
       } else if (Platform.isMacOS) {
-        _convertMacOS(html, isUrl: false);
+        MacOSPdfEngine.convertMacOS(
+          html,
+          outputPath: null,
+          isUrl: false,
+          completeWithSuccess: _completeWithSuccess,
+          completeWithError: _completeWithError,
+        );
       } else if (Platform.isAndroid) {
-        _convertAndroid(html, isUrl: false);
+        AndroidPdfEngine.convertAndroid(
+          html,
+          outputPath: null,
+          isUrl: false,
+          completeWithSuccess: _completeWithSuccess,
+          completeWithError: _completeWithError,
+        );
       } else if (Platform.isWindows) {
-        final result = await windows.NativePdfWindows.convert(
+        final result = await NativePdfWindows.convert(
           html,
           outputPath: null,
           isUrl: false,
         );
         return result ?? Uint8List(0);
       } else if (Platform.isLinux) {
-        final result = await linux.NativePdfLinux.convert(
+        final result = await NativePdfLinux.convert(
           html,
           outputPath: null,
           isUrl: false,
@@ -206,24 +243,41 @@ class NativePdf {
       throw StateError('A PDF generation is already in progress');
     }
     _pendingCompleter = Completer<Uint8List>();
-    _activeOutputPath = null;
 
     try {
       if (Platform.isIOS) {
-        _convertIOS(url, isUrl: true);
+        IOSPdfEngine.convertIOS(
+          url,
+          outputPath: null,
+          isUrl: true,
+          completeWithSuccess: _completeWithSuccess,
+          completeWithError: _completeWithError,
+        );
       } else if (Platform.isMacOS) {
-        _convertMacOS(url, isUrl: true);
+        MacOSPdfEngine.convertMacOS(
+          url,
+          outputPath: null,
+          isUrl: true,
+          completeWithSuccess: _completeWithSuccess,
+          completeWithError: _completeWithError,
+        );
       } else if (Platform.isAndroid) {
-        _convertAndroid(url, isUrl: true);
+        AndroidPdfEngine.convertAndroid(
+          url,
+          outputPath: null,
+          isUrl: true,
+          completeWithSuccess: _completeWithSuccess,
+          completeWithError: _completeWithError,
+        );
       } else if (Platform.isWindows) {
-        final result = await windows.NativePdfWindows.convert(
+        final result = await NativePdfWindows.convert(
           url,
           outputPath: null,
           isUrl: true,
         );
         return result ?? Uint8List(0);
       } else if (Platform.isLinux) {
-        final result = await linux.NativePdfLinux.convert(
+        final result = await NativePdfLinux.convert(
           url,
           outputPath: null,
           isUrl: true,
@@ -251,10 +305,13 @@ class NativePdf {
 
   static void _cleanup() {
     _pendingCompleter = null;
-    _activeWebView = null;
-    _activeDelegate = null;
-    _activeOutputPath = null;
-    _activeCompletionHandler = null;
+    if (Platform.isIOS) {
+      IOSPdfEngine.cleanup();
+    } else if (Platform.isMacOS) {
+      MacOSPdfEngine.cleanup();
+    } else if (Platform.isAndroid) {
+      AndroidPdfEngine.cleanup();
+    }
   }
 
   static void _completeWithSuccess([dynamic result]) {
@@ -267,417 +324,5 @@ class NativePdf {
     if (_pendingCompleter != null && !_pendingCompleter!.isCompleted) {
       _pendingCompleter!.completeError(error);
     }
-  }
-}
-
-// iOS Implementation
-void _convertIOS(String content, {String? outputPath, required bool isUrl}) {
-  // Use Arena to automatically free native memory when done
-  final arena = Arena();
-  try {
-    // Create WKWebViewConfiguration
-    final config = ios.WKWebViewConfiguration.alloc().init();
-
-    // Create frame for the web view (1024x768 for PDF generation)
-    final framePtr = arena<objc.CGRect>();
-    framePtr.ref.origin.x = 0;
-    framePtr.ref.origin.y = 0;
-    framePtr.ref.size.width = 1024;
-    framePtr.ref.size.height = 768;
-
-    // Create WKWebView
-    final webView = ios.WKWebView.alloc().initWithFrame$1(
-      framePtr.ref,
-      configuration: config,
-    );
-
-    // Create navigation delegate to handle page load completion
-    final delegate = ios.WKNavigationDelegate$Builder.implementAsListener(
-      webView_didFinishNavigation_: (wv, navigation) {
-        _handleIOSNavigationFinished(wv, outputPath);
-      },
-      webView_didFailNavigation_withError_: (wv, navigation, error) {
-        NativePdf._completeWithError(
-          Exception(
-            'Navigation failed: ${error.localizedDescription.toDartString()}',
-          ),
-        );
-      },
-      webView_didFailProvisionalNavigation_withError_: (wv, navigation, error) {
-        NativePdf._completeWithError(
-          Exception(
-            'Provisional navigation failed: ${error.localizedDescription.toDartString()}',
-          ),
-        );
-      },
-    );
-
-    // Keep strong references to prevent GC
-    NativePdf._activeWebView = webView;
-    NativePdf._activeDelegate = delegate;
-
-    webView.navigationDelegate = delegate;
-
-    // Load content
-    if (isUrl) {
-      final nsUrl = objc.NSURL.URLWithString(objc.NSString(content));
-      if (nsUrl == null) {
-        NativePdf._completeWithError(Exception('Invalid URL: $content'));
-        return;
-      }
-      final request = ios.NSURLRequest.requestWithURL(nsUrl);
-      webView.loadRequest(request);
-    } else {
-      webView.loadHTMLString(objc.NSString(content), baseURL: null);
-    }
-  } catch (e) {
-    NativePdf._completeWithError(Exception('iOS WebView setup failed: $e'));
-  } finally {
-    // Arena frees all native allocations (CGRect, etc.)
-    arena.releaseAll();
-  }
-}
-
-void _handleIOSNavigationFinished(ios.WKWebView webView, String? outputPath) {
-  try {
-    // Create PDF configuration
-    final pdfConfig = ios.WKPDFConfiguration.alloc().init();
-
-    // Create completion handler block
-    final completionHandler = ios.ObjCBlock_ffiVoid_NSData_NSError.listener((
-      objc.NSData? data,
-      objc.NSError? error,
-    ) async {
-      if (error != null) {
-        NativePdf._completeWithError(
-          Exception(
-            'PDF generation failed: ${error.localizedDescription.toDartString()}',
-          ),
-        );
-        return;
-      }
-
-      if (data != null) {
-        try {
-          final ptr = data.bytes.cast<ffi.Uint8>();
-          final len = data.length;
-          final bytes = Uint8List.fromList(ptr.asTypedList(len));
-          if (outputPath != null) {
-            await File(outputPath).writeAsBytes(bytes);
-            NativePdf._completeWithSuccess();
-          } else {
-            NativePdf._completeWithSuccess(bytes);
-          }
-        } catch (e) {
-          NativePdf._completeWithError(Exception('Failed to generate PDF: $e'));
-        }
-      } else {
-        NativePdf._completeWithError(Exception('PDF data is null'));
-      }
-    });
-
-    NativePdf._activeCompletionHandler = completionHandler;
-
-    webView.createPDFWithConfiguration(
-      pdfConfig,
-      completionHandler: completionHandler,
-    );
-  } catch (e) {
-    NativePdf._completeWithError(
-      Exception('iOS PDF generation setup failed: $e'),
-    );
-  }
-}
-
-// macOS Implementation
-void _convertMacOS(String content, {String? outputPath, required bool isUrl}) {
-  // Use Arena to automatically free native memory when done
-  final arena = Arena();
-  try {
-    // Create WKWebViewConfiguration
-    final config = macos.WKWebViewConfiguration.alloc().init();
-
-    // Create frame for the web view (1024x768 for PDF generation)
-    final framePtr = arena<objc.CGRect>();
-    framePtr.ref.origin.x = 0;
-    framePtr.ref.origin.y = 0;
-    framePtr.ref.size.width = 1024;
-    framePtr.ref.size.height = 768;
-
-    // Create WKWebView
-    final webView = macos.WKWebView.alloc().initWithFrame$1(
-      framePtr.ref,
-      configuration: config,
-    );
-
-    // Create navigation delegate to handle page load completion
-    final delegate = macos.WKNavigationDelegate$Builder.implementAsListener(
-      webView_didFinishNavigation_: (wv, navigation) {
-        _handleMacOSNavigationFinished(wv, outputPath);
-      },
-      webView_didFailNavigation_withError_: (wv, navigation, error) {
-        NativePdf._completeWithError(
-          Exception(
-            'Navigation failed: ${error.localizedDescription.toDartString()}',
-          ),
-        );
-      },
-      webView_didFailProvisionalNavigation_withError_: (wv, navigation, error) {
-        NativePdf._completeWithError(
-          Exception(
-            'Provisional navigation failed: ${error.localizedDescription.toDartString()}',
-          ),
-        );
-      },
-    );
-
-    // Keep strong references to prevent GC
-    NativePdf._activeWebView = webView;
-    NativePdf._activeDelegate = delegate;
-
-    webView.navigationDelegate = delegate;
-
-    // Load content
-    if (isUrl) {
-      final nsUrl = objc.NSURL.URLWithString(objc.NSString(content));
-      if (nsUrl == null) {
-        NativePdf._completeWithError(Exception('Invalid URL: $content'));
-        return;
-      }
-      final request = macos.NSURLRequest.requestWithURL(nsUrl);
-      webView.loadRequest(request);
-    } else {
-      webView.loadHTMLString(objc.NSString(content), baseURL: null);
-    }
-  } catch (e) {
-    NativePdf._completeWithError(Exception('macOS WebView setup failed: $e'));
-  } finally {
-    // Arena frees all native allocations (CGRect, etc.)
-    arena.releaseAll();
-  }
-}
-
-void _handleMacOSNavigationFinished(
-  macos.WKWebView webView,
-  String? outputPath,
-) {
-  try {
-    // Create PDF configuration
-    final pdfConfig = macos.WKPDFConfiguration.alloc().init();
-
-    // Create completion handler block
-    final completionHandler = macos.ObjCBlock_ffiVoid_NSData_NSError.listener((
-      objc.NSData? data,
-      objc.NSError? error,
-    ) async {
-      if (error != null) {
-        NativePdf._completeWithError(
-          Exception(
-            'PDF generation failed: ${error.localizedDescription.toDartString()}',
-          ),
-        );
-        return;
-      }
-
-      if (data != null) {
-        try {
-          final ptr = data.bytes.cast<ffi.Uint8>();
-          final len = data.length;
-          final bytes = Uint8List.fromList(ptr.asTypedList(len));
-          if (outputPath != null) {
-            await File(outputPath).writeAsBytes(bytes);
-            NativePdf._completeWithSuccess();
-          } else {
-            NativePdf._completeWithSuccess(bytes);
-          }
-        } catch (e) {
-          NativePdf._completeWithError(Exception('Failed to generate PDF: $e'));
-        }
-      } else {
-        NativePdf._completeWithError(Exception('PDF data is null'));
-      }
-    });
-
-    NativePdf._activeCompletionHandler = completionHandler;
-
-    webView.createPDFWithConfiguration(
-      pdfConfig,
-      completionHandler: completionHandler,
-    );
-  } catch (e) {
-    NativePdf._completeWithError(
-      Exception('macOS PDF generation setup failed: $e'),
-    );
-  }
-}
-
-// Android Implementation
-void _convertAndroid(
-  String content, {
-  String? outputPath,
-  required bool isUrl,
-}) async {
-  try {
-    final activity = jniflutter.androidActivity(
-      PlatformDispatcher.instance.engineId!,
-    );
-    if (activity == null) {
-      NativePdf._completeWithError(
-        Exception('Android Activity is null. Engine not attached?'),
-      );
-      return;
-    }
-
-    // Cast to strongly typed Activity
-    final androidActivity = activity as android.Activity;
-
-    // Use a Completer to bridge the async gap from the UI thread callback
-    final completer = Completer<Uint8List?>();
-
-    // Implement Runnable
-    final runnable = javalang.Runnable.implement(
-      javalang.$Runnable(
-        run: () async {
-          android.PdfDocument? pdfDoc;
-          android.FileOutputStream? fos;
-          android.ByteArrayOutputStream? bos;
-          try {
-            // 1. Create WebView
-            final androidContext = androidActivity as android.Context;
-
-            // Enable slow whole document draw for Android L and above to capture full document
-            androidwebkit.WebView.enableSlowWholeDocumentDraw();
-
-            final webView = android.WebView(androidContext);
-            NativePdf._activeWebView = webView;
-
-            // 2. Configure Settings
-            final settings = webView.settings;
-
-            settings?.javaScriptEnabled = true;
-            settings?.domStorageEnabled = true;
-
-            // 3. Set layout manually to fixed width, height will be adjusted later
-            final width = 1024;
-            int height = 768; // Initial height
-
-            // Cast WebView to View to access layout() and draw()
-            final webViewAsView = webView as androidview.View;
-
-            // Force initial layout
-            webViewAsView.layout(0, 0, width, height);
-
-            // 4. Load Content
-            if (isUrl) {
-              webView.loadUrl(content.toJString());
-            } else {
-              webView.loadDataWithBaseURL(
-                "".toJString(),
-                content.toJString(),
-                "text/html".toJString(),
-                "utf-8".toJString(),
-                "".toJString(),
-              );
-            }
-
-            // Ensure page is fully loaded
-            int attempts = 0;
-            while ((webView.progress < 100) && attempts < 100) {
-              // 10s timeout
-              await Future.delayed(Duration(milliseconds: 100));
-              attempts++;
-            }
-
-            // Allow a bit more time for rendering after 100%
-            await Future.delayed(Duration(milliseconds: 1000));
-
-            // Adjust layout height based on content
-            final contentHeight = webView.contentHeight;
-            if (contentHeight > 0) {
-              height = (contentHeight * 2.0).toInt() + 100;
-              if (height < 768) height = 768;
-              webViewAsView.layout(0, 0, width, height);
-
-              // Wait for layout to settle
-              await Future.delayed(Duration(milliseconds: 400));
-            }
-
-            // 6. Generate PDF
-            pdfDoc = android.PdfDocument();
-
-            // Page Info
-            final pageBuilder = android.PdfDocument$PageInfo$Builder(
-              width,
-              height,
-              1,
-            );
-            final pageInfo = pageBuilder.create();
-
-            // Start Page
-            final page = pdfDoc.startPage(pageInfo);
-            final canvas = page?.canvas;
-
-            if (canvas != null) {
-              // Draw WebView to Canvas
-              webViewAsView.draw(canvas);
-            }
-
-            pdfDoc.finishPage(page);
-
-            if (outputPath != null) {
-              // 7. Write to file
-              final file = android.File.new$1(outputPath.toJString());
-              fos = android.FileOutputStream(file);
-              pdfDoc.writeTo(fos);
-              fos.close();
-              fos = null; // Mark as closed
-              completer.complete(null);
-            } else {
-              // Write to ByteArrayOutputStream
-              bos = android.ByteArrayOutputStream();
-              pdfDoc.writeTo(bos);
-              final bytes = bos.toByteArray();
-
-              final int count = bytes!.length;
-              final uint8List = Uint8List(count);
-              for (var i = 0; i < count; i++) {
-                uint8List[i] = bytes[i] & 0xFF; // Handle signed byte
-              }
-
-              bos.close();
-              bos = null; // Mark as closed
-              completer.complete(uint8List);
-            }
-          } catch (e) {
-            completer.completeError(e);
-          } finally {
-            // Release all JNI/native resources
-            try {
-              fos?.close();
-            } catch (_) {}
-            try {
-              bos?.close();
-            } catch (_) {}
-            try {
-              pdfDoc?.close();
-            } catch (_) {}
-            // WebView reference is cleaned up via NativePdf._cleanup()
-          }
-        },
-      ),
-    );
-
-    // Execute on UI Thread
-    androidActivity.runOnUiThread(runnable);
-
-    // Wait for completion
-    try {
-      final result = await completer.future;
-      NativePdf._completeWithSuccess(result);
-    } catch (e) {
-      NativePdf._completeWithError(Exception('PDF generation failed: $e'));
-    }
-  } catch (e) {
-    NativePdf._completeWithError(Exception('Android PDF setup failed: $e'));
   }
 }

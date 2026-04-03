@@ -1,0 +1,4 @@
+-keep class com.example.native_pdf_engine.** { *; }
+-keep class android.print.PrintCallbackShim { *; }
+-keep interface android.print.PrintCallbackShim$* { *; }
+-keep class android.print.PrintCallbackShim$* { *; }

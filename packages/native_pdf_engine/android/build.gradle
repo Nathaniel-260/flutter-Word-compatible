@@ -39,12 +39,13 @@ android {
     }
 
     sourceSets {
-        main.java.srcDirs += "src/main/kotlin"
-        test.java.srcDirs += "src/test/kotlin"
+        main.java.srcDirs += ["src/main/java", "src/main/kotlin"]
+        test.java.srcDirs += ["src/test/java", "src/test/kotlin"]
     }
 
     defaultConfig {
         minSdk = 24
+        consumerProguardFiles 'consumer-rules.pro'
     }
 
     dependencies {

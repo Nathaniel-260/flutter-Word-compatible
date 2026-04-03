@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:native_pdf_engine/native_pdf_engine.dart';
@@ -17,34 +18,96 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
-  String? _pdfPath;
+  Uint8List? _pdfBytes;
   String _statusMessage = 'Keep calm and generate PDF';
   bool _isGenerating = false;
 
   final TextEditingController _htmlController = TextEditingController(
-    text: '''
-<!DOCTYPE html>
-<html>
+    text: '''<!DOCTYPE html>
+<html lang="en">
 <head>
-  <style>
-    body { font-family: sans-serif; padding: 20px; }
-    h1 { color: #333; }
-    p { color: #666; }
-    .box { 
-      background-color: #f0f0f0; 
-      padding: 15px; 
-      border-radius: 8px; 
-      margin-top: 20px;
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HTML Text Styles Cheat Sheet</title>
+    <style>
+        /* Adding a little spacing so it's easy to read, 
+           but leaving the text styles to their browser defaults */
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            margin: 40px auto;
+            max-width: 800px;
+            line-height: 1.6;
+            color: #333;
+        }
+        .container {
+            border: 1px solid #ccc;
+            padding: 30px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        hr {
+            margin: 30px 0;
+            border: 0;
+            border-top: 1px solid #eee;
+        }
+    </style>
 </head>
 <body>
-  <h1>Native PDF Engine</h1>
-  <p>This PDF was generated from HTML using native platform webviews.</p>
-  <div class="box">
-    <p><strong>Platform:</strong> Native Render</p>
-    <p>Success! The engine is working correctly.</p>
-  </div>
+
+    <div class="container">
+        <h1>This is an Heading 1 (&lt;h1&gt;) - Main Title</h1>
+        <h2>This is an Heading 2 (&lt;h2&gt;) - Section Title</h2>
+        <h3>This is an Heading 3 (&lt;h3&gt;) - Subsection</h3>
+        <h4>This is an Heading 4 (&lt;h4&gt;)</h4>
+        <h5>This is an Heading 5 (&lt;h5&gt;)</h5>
+        <h6>This is an Heading 6 (&lt;h6&gt;) - Lowest Level</h6>
+        
+        <hr>
+
+        <h2>Paragraphs and Blocks</h2>
+        
+        <p>This is a standard paragraph (<code>&lt;p&gt;</code>). It is the most common way to display text on a webpage. Browsers automatically add some space before and after paragraphs.</p>
+        
+        <blockquote>
+            This is a blockquote (<code>&lt;blockquote&gt;</code>). It is typically used to display long quotations from another source. Browsers usually indent it.
+        </blockquote>
+
+        <pre>
+This is preformatted text (&lt;pre&gt;).
+It preserves both      spaces 
+and
+line breaks exactly as they are written in the code.
+        </pre>
+
+        <hr>
+
+        <h2>Inline Text Formatting</h2>
+        
+        <p><strong>Strong text (&lt;strong&gt;)</strong>: Used to indicate text with strong importance. Browsers render it as bold.</p>
+        
+        <p><b>Bold text (&lt;b&gt;)</b>: Used to draw attention to text without conveying extra importance. Also rendered as bold.</p>
+        
+        <p><em>Emphasized text (&lt;em&gt;)</em>: Used to indicate emphasis that changes the meaning of a sentence. Browsers render it as italics.</p>
+        
+        <p><i>Italic text (&lt;i&gt;)</i>: Used for technical terms, foreign phrases, or thoughts. Rendered as italics.</p>
+        
+        <p><mark>Marked text (&lt;mark&gt;)</mark>: Used to highlight text for reference purposes, like a yellow highlighter.</p>
+        
+        <p><small>Small text (&lt;small&gt;)</small>: Used for fine print or copyright notices.</p>
+        
+        <p><del>Deleted text (&lt;del&gt;)</del>: Used for text that has been removed. Browsers render it with a strikethrough.</p>
+        
+        <p><ins>Inserted text (&lt;ins&gt;)</ins>: Used for text that has been added. Browsers usually underline it.</p>
+        
+        <p><s>Strikethrough text (&lt;s&gt;)</s>: Used for text that is no longer relevant or accurate.</p>
+        
+        <p><u>Underlined text (&lt;u&gt;)</u>: Used to stylistically offset text, such as misspelled words.</p>
+        
+        <p>Water is H<sub>2</sub>O. (Subscript: <code>&lt;sub&gt;</code> - appears half a character below the normal line)</p>
+        
+        <p>E = mc<sup>2</sup>. (Superscript: <code>&lt;sup&gt;</code> - appears half a character above the normal line)</p>
+    </div>
+
 </body>
 </html>
 ''',
@@ -66,26 +129,25 @@ class _MyAppState extends State<MyApp> {
     setState(() {
       _isGenerating = true;
       _statusMessage = 'Generating PDF...';
-      _pdfPath = null;
+      _pdfBytes = null;
     });
 
     try {
-      final dir = await getTemporaryDirectory();
+      final dir = await getApplicationDocumentsDirectory();
       final targetPath = '${dir.path}/example.pdf';
 
       if (_selectedTabIndex == 0) {
         // HTML Mode
         await NativePdf.convert(_htmlController.text, targetPath);
+        _pdfBytes = await File(targetPath).readAsBytes();
       } else {
         // URL Mode
-        final pdfBytes = await NativePdf.convertUrlToData(_urlController.text);
-        await File(targetPath).writeAsBytes(pdfBytes);
+        _pdfBytes = await NativePdf.convertUrlToData(_urlController.text);
       }
 
       if (mounted) {
         setState(() {
           _statusMessage = 'PDF Generated Successfully at:\n$targetPath';
-          _pdfPath = targetPath;
         });
       }
     } catch (e) {
@@ -173,7 +235,7 @@ class _MyAppState extends State<MyApp> {
                     _statusMessage,
                     textAlign: TextAlign.center,
                     style: const TextStyle(fontSize: 14),
-                    maxLines: 2,
+                    maxLines: 10,
                     overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 10),
@@ -188,8 +250,8 @@ class _MyAppState extends State<MyApp> {
               ),
             ),
             Expanded(
-              child: _pdfPath != null
-                  ? MainPage(file: File(_pdfPath!))
+              child: _pdfBytes != null
+                  ? MainPage(file: _pdfBytes!)
                   : Center(
                       child: Text(
                         'No PDF generated yet',

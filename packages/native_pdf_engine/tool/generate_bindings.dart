@@ -59,7 +59,7 @@ void main() {
       protocols: Protocols.includeSet({'WKNavigationDelegate'}),
     ),
     output: Output(
-      dartFile: Uri.file('lib/src/native_pdf_engine_ios_bindings.dart'),
+      dartFile: Uri.file('lib/src/ios/native_pdf_engine_ios_bindings.dart'),
       objectiveCFile: Uri.file('ios/Classes/native_pdf_engine.m'),
       preamble: '''
 // Native PDF Engine - iOS WebKit bindings
@@ -96,7 +96,7 @@ void main() {
       protocols: Protocols.includeSet({'WKNavigationDelegate'}),
     ),
     output: Output(
-      dartFile: Uri.file('lib/src/native_pdf_engine_macos_bindings.dart'),
+      dartFile: Uri.file('lib/src/macos/native_pdf_engine_macos_bindings.dart'),
       objectiveCFile: Uri.file('macos/Classes/native_pdf_engine.m'),
       preamble: '''
 // Native PDF Engine - macOS WebKit bindings
@@ -109,8 +109,8 @@ void main() {
   log('Generated macOS bindings.');
 
   // Print file sizes
-  final iosFile = File('lib/src/native_pdf_engine_ios_bindings.dart');
-  final macosFile = File('lib/src/native_pdf_engine_macos_bindings.dart');
+  final iosFile = File('lib/src/ios/native_pdf_engine_ios_bindings.dart');
+  final macosFile = File('lib/src/macos/native_pdf_engine_macos_bindings.dart');
   if (iosFile.existsSync()) {
     log('iOS bindings: ${(iosFile.lengthSync() / 1024).toStringAsFixed(1)} KB');
   }

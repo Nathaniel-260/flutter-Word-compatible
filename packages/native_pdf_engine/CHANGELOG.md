@@ -1,3 +1,15 @@
+## 0.0.7
+
+### Android PDF Engine Stabilization
+* **Native Printing Migration**: Refactored the Android conversion logic to use the native `PrintDocumentAdapter` workflow, ensuring high-fidelity rendering for complex and multi-page HTML content.
+* **Release Mode Reliability**: Fixed `ClassNotFoundException` in release builds by aligning package namespaces and applying comprehensive ProGuard rules.
+* **WebView Lifecycle Optimization**: Improved stability by explicitly attaching the hidden `WebView` to the Activity context and ensuring proper cleanup via `destroy()`.
+* **Java SDK Bridge**: Implemented `PrintCallbackShim` in Java to safely access package-private Android printing APIs.
+* **Native Threading**: Enhanced thread safety between the Flutter UI thread and the Android main loop for more predictable PDF generation.
+
+### JNI 1.0 Finalization
+* **Migrated to `jni: ^1.0.1` and `jnigen: ^0.16.0`:** Updated all Android bindings and usage patterns to comply with JNI 1.0 standards, including reference counting and new property accessors.
+
 ## 0.0.6
 
 ### JNI 1.0 Migration & Breaking Changes
