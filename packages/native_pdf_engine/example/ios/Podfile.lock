@@ -1,39 +1,44 @@
 PODS:
+  - device_info_plus (0.0.1):
+    - Flutter
   - Flutter (1.0.0)
   - integration_test (0.0.1):
     - Flutter
   - native_pdf_engine (0.0.1):
     - Flutter
-  - pdfium_flutter (0.1.5):
+  - syncfusion_flutter_pdfviewer (0.0.1):
     - Flutter
-    - FlutterMacOS
   - url_launcher_ios (0.0.1):
     - Flutter
 
 DEPENDENCIES:
+  - device_info_plus (from `.symlinks/plugins/device_info_plus/ios`)
   - Flutter (from `Flutter`)
   - integration_test (from `.symlinks/plugins/integration_test/ios`)
   - native_pdf_engine (from `.symlinks/plugins/native_pdf_engine/ios`)
-  - pdfium_flutter (from `.symlinks/plugins/pdfium_flutter/darwin`)
+  - syncfusion_flutter_pdfviewer (from `.symlinks/plugins/syncfusion_flutter_pdfviewer/ios`)
   - url_launcher_ios (from `.symlinks/plugins/url_launcher_ios/ios`)
 
 EXTERNAL SOURCES:
+  device_info_plus:
+    :path: ".symlinks/plugins/device_info_plus/ios"
   Flutter:
     :path: Flutter
   integration_test:
     :path: ".symlinks/plugins/integration_test/ios"
   native_pdf_engine:
     :path: ".symlinks/plugins/native_pdf_engine/ios"
-  pdfium_flutter:
-    :path: ".symlinks/plugins/pdfium_flutter/darwin"
+  syncfusion_flutter_pdfviewer:
+    :path: ".symlinks/plugins/syncfusion_flutter_pdfviewer/ios"
   url_launcher_ios:
     :path: ".symlinks/plugins/url_launcher_ios/ios"
 
 SPEC CHECKSUMS:
+  device_info_plus: 21fcca2080fbcd348be798aa36c3e5ed849eefbe
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
   integration_test: 4a889634ef21a45d28d50d622cf412dc6d9f586e
-  native_pdf_engine: fc3c2f69337bbf8584a96e0469c85e7af342f592
-  pdfium_flutter: 512bc19dbbd80b4287d04869aa19ad729289079d
+  native_pdf_engine: 0f72052e84fd457faba82b888ebe8bf4a25d9c5a
+  syncfusion_flutter_pdfviewer: 90dc48305d2e33d4aa20681d1e98ddeda891bc14
   url_launcher_ios: 7a95fa5b60cc718a708b8f2966718e93db0cef1b
 
 PODFILE CHECKSUM: 3c63482e143d1b91d2d2560aee9fb04ecc74ac7e

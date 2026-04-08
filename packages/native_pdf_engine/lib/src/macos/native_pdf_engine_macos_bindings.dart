@@ -36395,7 +36395,7 @@ extension WKWebViewConfiguration$Methods on WKWebViewConfiguration {
   set showsSystemScreenTimeBlockingView(bool value) {
     objc.checkOsVersionInternal(
       'WKWebViewConfiguration.setShowsSystemScreenTimeBlockingView:',
-      iOS: (true, null),
+      iOS: (false, (26, 0, 0)),
       macOS: (false, (26, 0, 0)),
     );
     _objc_msgSend_1s56lr9(
@@ -36537,7 +36537,7 @@ extension WKWebViewConfiguration$Methods on WKWebViewConfiguration {
   bool get showsSystemScreenTimeBlockingView {
     objc.checkOsVersionInternal(
       'WKWebViewConfiguration.showsSystemScreenTimeBlockingView',
-      iOS: (true, null),
+      iOS: (false, (26, 0, 0)),
       macOS: (false, (26, 0, 0)),
     );
     return _objc_msgSend_91o635(
@@ -44000,7 +44000,7 @@ extension WKNavigationDelegate$Methods on WKNavigationDelegate {
   }) {
     objc.checkOsVersionInternal(
       'WKNavigationDelegate.webView:shouldGoToBackForwardListItem:willUseInstantBack:completionHandler:',
-      iOS: (true, null),
+      iOS: (false, (26, 0, 0)),
       macOS: (false, (26, 0, 0)),
     );
     if (!objc.respondsToSelector(
@@ -51455,7 +51455,7 @@ extension WKWebView$Methods on WKWebView {
   }) {
     objc.checkOsVersionInternal(
       'WKWebView.fetchDataOfTypes:completionHandler:',
-      iOS: (true, null),
+      iOS: (false, (26, 0, 0)),
       macOS: (false, (26, 0, 0)),
     );
     _objc_msgSend_13b1z7j(
@@ -51629,7 +51629,7 @@ extension WKWebView$Methods on WKWebView {
   bool get isBlockedByScreenTime {
     objc.checkOsVersionInternal(
       'WKWebView.isBlockedByScreenTime',
-      iOS: (true, null),
+      iOS: (false, (26, 0, 0)),
       macOS: (false, (26, 0, 0)),
     );
     return _objc_msgSend_91o635(
@@ -52101,7 +52101,7 @@ extension WKWebView$Methods on WKWebView {
   }) {
     objc.checkOsVersionInternal(
       'WKWebView.restoreData:completionHandler:',
-      iOS: (true, null),
+      iOS: (false, (26, 0, 0)),
       macOS: (false, (26, 0, 0)),
     );
     _objc_msgSend_o762yo(
@@ -52563,6 +52563,24 @@ enum WKWebpagePreferencesUpgradeToHTTPSPolicy {
           'Unknown value for WKWebpagePreferencesUpgradeToHTTPSPolicy: $value',
         ),
       };
+}
+
+enum WKSecurityRestrictionMode {
+  WKSecurityRestrictionModeNone(0),
+  WKSecurityRestrictionModeMaximizeCompatibility(1),
+  WKSecurityRestrictionModeLockdown(2);
+
+  final int value;
+  const WKSecurityRestrictionMode(this.value);
+
+  static WKSecurityRestrictionMode fromValue(int value) => switch (value) {
+    0 => WKSecurityRestrictionModeNone,
+    1 => WKSecurityRestrictionModeMaximizeCompatibility,
+    2 => WKSecurityRestrictionModeLockdown,
+    _ => throw ArgumentError(
+      'Unknown value for WKSecurityRestrictionMode: $value',
+    ),
+  };
 }
 
 enum WKNavigationType {

@@ -1,3 +1,15 @@
+## 0.0.8
+
+### Swift Package Manager (SPM) Support
+* **SPM Integration**: Added full support for Swift Package Manager on iOS and macOS, following modern Flutter plugin guidelines.
+* **Modernized Structure**: Migrated `ios/` and `macos/` directory structures to use the SPM-compatible `Sources` layout.
+* **Binding Generation**: Updated `tool/generate_bindings.dart` to automatically output native bindings to the new SPM source directories.
+* **Backward Compatibility**: Updated `.podspec` files to maintain support for CocoaPods while utilizing the new shared SPM source paths.
+
+### Performance & Memory Management
+* **Native Autorelease Pools**: Integrated `autoReleasePool` blocks in iOS and macOS engines to ensure immediate reclamation of Objective-C objects during PDF generation.
+* **SDK Constraints**: Updated minimum SDK requirements to **Flutter 3.41+** and **Dart 3.11+** for compatibility with the latest SPM features.
+
 ## 0.0.7
 
 ### Android PDF Engine Stabilization

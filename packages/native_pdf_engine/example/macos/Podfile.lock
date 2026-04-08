@@ -1,33 +1,38 @@
 PODS:
+  - device_info_plus (0.0.1):
+    - FlutterMacOS
   - FlutterMacOS (1.0.0)
   - native_pdf_engine (0.0.1):
     - FlutterMacOS
-  - pdfium_flutter (0.1.5):
-    - Flutter
+  - syncfusion_pdfviewer_macos (0.0.1):
     - FlutterMacOS
   - url_launcher_macos (0.0.1):
     - FlutterMacOS
 
 DEPENDENCIES:
+  - device_info_plus (from `Flutter/ephemeral/.symlinks/plugins/device_info_plus/macos`)
   - FlutterMacOS (from `Flutter/ephemeral`)
   - native_pdf_engine (from `Flutter/ephemeral/.symlinks/plugins/native_pdf_engine/macos`)
-  - pdfium_flutter (from `Flutter/ephemeral/.symlinks/plugins/pdfium_flutter/darwin`)
+  - syncfusion_pdfviewer_macos (from `Flutter/ephemeral/.symlinks/plugins/syncfusion_pdfviewer_macos/macos`)
   - url_launcher_macos (from `Flutter/ephemeral/.symlinks/plugins/url_launcher_macos/macos`)
 
 EXTERNAL SOURCES:
+  device_info_plus:
+    :path: Flutter/ephemeral/.symlinks/plugins/device_info_plus/macos
   FlutterMacOS:
     :path: Flutter/ephemeral
   native_pdf_engine:
     :path: Flutter/ephemeral/.symlinks/plugins/native_pdf_engine/macos
-  pdfium_flutter:
-    :path: Flutter/ephemeral/.symlinks/plugins/pdfium_flutter/darwin
+  syncfusion_pdfviewer_macos:
+    :path: Flutter/ephemeral/.symlinks/plugins/syncfusion_pdfviewer_macos/macos
   url_launcher_macos:
     :path: Flutter/ephemeral/.symlinks/plugins/url_launcher_macos/macos
 
 SPEC CHECKSUMS:
+  device_info_plus: 4fb280989f669696856f8b129e4a5e3cd6c48f76
   FlutterMacOS: d0db08ddef1a9af05a5ec4b724367152bb0500b1
-  native_pdf_engine: f67fd59015206cbdcdbfbb778a8673ccdf62d8a7
-  pdfium_flutter: 512bc19dbbd80b4287d04869aa19ad729289079d
+  native_pdf_engine: d783eda3c6aa9fe396503f5ac3190d94634758be
+  syncfusion_pdfviewer_macos: b3b110c68039178ca4105dd03ef38761eca3b36b
   url_launcher_macos: f87a979182d112f911de6820aefddaf56ee9fbfd
 
 PODFILE CHECKSUM: 54d867c82ac51cbd61b565781b9fada492027009
