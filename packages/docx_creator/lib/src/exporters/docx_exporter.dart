@@ -1658,24 +1658,6 @@ class DocxExporter {
     };
   }
 
-  List<DocxInlineImage> _collectImages(DocxBuiltDocument doc) {
-    final images = <DocxInlineImage>[];
-    for (var element in doc.elements) {
-      _collectImagesFromNode(element, images);
-    }
-    if (doc.section?.header != null) {
-      for (var child in doc.section!.header!.children) {
-        _collectImagesFromNode(child, images);
-      }
-    }
-    if (doc.section?.footer != null) {
-      for (var child in doc.section!.footer!.children) {
-        _collectImagesFromNode(child, images);
-      }
-    }
-    return images;
-  }
-
   void _collectImagesFromNode(DocxNode node, List<DocxInlineImage> images) {
     if (node is DocxImage) {
       images.add(node.asInline);

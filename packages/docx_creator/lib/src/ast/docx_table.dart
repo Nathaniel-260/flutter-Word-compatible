@@ -665,7 +665,9 @@ class DocxTableRow extends DocxNode {
         int colIndex = 0;
         for (var cell in cells) {
           int? cellWidth = cell.width;
-          if (cellWidth == null && gridCols != null && colIndex < gridCols.length) {
+          if (cellWidth == null &&
+              gridCols != null &&
+              colIndex < gridCols.length) {
             // Calculate width from gridCols based on colSpan
             cellWidth = 0;
             for (int j = 0; j < cell.colSpan; j++) {
