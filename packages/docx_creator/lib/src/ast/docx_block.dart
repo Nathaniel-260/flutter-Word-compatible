@@ -161,12 +161,14 @@ class DocxParagraph extends DocxBlock {
   factory DocxParagraph.text(
     String text, {
     DocxAlign align = DocxAlign.left,
+    DocxTextAlignment? textAlignment,
     double? fontSize,
     String? fontFamily,
     DocxBorderSide? borderBottom,
   }) {
     return DocxParagraph(
       align: align,
+      textAlignment: textAlignment,
       children: [DocxText(text, fontSize: fontSize, fontFamily: fontFamily)],
       borderBottomSide: borderBottom,
     );
@@ -181,10 +183,12 @@ class DocxParagraph extends DocxBlock {
     DocxHeadingLevel level,
     String text, {
     DocxAlign align = DocxAlign.left,
+    DocxTextAlignment? textAlignment,
   }) {
     return DocxParagraph(
       styleId: level.styleId,
       align: align,
+      textAlignment: textAlignment,
       children: [
         DocxText(text),
       ],
@@ -195,57 +199,71 @@ class DocxParagraph extends DocxBlock {
   factory DocxParagraph.heading1(
     String text, {
     DocxAlign align = DocxAlign.left,
+    DocxTextAlignment? textAlignment,
   }) =>
-      DocxParagraph.heading(DocxHeadingLevel.h1, text, align: align);
+      DocxParagraph.heading(DocxHeadingLevel.h1, text,
+          align: align, textAlignment: textAlignment);
 
   /// Creates an H2 heading.
   factory DocxParagraph.heading2(
     String text, {
     DocxAlign align = DocxAlign.left,
+    DocxTextAlignment? textAlignment,
   }) =>
-      DocxParagraph.heading(DocxHeadingLevel.h2, text, align: align);
+      DocxParagraph.heading(DocxHeadingLevel.h2, text,
+          align: align, textAlignment: textAlignment);
 
   /// Creates an H3 heading.
   factory DocxParagraph.heading3(
     String text, {
     DocxAlign align = DocxAlign.left,
+    DocxTextAlignment? textAlignment,
   }) =>
-      DocxParagraph.heading(DocxHeadingLevel.h3, text, align: align);
+      DocxParagraph.heading(DocxHeadingLevel.h3, text,
+          align: align, textAlignment: textAlignment);
 
   /// Creates an H4 heading.
   factory DocxParagraph.heading4(
     String text, {
     DocxAlign align = DocxAlign.left,
+    DocxTextAlignment? textAlignment,
   }) =>
-      DocxParagraph.heading(DocxHeadingLevel.h4, text, align: align);
+      DocxParagraph.heading(DocxHeadingLevel.h4, text,
+          align: align, textAlignment: textAlignment);
 
   /// Creates an H5 heading.
   factory DocxParagraph.heading5(
     String text, {
     DocxAlign align = DocxAlign.left,
+    DocxTextAlignment? textAlignment,
   }) =>
-      DocxParagraph.heading(DocxHeadingLevel.h5, text, align: align);
+      DocxParagraph.heading(DocxHeadingLevel.h5, text,
+          align: align, textAlignment: textAlignment);
 
   /// Creates an H6 heading.
   factory DocxParagraph.heading6(
     String text, {
     DocxAlign align = DocxAlign.left,
+    DocxTextAlignment? textAlignment,
   }) =>
-      DocxParagraph.heading(DocxHeadingLevel.h6, text, align: align);
+      DocxParagraph.heading(DocxHeadingLevel.h6, text,
+          align: align, textAlignment: textAlignment);
 
   /// Creates a blockquote paragraph.
-  factory DocxParagraph.quote(String text) {
+  factory DocxParagraph.quote(String text, {DocxTextAlignment? textAlignment}) {
     return DocxParagraph(
       indentLeft: 720, // 0.5 inch
       styleId: DocxStyleIds.quote,
+      textAlignment: textAlignment,
       children: [DocxText.italic(text)],
     );
   }
 
   /// Creates a code block paragraph.
-  factory DocxParagraph.code(String code) {
+  factory DocxParagraph.code(String code, {DocxTextAlignment? textAlignment}) {
     return DocxParagraph(
       shadingFill: 'F5F5F5',
+      textAlignment: textAlignment,
       children: [DocxText.code(code)],
     );
   }

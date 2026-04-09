@@ -23,6 +23,7 @@ class DocxExporter {
       {}; // abstractNumId -> imageBulletIndex
   final Map<int, int> _preservedNumIds = {}; // sourceNumId -> exportedNumId
   final Map<int, int> _listStartOverrides = {}; // exportedNumId -> startIndex
+  final Map<DocxInlineImage, String> _imageMediaPaths = {};
 
   DocxBackgroundImage? _backgroundImage;
 
@@ -77,6 +78,7 @@ class DocxExporter {
     _abstractNumImageBulletMap.clear();
     _preservedNumIds.clear();
     _listStartOverrides.clear();
+    _imageMediaPaths.clear();
     _backgroundImage = null;
 
     // Register document fonts
@@ -93,12 +95,20 @@ class DocxExporter {
     }
 
     // Process images recursively
-    final allImages = _collectImages(doc);
+    final groupedImages = _collectImagesGrouped(doc);
+    final allImages = <DocxInlineImage>{
+      ...groupedImages['body']!,
+      ...groupedImages['header']!,
+      ...groupedImages['footer']!,
+    };
+
     for (var img in allImages) {
       _imageCounter++;
       final rId = 'rId${_imageCounter + 10}';
       img.setRelationshipId(rId, _uniqueIdCounter++);
-      _images['word/media/image$_imageCounter.${img.extension}'] = img.bytes;
+      final mediaPath = 'word/media/image$_imageCounter.${img.extension}';
+      _imageMediaPaths[img] = mediaPath;
+      _images[mediaPath] = img.bytes;
     }
 
     // Process lists recursively
@@ -145,7 +155,7 @@ class DocxExporter {
     archive.addFile(_createContentTypes(doc));
     archive.addFile(_createRootRels(doc));
     archive.addFile(_createDocument(doc));
-    archive.addFile(_createDocumentRels(doc));
+    archive.addFile(_createDocumentRels(doc, groupedImages['body']!));
     archive.addFile(_createSettings(doc));
     archive.addFile(_createStyles(doc));
     archive.addFile(_createFontTable(doc));
@@ -189,9 +199,15 @@ class DocxExporter {
     // Headers and Footers
     if (doc.section?.header != null) {
       archive.addFile(_createHeader(doc.section!.header!));
+      if (groupedImages['header']!.isNotEmpty) {
+        archive.addFile(_createHeaderRels(groupedImages['header']!));
+      }
     }
     if (doc.section?.footer != null) {
       archive.addFile(_createFooter(doc.section!.footer!));
+      if (groupedImages['footer']!.isNotEmpty) {
+        archive.addFile(_createFooterRels(groupedImages['footer']!));
+      }
     }
     // Background header (for background image)
     if (_backgroundImage != null) {
@@ -951,7 +967,8 @@ class DocxExporter {
     );
   }
 
-  ArchiveFile _createDocumentRels(DocxBuiltDocument doc) {
+  ArchiveFile _createDocumentRels(
+      DocxBuiltDocument doc, List<DocxInlineImage> bodyImages) {
     final builder = XmlBuilder();
     builder.processing('xml', 'version="1.0" encoding="UTF-8"');
     builder.element(
@@ -1094,23 +1111,18 @@ class DocxExporter {
         }
 
         // Images
-        int rIdOffset = 10;
-        for (int i = 0; i < _images.length; i++) {
-          final key = _images.keys.elementAt(i);
-          // Skip background image, already handled above
-          if (key.contains('background.')) continue;
-          builder.element(
-            'Relationship',
-            nest: () {
-              builder.attribute('Id', 'rId${rIdOffset + i + 1}');
-              builder.attribute(
-                'Type',
-                'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image',
-              );
-              final ext = key.split('.').last;
-              builder.attribute('Target', 'media/image${i + 1}.$ext');
-            },
-          );
+        for (var img in bodyImages) {
+          final relId = img.relationshipId;
+          final mediaPath = _imageMediaPaths[img];
+          if (relId != null && mediaPath != null) {
+            builder.element('Relationship', nest: () {
+              builder.attribute('Id', relId);
+              builder.attribute('Type',
+                  'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image');
+              // Target is relative to word/
+              builder.attribute('Target', mediaPath.replaceFirst('word/', ''));
+            });
+          }
         }
       },
     );
@@ -1498,30 +1510,6 @@ class DocxExporter {
     );
   }
 
-  ArchiveFile _createHeader(dynamic header) {
-    final builder = XmlBuilder();
-    builder.processing(
-      'xml',
-      'version="1.0" encoding="UTF-8" standalone="yes"',
-    );
-    builder.element(
-      'w:hdr',
-      nest: () {
-        builder.attribute(
-          'xmlns:w',
-          'http://schemas.openxmlformats.org/wordprocessingml/2006/main',
-        );
-        (header as DocxNode).buildXml(builder);
-      },
-    );
-    final xml = builder.buildDocument().toXmlString();
-    return ArchiveFile(
-      'word/header1.xml',
-      utf8.encode(xml).length,
-      utf8.encode(xml),
-    );
-  }
-
   ArchiveFile _createFooter(dynamic footer) {
     final builder = XmlBuilder();
     builder.processing(
@@ -1535,6 +1523,16 @@ class DocxExporter {
           'xmlns:w',
           'http://schemas.openxmlformats.org/wordprocessingml/2006/main',
         );
+        // Relationships namespace
+        builder.attribute(
+          'xmlns:r',
+          'http://schemas.openxmlformats.org/officeDocument/2006/relationships',
+        );
+        // DrawingML WordprocessingDrawing namespace
+        builder.attribute(
+          'xmlns:wp',
+          'http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing',
+        );
         (footer as DocxNode).buildXml(builder);
       },
     );
@@ -1544,6 +1542,120 @@ class DocxExporter {
       utf8.encode(xml).length,
       utf8.encode(xml),
     );
+  }
+
+  ArchiveFile _createHeader(dynamic header) {
+    final builder = XmlBuilder();
+    builder.processing(
+      'xml',
+      'version="1.0" encoding="UTF-8" standalone="yes"',
+    );
+    builder.element(
+      'w:hdr',
+      nest: () {
+        builder.attribute(
+          'xmlns:w',
+          'http://schemas.openxmlformats.org/wordprocessingml/2006/main',
+        );
+        // Relationships namespace
+        builder.attribute(
+          'xmlns:r',
+          'http://schemas.openxmlformats.org/officeDocument/2006/relationships',
+        );
+        // DrawingML WordprocessingDrawing namespace
+        builder.attribute(
+          'xmlns:wp',
+          'http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing',
+        );
+        (header as DocxNode).buildXml(builder);
+      },
+    );
+    final xml = builder.buildDocument().toXmlString();
+    return ArchiveFile(
+      'word/header1.xml',
+      utf8.encode(xml).length,
+      utf8.encode(xml),
+    );
+  }
+
+  ArchiveFile _createHeaderRels(List<DocxInlineImage> headerImages) {
+    final builder = XmlBuilder();
+    builder.processing('xml', 'version="1.0" encoding="UTF-8"');
+    builder.element('Relationships', nest: () {
+      builder.attribute('xmlns',
+          'http://schemas.openxmlformats.org/package/2006/relationships');
+      for (var img in headerImages) {
+        final relId = img.relationshipId;
+        final mediaPath = _imageMediaPaths[img];
+        if (relId != null && mediaPath != null) {
+          builder.element('Relationship', nest: () {
+            builder.attribute('Id', relId);
+            builder.attribute('Type',
+                'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image');
+            builder.attribute('Target', mediaPath.replaceFirst('word/', ''));
+          });
+        }
+      }
+    });
+    final xml = builder.buildDocument().toXmlString();
+    return ArchiveFile(
+      'word/_rels/header1.xml.rels',
+      utf8.encode(xml).length,
+      utf8.encode(xml),
+    );
+  }
+
+  ArchiveFile _createFooterRels(List<DocxInlineImage> footerImages) {
+    final builder = XmlBuilder();
+    builder.processing('xml', 'version="1.0" encoding="UTF-8"');
+    builder.element('Relationships', nest: () {
+      builder.attribute('xmlns',
+          'http://schemas.openxmlformats.org/package/2006/relationships');
+      for (var img in footerImages) {
+        final relId = img.relationshipId;
+        final mediaPath = _imageMediaPaths[img];
+        if (relId != null && mediaPath != null) {
+          builder.element('Relationship', nest: () {
+            builder.attribute('Id', relId);
+            builder.attribute('Type',
+                'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image');
+            builder.attribute('Target', mediaPath.replaceFirst('word/', ''));
+          });
+        }
+      }
+    });
+    final xml = builder.buildDocument().toXmlString();
+    return ArchiveFile(
+      'word/_rels/footer1.xml.rels',
+      utf8.encode(xml).length,
+      utf8.encode(xml),
+    );
+  }
+
+  Map<String, List<DocxInlineImage>> _collectImagesGrouped(
+      DocxBuiltDocument doc) {
+    final bodyImages = <DocxInlineImage>[];
+    final headerImages = <DocxInlineImage>[];
+    final footerImages = <DocxInlineImage>[];
+
+    for (var element in doc.elements) {
+      _collectImagesFromNode(element, bodyImages);
+    }
+    if (doc.section?.header != null) {
+      for (var child in doc.section!.header!.children) {
+        _collectImagesFromNode(child, headerImages);
+      }
+    }
+    if (doc.section?.footer != null) {
+      for (var child in doc.section!.footer!.children) {
+        _collectImagesFromNode(child, footerImages);
+      }
+    }
+    return {
+      'body': bodyImages,
+      'header': headerImages,
+      'footer': footerImages,
+    };
   }
 
   List<DocxInlineImage> _collectImages(DocxBuiltDocument doc) {
