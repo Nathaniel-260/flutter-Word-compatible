@@ -51,18 +51,34 @@ void main() {
       expect(xml, contains('<w:textAlignment w:val="bottom"/>'));
     });
 
-    test('Issue 80: Images in footer generate .rels file', () async {
+    test(
+        'Issue 80: Images in header, footer, docxlist, and duplicates generate correct .rels files',
+        () async {
+      final imgBytes = Uint8List.fromList([1, 2, 3]);
+      final sharedImage = DocxImage(
+        bytes: imgBytes,
+        extension: 'png',
+        width: 100,
+        height: 100,
+      );
+
       final doc = DocxBuiltDocument(
-        elements: [DocxParagraph.text('Body')],
+        elements: [
+          // Body with a list containing the image
+          DocxList(items: [
+            DocxListItem([sharedImage.asInline])
+          ]),
+          // Duplicate image in body
+          DocxParagraph(children: [sharedImage.asInline]),
+        ],
         section: DocxSectionDef(
+          header: DocxHeader(
+            children: [sharedImage],
+          ),
           footer: DocxFooter(
             children: [
-              DocxImage(
-                bytes: Uint8List.fromList([1, 2, 3]),
-                extension: 'png',
-                width: 100,
-                height: 100,
-              ),
+              sharedImage,
+              sharedImage, // Duplicate in footer
             ],
           ),
         ),
@@ -73,19 +89,36 @@ void main() {
 
       final archive = ZipDecoder().decodeBytes(bytes);
 
+      // Check header
+      final headerFile = archive.findFile('word/header1.xml');
+      final headerRelsFile = archive.findFile('word/_rels/header1.xml.rels');
+      expect(headerFile, isNotNull, reason: 'header1.xml should exist');
+      expect(headerRelsFile, isNotNull,
+          reason: 'header1.xml.rels should exist for images');
+
+      // Check footer
       final footerFile = archive.findFile('word/footer1.xml');
       final footerRelsFile = archive.findFile('word/_rels/footer1.xml.rels');
-
       expect(footerFile, isNotNull, reason: 'footer1.xml should exist');
       expect(footerRelsFile, isNotNull,
           reason: 'footer1.xml.rels should exist for images');
 
-      final relsXml = String.fromCharCodes(footerRelsFile!.content);
+      // Check document
+      final documentRelsFile = archive.findFile('word/_rels/document.xml.rels');
+      expect(documentRelsFile, isNotNull,
+          reason: 'document.xml.rels should exist');
+
+      final footerRelsXml = String.fromCharCodes(footerRelsFile!.content);
       expect(
-          relsXml,
+          footerRelsXml,
           contains(
               'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"'));
-      expect(relsXml, contains('Target="media/image1.png"'));
+      expect(footerRelsXml, contains('Target="media/image1.png"'));
+
+      // Ensure deduplication by counting relationships in footerRelsXml
+      final relMatches = '<Relationship '.allMatches(footerRelsXml).length;
+      expect(relMatches, equals(1),
+          reason: 'Should have exactly 1 image relationship');
     });
   });
 }

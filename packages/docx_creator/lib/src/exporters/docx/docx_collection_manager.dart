@@ -1,4 +1,5 @@
 import 'package:docx_creator/docx_creator.dart';
+
 import 'docx_export_state.dart';
 
 /// Pre-processes the document before generation to collect and catalogue items
@@ -6,7 +7,7 @@ import 'docx_export_state.dart';
 class DocxCollectionManager {
   static void collect(DocxExportState state) {
     // Register document fonts
-    for (var font in state.doc.fonts) {
+    for (final font in state.doc.fonts) {
       state.fontManager.registerFont(font);
     }
 
@@ -27,7 +28,7 @@ class DocxCollectionManager {
       ...state.groupedImages['footer']!,
     };
 
-    for (var img in allImages) {
+    for (final img in allImages) {
       state.imageCounter++;
       final rId = 'rId${state.imageCounter + 10}';
       img.setRelationshipId(rId, state.uniqueIdCounter++);
@@ -46,16 +47,16 @@ class DocxCollectionManager {
     final headerImages = <DocxInlineImage>[];
     final footerImages = <DocxInlineImage>[];
 
-    for (var element in state.doc.elements) {
+    for (final element in state.doc.elements) {
       _collectImagesFromNode(element, bodyImages);
     }
     if (state.doc.section?.header != null) {
-      for (var child in state.doc.section!.header!.children) {
+      for (final child in state.doc.section!.header!.children) {
         _collectImagesFromNode(child, headerImages);
       }
     }
     if (state.doc.section?.footer != null) {
-      for (var child in state.doc.section!.footer!.children) {
+      for (final child in state.doc.section!.footer!.children) {
         _collectImagesFromNode(child, footerImages);
       }
     }
@@ -74,23 +75,29 @@ class DocxCollectionManager {
     } else if (node is DocxInlineImage) {
       images.add(node);
     } else if (node is DocxParagraph) {
-      for (var child in node.children) {
+      for (final child in node.children) {
         _collectImagesFromNode(child, images);
       }
     } else if (node is DocxTable) {
-      for (var row in node.rows) {
-        for (var cell in row.cells) {
-          for (var child in cell.children) {
+      for (final row in node.rows) {
+        for (final cell in row.cells) {
+          for (final child in cell.children) {
             _collectImagesFromNode(child, images);
           }
         }
       }
+    } else if (node is DocxList) {
+      for (final item in node.items) {
+        for (final child in item.children) {
+          _collectImagesFromNode(child, images);
+        }
+      }
     } else if (node is DocxHeader) {
-      for (var child in node.children) {
+      for (final child in node.children) {
         _collectImagesFromNode(child, images);
       }
     } else if (node is DocxFooter) {
-      for (var child in node.children) {
+      for (final child in node.children) {
         _collectImagesFromNode(child, images);
       }
     }
@@ -98,13 +105,23 @@ class DocxCollectionManager {
 
   static void _collectLists(DocxExportState state) {
     final allLists = <DocxList>[];
-    for (var element in state.doc.elements) {
+    for (final element in state.doc.elements) {
       _collectListsFromNode(element, allLists);
+    }
+    if (state.doc.section?.header != null) {
+      for (final child in state.doc.section!.header!.children) {
+        _collectListsFromNode(child, allLists);
+      }
+    }
+    if (state.doc.section?.footer != null) {
+      for (final child in state.doc.section!.footer!.children) {
+        _collectListsFromNode(child, allLists);
+      }
     }
 
     int abstractNumIdCounter = 2; // 0 and 1 are reserved for default styles
 
-    for (var list in allLists) {
+    for (final list in allLists) {
       int exportedNumId;
       final sourceNumId = list.numId;
 
@@ -145,22 +162,22 @@ class DocxCollectionManager {
     if (node is DocxList) {
       lists.add(node);
       // Also collect nested lists within list items
-      for (var item in node.items) {
-        for (var child in item.children) {
+      for (final item in node.items) {
+        for (final child in item.children) {
           _collectListsFromNode(child, lists);
         }
       }
     } else if (node is DocxTable) {
-      for (var row in node.rows) {
-        for (var cell in row.cells) {
-          for (var child in cell.children) {
+      for (final row in node.rows) {
+        for (final cell in row.cells) {
+          for (final child in cell.children) {
             _collectListsFromNode(child, lists);
           }
         }
       }
     } else if (node is DocxParagraph) {
       // Paragraphs might contain inline elements with nested content
-      for (var child in node.children) {
+      for (final child in node.children) {
         _collectListsFromNode(child, lists);
       }
     }

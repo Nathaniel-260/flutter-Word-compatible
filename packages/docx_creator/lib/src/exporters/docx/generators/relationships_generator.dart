@@ -139,7 +139,14 @@ class DocxRelationshipsGenerator {
           });
         }
 
-        for (var img in state.groupedImages['body'] ?? []) {
+        final uniqueBodyImages = <String, dynamic>{};
+        for (final img in state.groupedImages['body'] ?? []) {
+          if (img.relationshipId != null) {
+            uniqueBodyImages[img.relationshipId!] = img;
+          }
+        }
+
+        for (final img in uniqueBodyImages.values) {
           final relId = img.relationshipId;
           final mediaPath = state.imageMediaPaths[img];
           if (relId != null && mediaPath != null) {
@@ -181,7 +188,7 @@ class DocxRelationshipsGenerator {
         );
 
         int i = 0;
-        for (var font in state.fontManager.fonts) {
+        for (final font in state.fontManager.fonts) {
           builder.element(
             'Relationship',
             nest: () {

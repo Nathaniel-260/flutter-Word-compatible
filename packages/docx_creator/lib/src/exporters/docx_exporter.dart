@@ -52,7 +52,7 @@ class DocxExporter {
       final isValid = validator!.validate(doc);
       if (!isValid) {
         throw DocxExportException(
-          'Document validation failed: \${validator!.errors.join(", ")}',
+          'Document validation failed: ${validator!.errors.join(", ")}',
           targetFormat: 'DOCX',
         );
       }
@@ -212,6 +212,14 @@ class DocxExporter {
 
     if (state.imageBullets.isNotEmpty) {
       generator.registerExtension('png', 'image/png');
+    }
+
+    if (state.doc.numberingImages.isNotEmpty) {
+      for (var key in state.doc.numberingImages.keys) {
+        final ext = key.split('.').last.toLowerCase();
+        final contentType = 'image/${ext == "jpg" ? "jpeg" : ext}';
+        generator.registerExtension(ext, contentType);
+      }
     }
 
     final xml = generator.generate();

@@ -61,7 +61,13 @@ class DocxHeaderFooterGenerator {
     builder.element('Relationships', nest: () {
       builder.attribute('xmlns',
           'http://schemas.openxmlformats.org/package/2006/relationships');
-      for (var img in state.groupedImages['header'] ?? []) {
+      final uniqueHeaderImages = <String, DocxInlineImage>{};
+      for (final img in state.groupedImages['header'] ?? []) {
+        if (img.relationshipId != null) {
+          uniqueHeaderImages[img.relationshipId!] = img;
+        }
+      }
+      for (final img in uniqueHeaderImages.values) {
         final relId = img.relationshipId;
         final mediaPath = state.imageMediaPaths[img];
         if (relId != null && mediaPath != null) {
@@ -88,7 +94,13 @@ class DocxHeaderFooterGenerator {
     builder.element('Relationships', nest: () {
       builder.attribute('xmlns',
           'http://schemas.openxmlformats.org/package/2006/relationships');
-      for (var img in state.groupedImages['footer'] ?? []) {
+      final uniqueFooterImages = <String, DocxInlineImage>{};
+      for (final img in state.groupedImages['footer'] ?? []) {
+        if (img.relationshipId != null) {
+          uniqueFooterImages[img.relationshipId!] = img;
+        }
+      }
+      for (final img in uniqueFooterImages.values) {
         final relId = img.relationshipId;
         final mediaPath = state.imageMediaPaths[img];
         if (relId != null && mediaPath != null) {
@@ -182,8 +194,18 @@ class DocxHeaderFooterGenerator {
       XmlBuilder builder, DocxExportState state) {
     if (state.backgroundImage == null) return;
 
-    const int pageWidthEmu = 7772400; // 8.5 inches
-    const int pageHeightEmu = 10058400; // 11 inches
+    int pageWidthEmu = 7772400; // 8.5 inches default
+    int pageHeightEmu = 10058400; // 11 inches default
+
+    final section = state.doc.section;
+    if (section != null) {
+      final isLandscape = section.orientation == DocxPageOrientation.landscape;
+      final cw = isLandscape ? section.effectiveHeight : section.effectiveWidth;
+      final ch = isLandscape ? section.effectiveWidth : section.effectiveHeight;
+      // Convert twips to EMUs (1 twip = 635 EMUs)
+      pageWidthEmu = cw * 635;
+      pageHeightEmu = ch * 635;
+    }
 
     builder.element(
       'w:p',
@@ -332,7 +354,7 @@ class DocxHeaderFooterGenerator {
       nest: () {
         builder.attribute('xmlns:w',
             'http://schemas.openxmlformats.org/wordprocessingml/2006/main');
-        for (var note in state.doc.footnotes!) {
+        for (final note in state.doc.footnotes!) {
           note.buildXml(builder);
         }
       },
@@ -355,7 +377,7 @@ class DocxHeaderFooterGenerator {
       nest: () {
         builder.attribute('xmlns:w',
             'http://schemas.openxmlformats.org/wordprocessingml/2006/main');
-        for (var note in state.doc.endnotes!) {
+        for (final note in state.doc.endnotes!) {
           note.buildXml(builder);
         }
       },

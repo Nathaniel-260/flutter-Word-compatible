@@ -1,6 +1,8 @@
 import 'dart:convert';
+
 import 'package:archive/archive.dart';
 import 'package:xml/xml.dart';
+
 import '../docx_export_state.dart';
 
 const String _defaultThemeXml =
@@ -132,7 +134,7 @@ class DocxStylesGenerator {
 
         // Embedded fonts
         int i = 0;
-        for (var font in state.fontManager.fonts) {
+        for (final font in state.fontManager.fonts) {
           builder.element('w:font', nest: () {
             builder.attribute('w:name', font.familyName);
             builder.element('w:embedRegular', nest: () {

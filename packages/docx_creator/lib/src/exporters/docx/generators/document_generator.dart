@@ -1,7 +1,9 @@
 import 'dart:convert';
+
 import 'package:archive/archive.dart';
-import 'package:xml/xml.dart';
 import 'package:docx_creator/docx_creator.dart';
+import 'package:xml/xml.dart';
+
 import '../docx_export_state.dart';
 
 class DocxDocumentGenerator {
@@ -85,7 +87,7 @@ class DocxDocumentGenerator {
         builder.element(
           'w:body',
           nest: () {
-            for (var element in state.doc.elements) {
+            for (final element in state.doc.elements) {
               element.buildXml(builder);
             }
             // Build section properties including background header reference
@@ -120,22 +122,20 @@ class DocxDocumentGenerator {
     builder.element(
       'w:sectPr',
       nest: () {
-        if (state.backgroundImage != null) {
-          builder.element(
-            'w:headerReference',
-            nest: () {
-              builder.attribute('w:type', 'default');
-              builder.attribute('r:id', 'rIdBgHdr');
-            },
-          );
-        }
-
         if (state.doc.section?.header != null) {
           builder.element(
             'w:headerReference',
             nest: () {
               builder.attribute('w:type', 'default');
               builder.attribute('r:id', 'rId5');
+            },
+          );
+        } else if (state.backgroundImage != null) {
+          builder.element(
+            'w:headerReference',
+            nest: () {
+              builder.attribute('w:type', 'default');
+              builder.attribute('r:id', 'rIdBgHdr');
             },
           );
         }

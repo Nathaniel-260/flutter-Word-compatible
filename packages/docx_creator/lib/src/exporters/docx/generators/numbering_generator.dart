@@ -189,6 +189,13 @@ class DocxNumberingGenerator {
   }
 
   static ArchiveFile createNumberingRels(DocxExportState state) {
+    if (state.doc.numberingRelsXml != null) {
+      return ArchiveFile(
+        'word/_rels/numbering.xml.rels',
+        utf8.encode(state.doc.numberingRelsXml!).length,
+        utf8.encode(state.doc.numberingRelsXml!),
+      );
+    }
     final builder = XmlBuilder();
     builder.processing(
         'xml', 'version="1.0" encoding="UTF-8" standalone="yes"');
