@@ -12,7 +12,7 @@ void main() {
 
       // Load real font
       final fontPath =
-          '/Users/mac/Desktop/htmltopdfwidgets/packages/htmltopdf_syncfusion/assets/fonts/DroidSansFallback.ttf';
+          '../htmltopdf_syncfusion/assets/fonts/DroidSansFallback.ttf';
       final fontData = await File(fontPath).readAsBytes();
 
       // Register it
@@ -37,7 +37,7 @@ void main() {
     test('writeFonts returns correct structure', () async {
       final fontManager = PdfFontManager();
       final fontPath =
-          '/Users/mac/Desktop/htmltopdfwidgets/packages/htmltopdf_syncfusion/assets/fonts/DroidSansFallback.ttf';
+          '../htmltopdf_syncfusion/assets/fonts/DroidSansFallback.ttf';
       final fontData = await File(fontPath).readAsBytes();
       fontManager.registerFont('DroidSans', fontData);
 
