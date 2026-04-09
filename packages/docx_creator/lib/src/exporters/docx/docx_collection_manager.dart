@@ -154,6 +154,8 @@ class DocxCollectionManager {
         }
       }
 
+      // Note: We mutate DocxBuiltDocument.list.numId here during the export process.
+      // If immutability is required in the future, this should be refactored to clone the list.
       list.numId = exportedNumId;
     }
   }

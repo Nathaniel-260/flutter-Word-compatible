@@ -97,10 +97,11 @@ class DocxDocumentGenerator {
       },
     );
     final xml = builder.buildDocument().toXmlString();
+    final bytes = utf8.encode(xml);
     return ArchiveFile(
       'word/document.xml',
-      utf8.encode(xml).length,
-      utf8.encode(xml),
+      bytes.length,
+      bytes,
     );
   }
 
