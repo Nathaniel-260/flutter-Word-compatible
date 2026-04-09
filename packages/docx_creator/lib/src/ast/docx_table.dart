@@ -546,12 +546,14 @@ class DocxTable extends DocxBlock {
         });
 
         // Rows
+        final cols = resolvedGridColumns;
         for (int i = 0; i < rows.length; i++) {
           rows[i].buildXmlWithStyle(
             builder,
             style,
             isHeader: hasHeader && i == 0,
             isEven: i % 2 == 0,
+            gridCols: cols,
           );
         }
       },
@@ -628,6 +630,7 @@ class DocxTableRow extends DocxNode {
     DocxTableStyle style, {
     required bool isHeader,
     required bool isEven,
+    List<int>? gridCols,
   }) {
     builder.element(
       'w:tr',
@@ -659,8 +662,22 @@ class DocxTableRow extends DocxNode {
             },
           );
         }
+        int colIndex = 0;
         for (var cell in cells) {
-          cell.buildXml(builder);
+          int? cellWidth = cell.width;
+          if (cellWidth == null &&
+              gridCols != null &&
+              colIndex < gridCols.length) {
+            // Calculate width from gridCols based on colSpan
+            cellWidth = 0;
+            for (int j = 0; j < cell.colSpan; j++) {
+              if (colIndex + j < gridCols.length) {
+                cellWidth = cellWidth! + gridCols[colIndex + j];
+              }
+            }
+          }
+          cell.buildXmlWithWidth(builder, cellWidth);
+          colIndex += cell.colSpan;
         }
       },
     );
@@ -735,6 +752,7 @@ class DocxTableCell extends DocxNode {
     bool isBold = false,
     DocxAlign align = DocxAlign.left,
     DocxVerticalAlign verticalAlign = DocxVerticalAlign.center,
+    DocxTextAlignment? textAlignment,
     String? shadingFill,
   }) {
     return DocxTableCell(
@@ -743,6 +761,7 @@ class DocxTableCell extends DocxNode {
       children: [
         DocxParagraph(
           align: align,
+          textAlignment: textAlignment,
           children: [isBold ? DocxText.bold(text) : DocxText(text)],
         ),
       ],
@@ -817,6 +836,10 @@ class DocxTableCell extends DocxNode {
 
   @override
   void buildXml(XmlBuilder builder) {
+    buildXmlWithWidth(builder, width);
+  }
+
+  void buildXmlWithWidth(XmlBuilder builder, int? effectiveWidth) {
     builder.element(
       'w:tc',
       nest: () {
@@ -829,11 +852,11 @@ class DocxTableCell extends DocxNode {
                 builder.attribute('w:val', cnfStyle!);
               });
             }
-            if (width != null) {
+            if (effectiveWidth != null) {
               builder.element(
                 'w:tcW',
                 nest: () {
-                  builder.attribute('w:w', width.toString());
+                  builder.attribute('w:w', effectiveWidth.toString());
                   builder.attribute('w:type', 'dxa');
                 },
               );

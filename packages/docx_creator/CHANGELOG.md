@@ -1,3 +1,16 @@
+## 1.2.1
+
+### Added
+- **Modular DOCX Generator Architecture**: Refactored the monolithic `DocxExporter` into specialized generator classes (`DocumentGenerator`, `StylesGenerator`, `RelationshipsGenerator`, etc.) for improved maintainability and extensibility.
+- **Vertical Text Alignment**: Added support for `textAlignment` in `DocxParagraph.text`, `DocxParagraph.render`, and `DocxTableCell.text` factory methods (Issue #72).
+
+### Fixed
+- **Table Widths**: Corrected `w:tcW` (table cell width) generation when `gridColumns` are specified, ensuring accurate table layouts in Microsoft Word (Issue #82).
+- **Footer Images**: Fixed issue where images in footers were not rendering in Word due to missing relationship (`.rels`) files (Issue #80).
+- **Table Width Calculation**: Improved logic for calculating automatic column widths for better visual fidelity.
+
+---
+
 ## 1.2.0
 
 ### Added
