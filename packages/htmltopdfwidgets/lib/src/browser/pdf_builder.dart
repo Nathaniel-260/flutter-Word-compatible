@@ -737,7 +737,7 @@ class PdfBuilder {
 
   Future<List<pw.Widget>> _buildBlockChild(LayoutNode node) async {
     // This node is a block element.
-    
+
     // Recursive call to get children widgets
     List<pw.Widget> childrenWidgets;
 
@@ -915,7 +915,8 @@ class PdfBuilder {
     }
 
     // Blockquotes/Pre with very little content
-    if ((node.tagName == 'blockquote' || node.tagName == 'pre') && children.length == 1) {
+    if ((node.tagName == 'blockquote' || node.tagName == 'pre') &&
+        children.length == 1) {
       final text = _collectText(node);
       return text.length < 200;
     }
@@ -956,7 +957,7 @@ class PdfBuilder {
     // Apply background and horizontal padding to each child
     for (final child in children) {
       if (decoration?.color != null) {
-        // We MUST wrap in Container for background color, 
+        // We MUST wrap in Container for background color,
         // but this WILL prevent page breaking if the child is large.
         result.add(pw.Container(
           padding: pw.EdgeInsets.only(left: leftPad, right: rightPad),

@@ -45,7 +45,7 @@ void main() {
           textNodesFound++;
           print('$indent -> Text node found! Total: $textNodesFound');
         }
-        
+
         if (w is pw.MultiChildWidget) {
           for (var child in w.children) {
             scan(child, depth + 1);
@@ -59,7 +59,7 @@ void main() {
         } else if (w is pw.DecoratedBox) {
           scan(w.child, depth + 1);
         } else if (w is pw.Expanded) {
-           scan(w.child, depth + 1);
+          scan(w.child, depth + 1);
         }
       }
 
