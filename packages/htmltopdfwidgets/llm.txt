@@ -1,0 +1,50 @@
+# htmltopdfwidgets - LLM Context Context File
+
+This file provides a high-level overview of the `htmltopdfwidgets` package architecture and logic to assist AI models in understanding and contributing to the codebase.
+
+## 🚀 Core Purpose
+`htmltopdfwidgets` is a Flutter/Dart library that converts HTML and Markdown strings into `package:pdf` widgets. It aim for high-fidelity rendering by mimicking browser-like layout behavior.
+
+## 🏗️ Architecture (The "Layout-First" Pipeline)
+The package uses a multi-stage pipeline when `useNewEngine: true` (default in newer versions) is used.
+
+### 1. Parsing (`lib/src/browser/html_parser.dart`)
+- **Input**: HTML String.
+- **Process**: Uses `html` package to parse HTML into DOM nodes, which are then converted into a tree of `RenderNode` objects.
+- **Styling**: Every `RenderNode` is assigned a `CSSStyle` object. Styles are cascaded from parents or derived from the `style` attribute.
+
+### 2. Layout Solving (`lib/src/browser/layout/`)
+- **Input**: `RenderNode` tree.
+- **Process**: The `LayoutSolver` (`layout_solver.dart`) transforms the render tree into a `LayoutNode` tree.
+- **Box Model**: Calculates padding, margins, borders, and dimensions.
+- **Unit Conversion**: Uses `UnitConverter` (`unit_converter.dart`) to convert pixels (px) to PDF points (pt) using the industry-standard ratio of **1px = 0.75pt**.
+- **Flexbox**: Implements basic Flexbox logic (rows, columns, alignment) during the layout phase.
+
+### 3. PDF Building (`lib/src/browser/pdf_builder.dart`)
+- **Input**: `LayoutNode` tree.
+- **Process**: Recursively iterates through the layout tree and maps each node to equivalent `package:pdf` widgets (e.g., `pw.Container`, `pw.Text`, `pw.Flex`, `pw.Image`).
+- **Custom Widgets**: Uses specialized widgets from `lib/src/pdfwidgets/` for complex elements like lists (`bullet_list.dart`, `number_list.dart`) and quotes (`quote_widget.dart`).
+
+## 📂 Directory Structure Highlights
+- `/lib/src/browser/`: The heart of the modern rendering engine.
+- `/lib/src/browser/layout/`: Logic for the box model, unit conversion, and flexbox.
+- `/lib/src/pdfwidgets/`: Custom `package:pdf` widgets used during the building phase.
+- `/lib/src/legacy/`: Contains the old `WidgetsHTMLDecoder` for backward compatibility.
+- `/lib/src/html_to_widgets_codec.dart`: The main entry point class `HTMLToPdf`.
+
+## 🔑 Key Classes
+- `HTMLToPdf`: The primary class used by developers to convert content.
+- `CSSStyle`: Encapsulates all CSS properties (color, display, margin, padding, flex, etc.).
+- `RenderNode`: A data structure representing a styled HTML element before layout.
+- `LayoutNode`: A data structure representing an element with a calculated physical box (width/height).
+- `HtmlTagStyle`: Allows customization of default styles for specific HTML tags.
+
+## ⚠️ Important Implementation Details
+- **Coordinate System**: Layout is done in "logical" pixels and converted to PDF points at the very end or during layout solving.
+- **Styling Flow**: `HTML Parser` -> `CSSStyle` -> `RenderNode` -> `LayoutSolver` -> `LayoutNode` -> `PdfBuilder` -> `pw.Widget`.
+- **Text Rendering**: Uses `pdf_fonts.dart` to manage font loading and fallbacks.
+
+## 🛠️ Common Modification Tasks
+- **Adding CSS Support**: Update `CSSStyle` and the `HtmlParser`'s style extraction logic.
+- **Fixing Layout Issues**: Look into `LayoutSolver` or `LayoutNode`.
+- **Adding New Tag Support**: Update `HtmlParser` to recognize the tag and `PdfBuilder` to render it appropriately.

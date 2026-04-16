@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/alihassan143/htmltopdfwidgets/main/logo.png" alt="HTMLtoPDFWidgets Logo" width="120">
+  <img src="logo.png" alt="HTMLtoPDFWidgets Logo" width="150">
 </p>
 
 # HTMLtoPDFWidgets 🚀
@@ -13,6 +13,9 @@
 ---
 
 **`htmltopdfwidgets`** is a high-performance rendering engine designed for Flutter and Dart. It goes beyond simple tag mapping, providing a **Layout-First** pipeline that mimics browser rendering to ensure your PDFs look exactly like your web content.
+
+> [!TIP]
+> **AI-Ready Documentation**: If you're using an AI assistant (like Claude, GPT, or Copilot) to help with this repository, point it to [llm.txt](./llm.txt) for a deep dive into the architecture and logic.
 
 ---
 
