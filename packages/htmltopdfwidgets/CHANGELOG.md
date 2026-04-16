@@ -1,3 +1,10 @@
+## 2.1.1
+
+* **Branding & Documentation**:
+    * Updated package logo with a modern, futuristic design.
+    * Fixed broken "Buy Me a Coffee" icon on pub.dev by using a more stable button URL.
+    * Improved README branding and asset link stability for better pub.dev compatibility.
+
 ## 2.1.0
 
 * **Layout-First Rendering Engine**: Major architectural refactor for Chrome-like PDF accuracy.

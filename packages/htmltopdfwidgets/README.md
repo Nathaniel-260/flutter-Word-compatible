@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="logo.png" alt="HTMLtoPDFWidgets Logo" width="150">
+  <img src="https://raw.githubusercontent.com/alihassan143/flutter-packages/main/packages/htmltopdfwidgets/logo.png" alt="HTMLtoPDFWidgets Logo" width="150">
 </p>
 
 # HTMLtoPDFWidgets 🚀
@@ -23,7 +23,7 @@
 If this project saves you time, consider buying me a coffee! It helps keep the development alive and the energy high.
 
 <a href="https://www.buymeacoffee.com/alihassan13" target="_blank">
-  <img src="https://www.buymeacoffee.com/assets/img/custom_images/purple_img.png" alt="Buy Me A Coffee" style="height: auto !important;width: auto !important;">
+  <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" width="180">
 </a>
 
 ---
