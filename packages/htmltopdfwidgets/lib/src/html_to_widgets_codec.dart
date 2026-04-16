@@ -5,6 +5,7 @@ import 'package:markdown/markdown.dart';
 import '../htmltopdfwidgets.dart';
 import 'browser/css_style.dart';
 import 'browser/html_parser.dart';
+import 'browser/layout/layout_solver.dart';
 import 'browser/pdf_builder.dart';
 import 'legacy/html_to_widgets.dart';
 
@@ -40,8 +41,9 @@ class HTMLToPdf extends HtmlCodec {
         ),
       );
       final renderTree = parser.parse();
+      final layoutTree = LayoutSolver().solve(renderTree);
       final builder = PdfBuilder(
-          root: renderTree, tagStyle: tagStyle, fontFallback: fontFallback);
+          root: layoutTree, tagStyle: tagStyle, fontFallback: fontFallback);
       return await builder.build();
     }
 
@@ -108,8 +110,9 @@ class HTMLToPdf extends HtmlCodec {
         ),
       );
       final renderTree = parser.parse();
+      final layoutTree = LayoutSolver().solve(renderTree);
       final builder = PdfBuilder(
-          root: renderTree, tagStyle: tagStyle, fontFallback: fontFallback);
+          root: layoutTree, tagStyle: tagStyle, fontFallback: fontFallback);
       return await builder.build();
     }
 

@@ -1,7 +1,9 @@
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart';
 
-enum Display { block, inline, none }
+import 'layout/unit_converter.dart';
+
+enum Display { block, inline, none, flex, table, tableRow, tableCell }
 
 /// Image fit mode, similar to CSS object-fit
 enum ObjectFit { contain, cover, fill, fitWidth, fitHeight, none, scaleDown }
@@ -11,6 +13,19 @@ enum VerticalAlign { top, middle, bottom, baseline }
 
 /// Table layout algorithm
 enum TableLayout { auto, fixed }
+
+enum FlexDirection { row, column, rowReverse, columnReverse }
+
+enum JustifyContent {
+  flexStart,
+  flexEnd,
+  center,
+  spaceBetween,
+  spaceAround,
+  spaceEvenly
+}
+
+enum AlignItems { flexStart, flexEnd, center, baseline, stretch }
 
 class CSSStyle {
   final PdfColor? color;
@@ -39,6 +54,12 @@ class CSSStyle {
   final TextDirection? textDirection;
   final TableLayout? tableLayout;
 
+  // Flex layout properties
+  final int? flexGrow;
+  final FlexDirection? flexDirection;
+  final JustifyContent? justifyContent;
+  final AlignItems? alignItems;
+
   const CSSStyle({
     this.color,
     this.backgroundColor,
@@ -65,6 +86,10 @@ class CSSStyle {
     this.borderCollapse,
     this.textDirection,
     this.tableLayout,
+    this.flexGrow,
+    this.flexDirection,
+    this.justifyContent,
+    this.alignItems,
   });
 
   /// Merges this style with another style. The other style takes precedence.
@@ -95,6 +120,10 @@ class CSSStyle {
       borderCollapse: other.borderCollapse ?? borderCollapse,
       textDirection: other.textDirection ?? textDirection,
       tableLayout: other.tableLayout ?? tableLayout,
+      flexGrow: other.flexGrow ?? flexGrow,
+      flexDirection: other.flexDirection ?? flexDirection,
+      justifyContent: other.justifyContent ?? justifyContent,
+      alignItems: other.alignItems ?? alignItems,
     );
   }
 
@@ -126,6 +155,10 @@ class CSSStyle {
       borderRadius: borderRadius,
       borderCollapse: borderCollapse,
       tableLayout: tableLayout,
+      flexGrow: flexGrow,
+      flexDirection: flexDirection,
+      justifyContent: justifyContent,
+      alignItems: alignItems,
     );
   }
 
@@ -154,6 +187,10 @@ class CSSStyle {
     bool? borderCollapse;
     TextDirection? textDirection;
     TableLayout? tableLayout;
+    int? flexGrow;
+    FlexDirection? flexDirection;
+    JustifyContent? justifyContent;
+    AlignItems? alignItems;
 
     final declarations = cssString.split(';');
     for (var declaration in declarations) {
@@ -230,6 +267,18 @@ class CSSStyle {
           if (value == 'fixed') tableLayout = TableLayout.fixed;
           if (value == 'auto') tableLayout = TableLayout.auto;
           break;
+        case 'flex-grow':
+          flexGrow = int.tryParse(value);
+          break;
+        case 'flex-direction':
+          flexDirection = _parseFlexDirection(value);
+          break;
+        case 'justify-content':
+          justifyContent = _parseJustifyContent(value);
+          break;
+        case 'align-items':
+          alignItems = _parseAlignItems(value);
+          break;
       }
     }
 
@@ -255,6 +304,10 @@ class CSSStyle {
       borderCollapse: borderCollapse,
       textDirection: textDirection,
       tableLayout: tableLayout,
+      flexGrow: flexGrow,
+      flexDirection: flexDirection,
+      justifyContent: justifyContent,
+      alignItems: alignItems,
     );
   }
 
@@ -334,21 +387,7 @@ class CSSStyle {
   }
 
   static double? _parseLength(String value) {
-    if (value.endsWith('px')) {
-      return double.tryParse(value.replaceAll('px', ''));
-    } else if (value.endsWith('pt')) {
-      return double.tryParse(value.replaceAll('pt', ''));
-    } else if (value.endsWith('em')) {
-      // Assuming 1em = 12pt for simplicity if base not known,
-      // but ideally this should be resolved later.
-      // For now, let's treat it as a scale factor or fixed size.
-      // Let's assume standard 16px (12pt) base?
-      // Actually, let's just parse the number.
-      return (double.tryParse(value.replaceAll('em', '')) ?? 1) * 12.0;
-    } else if (value.endsWith('rem')) {
-      return (double.tryParse(value.replaceAll('rem', '')) ?? 1) * 12.0;
-    }
-    return double.tryParse(value);
+    return UnitConverter.parseAndConvertToPt(value);
   }
 
   static FontWeight? _parseFontWeight(String value) {
@@ -398,6 +437,14 @@ class CSSStyle {
         return Display.inline;
       case 'none':
         return Display.none;
+      case 'flex':
+        return Display.flex;
+      case 'table':
+        return Display.table;
+      case 'table-row':
+        return Display.tableRow;
+      case 'table-cell':
+        return Display.tableCell;
       default:
         return null;
     }
@@ -477,6 +524,57 @@ class CSSStyle {
         return VerticalAlign.bottom;
       case 'baseline':
         return VerticalAlign.baseline;
+      default:
+        return null;
+    }
+  }
+
+  static FlexDirection? _parseFlexDirection(String value) {
+    switch (value.toLowerCase()) {
+      case 'row':
+        return FlexDirection.row;
+      case 'column':
+        return FlexDirection.column;
+      case 'row-reverse':
+        return FlexDirection.rowReverse;
+      case 'column-reverse':
+        return FlexDirection.columnReverse;
+      default:
+        return null;
+    }
+  }
+
+  static JustifyContent? _parseJustifyContent(String value) {
+    switch (value.toLowerCase()) {
+      case 'flex-start':
+        return JustifyContent.flexStart;
+      case 'flex-end':
+        return JustifyContent.flexEnd;
+      case 'center':
+        return JustifyContent.center;
+      case 'space-between':
+        return JustifyContent.spaceBetween;
+      case 'space-around':
+        return JustifyContent.spaceAround;
+      case 'space-evenly':
+        return JustifyContent.spaceEvenly;
+      default:
+        return null;
+    }
+  }
+
+  static AlignItems? _parseAlignItems(String value) {
+    switch (value.toLowerCase()) {
+      case 'flex-start':
+        return AlignItems.flexStart;
+      case 'flex-end':
+        return AlignItems.flexEnd;
+      case 'center':
+        return AlignItems.center;
+      case 'baseline':
+        return AlignItems.baseline;
+      case 'stretch':
+        return AlignItems.stretch;
       default:
         return null;
     }

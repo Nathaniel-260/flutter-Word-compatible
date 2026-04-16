@@ -6,7 +6,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
 import 'css_style.dart';
-import 'render_node.dart';
+import 'layout/layout_node.dart';
 
 /// Maps ObjectFit enum to pdf BoxFit
 pw.BoxFit _mapObjectFit(ObjectFit? objectFit) {
@@ -33,7 +33,7 @@ pw.BoxFit _mapObjectFit(ObjectFit? objectFit) {
 /// Builds an image widget for Web platforms.
 /// Supports Base64 and Network images.
 /// Enhanced with object-fit, border-radius, and styling support.
-Future<pw.Widget> buildImage(RenderNode node) async {
+Future<pw.Widget> buildImage(LayoutNode node) async {
   final src = node.attributes['src'];
   final alt = node.attributes['alt'] ?? 'Image';
 

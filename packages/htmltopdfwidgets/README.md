@@ -1,154 +1,174 @@
-# HTMLtoPDFWidgets
+<p align="center">
+  <img src="https://raw.githubusercontent.com/alihassan143/htmltopdfwidgets/main/logo.png" alt="HTMLtoPDFWidgets Logo" width="120">
+</p>
 
+# HTMLtoPDFWidgets 🚀
+### Build Professional PDFs from HTML & Markdown with Pixel-Perfect Precision
 
-HTMLtoPDFWidgets is a Flutter package that allows you to convert HTML and Markdown content into PDF documents with support for various Rich Text Editor formats. With this package, you can effortlessly generate PDF files that include elements such as lists, paragraphs, images, quotes, and headings.
+[![pub package](https://img.shields.io/pub/v/htmltopdfwidgets.svg?color=blue&style=flat-square)](https://pub.dev/packages/htmltopdfwidgets)
+[![License: MIT](https://img.shields.io/badge/License-MIT-lightgrey.svg?style=flat-square)](https://opensource.org/licenses/MIT)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/alihassan143/htmltopdfwidgets/dart.yml?branch=main&style=flat-square)](https://github.com/alihassan143/htmltopdfwidgets/actions)
+[![Support](https://img.shields.io/badge/Support-Buy%20Me%20A%20Coffee-orange.svg?style=flat-square)](https://www.buymeacoffee.com/alihassan13)
 
-## Help Maintenance
+---
 
-I've been maintaining quite many repos these days and burning out slowly. If you could help me cheer up, buying me a cup of coffee will make my life really happy and get much energy out of it.
+**`htmltopdfwidgets`** is a high-performance rendering engine designed for Flutter and Dart. It goes beyond simple tag mapping, providing a **Layout-First** pipeline that mimics browser rendering to ensure your PDFs look exactly like your web content.
 
-<a href="https://www.buymeacoffee.com/alihassan13" target="_blank"><img src="https://www.buymeacoffee.com/assets/img/custom_images/purple_img.png" alt="Buy Me A Coffee" style="height: auto !important;width: auto !important;" ></a>
+---
 
-## Features
+### ❤️ Support the Core Maintainer
+If this project saves you time, consider buying me a coffee! It helps keep the development alive and the energy high.
 
-- Convert HTML content to PDF documents in Flutter apps
-- Support for Markdown to PDF conversion
-- Rich Text Editor formatting support
-- Seamless integration with your Flutter project
-- Lightweight and easy to use
+<a href="https://www.buymeacoffee.com/alihassan13" target="_blank">
+  <img src="https://www.buymeacoffee.com/assets/img/custom_images/purple_img.png" alt="Buy Me A Coffee" style="height: auto !important;width: auto !important;">
+</a>
 
-## Installation
+---
 
-Add the following dependency to your `pubspec.yaml` file:
+## 🌟 Why htmltopdfwidgets?
+
+Generating PDFs from HTML is often messy. This package solves that by introducing a **Browser-Grade Rendering Pipeline**.
+
+- **🎯 Precision Scaling**: Automatically scales $1px$ to $0.75pt$, matching the industry standard for High-DPI PDF generation.
+- **🔳 Full Box Model**: Respects `width`, `height`, `padding`, `margin`, and `border` with CSS-like cascading.
+- **🏗️ Native Flexbox**: Turn `display: flex` rows and columns into native PDF widgets seamlessly.
+- **📄 Advanced Pagination**: Intelligent content breaking prevents text clipping and ensures tables break gracefully across pages.
+- **🖼️ Media Ready**: Handles network images, local files, and custom SVG paths.
+
+---
+
+## 🛠️ How it Works (The Pipeline)
+
+Our new **Layout-First** architecture ensures consistent results across all document types.
+
+```mermaid
+graph LR
+    A[HTML/MD String] --> B[HtmlParser]
+    B --> C[RenderNode Tree]
+    C --> D[LayoutSolver]
+    D --> E[LayoutNode Tree]
+    E --> F[PdfBuilder]
+    F --> G[PDF Widgets]
+    
+    style D fill:#f9f,stroke:#333,stroke-width:2px
+    style F fill:#bbf,stroke:#333,stroke-width:2px
+```
+
+---
+
+## 🚀 Installation
+
+Add it to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  htmltopdfwidgets: ^1.0.5
+  htmltopdfwidgets: ^2.1.0
 ```
 
-## Usage
+---
 
-### 1. Legacy Engine (Default)
-The legacy engine is maintained for backward compatibility.
+## 📖 Usage Guide
+
+### 📂 Using the Modern Browser Engine (Recommended)
+The modern engine is built for accuracy and complex CSS.
 
 ```dart
 import 'package:htmltopdfwidgets/htmltopdfwidgets.dart';
 
-final htmlContent = '''
-  <h1>Heading Example</h1>
-  <p>This is a paragraph.</p>
-  <img src="image.jpg" alt="Example Image" />
-  <blockquote>This is a quote.</blockquote>
-  <ul>
-    <li>First item</li>
-    <li>Second item</li>
-    <li>Third item</li>
-  </ul>
-''';
-
-  var filePath = 'test/example.pdf';
-  var file = File(filePath);
-  final newpdf = Document();
-  List<Widget> widgets = await HTMLToPdf().convert(htmlContent);
-  newpdf.addPage(MultiPage(
-      maxPages: 200,
-      build: (context) {
-        return widgets;
-      }));
-  await file.writeAsBytes(await newpdf.save());
-  await file.writeAsBytes(await newpdf.save());
-```
-
-### 2. Browser Rendering Engine (New)
-The new engine offers better CSS support, robust layout handling, and a cleaner architecture.
-
-```dart
-import 'package:htmltopdfwidgets/htmltopdfwidgets.dart';
-
-final htmlContent = '''
-  <div style="padding: 20px; background-color: #f0f0f0;">
-    <h1 style="color: blue;">Hello Browser Engine</h1>
-    <p>Supports <b>bold</b>, <i>italic</i>, and <span style="color: red;">inline styles</span>.</p>
+final String htmlContent = '''
+  <div style="padding: 24px; background-color: #f8f9fa; border: 2px solid #007bff; border-radius: 8px;">
+    <h1 style="color: #007bff; text-align: center;">Invoicing Simplified</h1>
+    <div style="display: flex; flex-direction: row; justify-content: space-between; margin-top: 20px;">
+      <div style="flex-grow: 1;">
+        <p><b>Client:</b> John Doe</p>
+        <p><b>Date:</b> April 16, 2024</p>
+      </div>
+      <div style="width: 150px; text-align: right;">
+        <p style="font-size: 24px;">$1,250.00</p>
+      </div>
+    </div>
   </div>
 ''';
 
-// Enable the new engine with the useNewEngine flag
-final widgets = await HTMLToPdf().convert(
-  htmlContent,
-  useNewEngine: true,
-);
+void main() async {
+  final widgets = await HTMLToPdf().convert(
+    htmlContent,
+    useNewEngine: true, // Unleash the Layout-First power
+  );
 
-final newpdf = Document();
-newpdf.addPage(MultiPage(build: (context) => widgets));
-await File('browser_engine_example.pdf').writeAsBytes(await newpdf.save());
+  final pdf = Document();
+  pdf.addPage(MultiPage(build: (context) => widgets));
+  
+  // Save or preview your PDF
+}
 ```
 
-### 3. Converting Markdown to PDF:
+### 📝 Markdown to PDF
+Directly convert Markdown rich text into structured PDF documents.
 
 ```dart
 final markDown = '''
-  # Basic Markdown Demo
+# 📖 Project Documentation
 ---
-The Basic Markdown Demo shows the effect of the four Markdown extension sets
-on formatting basic and extended Markdown tags.
+> Building better PDFs together.
 
-## Overview
-
-The Dart [markdown](https://pub.dev/packages/markdown) package parses Markdown
-into HTML. The flutter_markdown package builds on this package using the
-abstract syntax tree generated by the parser to make a tree of widgets instead
-of HTML elements.
-
-The markdown package supports the basic block and inline Markdown syntax
-specified in the original Markdown implementation as well as a few Markdown
-extensions. The markdown package uses extension sets to make extension
-management easy. There are four pre-defined extension sets; none, Common Mark,
-GitHub Flavored, and GitHub Web. The default extension set used by the
-flutter_markdown package is GitHub Flavored.
-
-The Basic Markdown Demo shows the effect each of the pre-defined extension sets
-has on a test Markdown document with basic and extended Markdown tags. Use the
-Extension Set dropdown menu to select an extension set and view the Markdown
-widget's output.
-
-## Comments
-
-Since GitHub Flavored is the default extension set, it is the initial setting
-for the formatted Markdown view in the demo.
+### Features
+- [x] High-performance rendering
+- [x] **Flexbox** support
+- [x] Custom font fallbacks
 ''';
 
-  final List<Widget> markdownWidgets = await HTMLToPdf().convertMarkdown(markDown);
-final markdownPdf = Document();
-markdownPdf.addPage(MultiPage(
-  build: (context) => markdownWidgets,
-));
-await File('markdown_example.pdf').writeAsBytes(await markdownPdf.save());
+final List<Widget> widgets = await HTMLToPdf().convertMarkdown(markDown);
 ```
 
-For more details on usage and available options, please refer to the [API documentation](https://pub.dev/documentation/htmltopdfwidgets/latest).
+---
 
-## Example
+## 🎨 Advanced Features
 
-You can find a complete example in the [example](https://github.com/alihassan143/htmltopdfwidgets/tree/main/example) directory of this repository.
+### 🌈 Custom Styling
+Override any tag's default style with a single object.
 
-## License
+```dart
+final widgets = await HTMLToPdf().convert(
+  html,
+  tagStyle: HtmlTagStyle(
+    h1Style: pw.TextStyle(color: PdfColors.blue900, fontWeight: pw.FontWeight.bold),
+    pStyle: pw.TextStyle(lineSpacing: 2.0),
+  ),
+);
+```
 
-This package is licensed under the [MIT License](https://github.com/alihassan143/htmltopdfwidgets/blob/main/LICENSE).
+### 🌍 Global Language Support & Emojis
+Using `fontFallback` allows you to render Emojis and non-Latin scripts (Arabic, Kanji, etc.) effortlessly.
 
-## Contributing
+```dart
+final widgets = await HTMLToPdf().convert(
+  'Success! 🚀 ✅ Done.',
+  fontFallback: [emojiFont, mainFont],
+);
+```
 
-Contributions are welcome! If you encounter any issues or have suggestions for improvements, please feel free to open an issue or submit a pull request on the [GitHub repository](https://github.com/alihassan143/htmltopdfwidgets).
+---
 
-## Acknowledgments
+## 📦 Tag Support Matrix
 
-Special thanks to the Appflowy editor:
-I use their Html To Document plugin as reference
+| Category | Supported Elements |
+| :--- | :--- |
+| **Typography** | `h1-h6`, `p`, `span`, `b`, `strong`, `i`, `em`, `u`, `br`, `hr`, `code`, `pre` |
+| **Containers** | `div`, `section`, `article`, `header`, `footer`, `nav`, `aside`, `main` |
+| **Lists** | `ul`, `ol`, `li` |
+| **Layout** | `table`, `thead`, `tbody`, `tr`, `th`, `td`, `blockquote` |
+| **Interactive** | `a` (links), `input[type="checkbox"]` |
+| **Media** | `img` (Base64, Network, File) |
 
-- Appflowy ([@AppFlowy-IO](https://github.com/AppFlowy-IO/appflowy-editor))
+---
 
+## 🤝 Contributing
 
+We love contributions! If you have an idea to make this engine even more powerful, please:
+1.  Fork the repo.
+2.  Create your feature branch.
+3.  Submit a PR!
 
-Happy PDF generation with HTMLtoPDFWidgets in your Flutter apps!
-
-
+**License**: MIT | **Maintainer**: [Ali Hassan](https://github.com/alihassan143)
 

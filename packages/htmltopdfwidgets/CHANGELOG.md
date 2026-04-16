@@ -1,3 +1,13 @@
+## 2.1.0
+
+* **Layout-First Rendering Engine**: Major architectural refactor for Chrome-like PDF accuracy.
+    * **Calculated Constraints**: Every element now undergoes a virtual layout pass to resolve CSS Box Model constraints (padding, border, margin) before widget generation.
+    * **Standardized Unit Conversion**: Implemented $1px = 0.75pt$ scaling to ensure PDF layouts precisely match browser/web views.
+    * **Native Flexbox Support**: Added `display: flex` support with mapping to `pw.Flex`. Supports `flex-grow`, `flex-direction`, `justify-content`, and `align-items`.
+    * **Enhanced Table Support**: Tables now support repeating headers across pages, cell alignment, and native PDF borders/backgrounds.
+    * **Improved Page Spanning**: Refined block detection to allow long content (paragraphs, blockquotes, headers) to bridge across pages without "exceeded page height" errors.
+* **Refactored Codebase**: Decoupled parsing (`HtmlParser`), layout calculation (`LayoutSolver`), and PDF construction (`PdfBuilder`) for better extensibility.
+
 ## 2.0.1
 
 * **Fixes**:

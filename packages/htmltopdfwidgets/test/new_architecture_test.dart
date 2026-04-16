@@ -11,15 +11,15 @@ void main() {
     test('Parse simple CSS string', () {
       final style = CSSStyle.parse('color: red; font-size: 16px;');
       expect(style.color, PdfColors.red);
-      expect(style.fontSize, 16.0);
+      expect(style.fontSize, 12.0); // 16px * 0.75 = 12pt
     });
 
     test('Parse complex CSS string with shorthand', () {
       final style = CSSStyle.parse('margin: 10px 20px; padding: 5px;');
-      expect(style.margin!.top, 10.0);
-      expect(style.margin!.left, 20.0);
-      expect(style.padding!.top, 5.0);
-      expect(style.padding!.left, 5.0);
+      expect(style.margin!.top, 7.5); // 10px * 0.75
+      expect(style.margin!.left, 15.0); // 20px * 0.75
+      expect(style.padding!.top, 3.75); // 5px * 0.75
+      expect(style.padding!.left, 3.75); // 5px * 0.75
     });
 
     test('Merge styles', () {
