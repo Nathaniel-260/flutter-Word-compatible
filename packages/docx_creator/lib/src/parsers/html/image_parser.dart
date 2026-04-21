@@ -112,12 +112,15 @@ class HtmlImageParser {
   /// px→pt conversion at the boundary). Returns null if the property
   /// is absent or malformed.
   double? _readCssLength(String? style, String propName) {
-    if (style == null || style.isEmpty) return null;
+    if (style == null) return null;
+    final trimmedStyle = style.trim();
+    if (trimmedStyle.isEmpty) return null;
+
     final re = RegExp(
       '(?:^|;)\\s*$propName\\s*:\\s*([0-9.]+)\\s*(px|pt)?',
       caseSensitive: false,
     );
-    final match = re.firstMatch(style);
+    final match = re.firstMatch(trimmedStyle);
     if (match == null) return null;
     final n = double.tryParse(match.group(1)!);
     if (n == null) return null;

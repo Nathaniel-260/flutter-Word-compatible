@@ -118,31 +118,41 @@ class ImageResolver {
 
     if (bytes == null) return null;
 
-    double wPt = width ?? 0;
-    double hPt = height ?? 0;
+    double? wPt = (width != null && width > 0) ? width : null;
+    double? hPt = (height != null && height > 0) ? height : null;
 
-    if ((wPt <= 0 || hPt <= 0) && useIntrinsicWhenMissing) {
+    if ((wPt == null || hPt == null) && useIntrinsicWhenMissing) {
       final intrinsic = intrinsicSizePt(bytes);
       if (intrinsic != null) {
-        if (wPt <= 0) wPt = intrinsic.$1;
-        if (hPt <= 0) hPt = intrinsic.$2;
+        final iW = intrinsic.$1;
+        final iH = intrinsic.$2;
+        if (wPt == null && hPt == null) {
+          wPt = iW;
+          hPt = iH;
+        } else if (wPt == null) {
+          // Calculate proportional width
+          wPt = hPt! * (iW / iH);
+        } else {
+          // Calculate proportional height
+          hPt = wPt * (iH / iW);
+        }
       }
     }
 
-    if (wPt <= 0) wPt = _fallbackWidthPt;
-    if (hPt <= 0) hPt = _fallbackHeightPt;
+    double finalW = wPt ?? _fallbackWidthPt;
+    double finalH = hPt ?? _fallbackHeightPt;
 
     // Cap at page content width preserving aspect ratio.
-    if (wPt > _maxContentPt) {
-      hPt = hPt * (_maxContentPt / wPt);
-      wPt = _maxContentPt;
+    if (finalW > _maxContentPt) {
+      finalH = finalH * (_maxContentPt / finalW);
+      finalW = _maxContentPt;
     }
 
     return ImageResult(
       bytes: bytes,
       extension: extension,
-      width: wPt,
-      height: hPt,
+      width: finalW,
+      height: finalH,
       altText: alt ?? 'Image',
     );
   }

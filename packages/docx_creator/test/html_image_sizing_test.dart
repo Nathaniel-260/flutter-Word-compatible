@@ -83,6 +83,37 @@ void main() {
 
       expect(nodes.single, isA<DocxParagraph>());
     });
+
+    test('scales proportionally when only width is specified (Issue #86)',
+        () async {
+      final html = '<img src="$src" style="width: 200px">';
+      final nodes = await DocxParser.fromHtml(html);
+
+      final image = nodes.single as DocxImage;
+      // 200 px × 72/96 = 150 pt. Intrinsic is 1x1, so height should also be 150 pt.
+      expect(image.width, closeTo(150.0, 0.001));
+      expect(image.height, closeTo(150.0, 0.001));
+    });
+
+    test('scales proportionally when only height is specified (Issue #86)',
+        () async {
+      final html = '<img src="$src" style="height: 100px">';
+      final nodes = await DocxParser.fromHtml(html);
+
+      final image = nodes.single as DocxImage;
+      // 100 px × 72/96 = 75 pt. Intrinsic is 1x1, so width should also be 75 pt.
+      expect(image.width, closeTo(75.0, 0.001));
+      expect(image.height, closeTo(75.0, 0.001));
+    });
+
+    test('robustly parses CSS style with leading/trailing whitespace',
+        () async {
+      final html = '<img src="$src" style="  width: 120px;  ">';
+      final nodes = await DocxParser.fromHtml(html);
+
+      final image = nodes.single as DocxImage;
+      expect(image.width, closeTo(120 * pxToPt, 0.001));
+    });
   });
 
   group('ImageResolver.intrinsicSizePt', () {
