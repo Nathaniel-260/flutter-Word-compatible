@@ -15,8 +15,7 @@ void main() {
   const double pxToPt = 72.0 / 96.0;
 
   group('HtmlImageParser sizing (Issue #86)', () {
-    test('CSS style width/height is honored and converted to points',
-        () async {
+    test('CSS style width/height is honored and converted to points', () async {
       final html = '<img src="$src" style="width: 600px; height: 400px">';
       final nodes = await DocxParser.fromHtml(html);
 
