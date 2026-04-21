@@ -1,3 +1,14 @@
+## 1.2.2
+
+### Fixed
+- **HTML image sizing**: `HtmlImageParser` now honors CSS-declared sizes (`<img style="width: 600px; height: 400px">`), converts pixel-valued `width`/`height` attributes to DOCX points via the 72/96 DPI ratio, and falls back to the intrinsic pixel size of the decoded image when no HTML-level sizing is present. Previously every image sized via CSS collapsed to the 200×150 pt thumbnail default and every attribute-sized image rendered ~1.33× too large, clipping past the page margin (Issue #86).
+- **Oversized images clipping the page**: `ImageResolver` now caps the final width at ~451 pt (the printable content width of an A4/Letter page with 1" side margins) preserving aspect ratio, so large source images stay inside the text frame.
+
+### Notes
+- `DocxInlineImage` and `DocxImage` still accept `width` / `height` in **points**; only the HTML parser's interpretation of raw attribute numbers has changed. Tests that assert `width == 100` when the HTML reads `width="100"` should be updated to `width == 75` (100 px × 72/96).
+
+---
+
 ## 1.2.1
 
 ### Added

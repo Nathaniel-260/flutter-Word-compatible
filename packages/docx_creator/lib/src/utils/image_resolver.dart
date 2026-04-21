@@ -2,15 +2,22 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
+import 'package:image/image.dart' as img;
 
 import 'file_loader_io.dart'
     if (dart.library.js_interop) 'file_loader_web.dart';
 
-/// Result of an image resolution.
+/// Result of an image resolution. `width` and `height` are expressed in
+/// DOCX **points** (72 pt = 1 inch), the same unit [DocxInlineImage] and
+/// [DocxImage] expect.
 class ImageResult {
   final Uint8List bytes;
   final String extension;
+
+  /// Final on-page width in points.
   final double width;
+
+  /// Final on-page height in points.
   final double height;
   final String altText;
 
@@ -23,12 +30,38 @@ class ImageResult {
   });
 }
 
-/// Utility to resolve images from various sources (URL, Base64, File).
+/// Utility to resolve images from various sources (URL, Base64, File)
+/// and produce an [ImageResult] whose width/height are sized correctly
+/// for Microsoft Word.
+///
+/// Sizing rules:
+/// 1. Caller-provided [width] / [height] (already in **points**) win.
+/// 2. Otherwise, when [useIntrinsicWhenMissing] is true, the intrinsic
+///    pixel size is read from the image header (via `package:image`)
+///    and converted to points using the 72/96 CSS-DPI ratio Word uses
+///    when rendering drawingML.
+/// 3. As a last resort, a 200×150 pt thumbnail default is used (same
+///    behavior as prior versions) so the call never fails.
+///
+/// Finally the width is capped at `_maxContentPt` (the printable width
+/// of a standard A4/Letter page) preserving aspect ratio, so oversized
+/// sources never clip past the page margin.
 class ImageResolver {
   ImageResolver._();
 
-  static const double _defaultWidth = 200.0;
-  static const double _defaultHeight = 150.0;
+  /// Printable content width of an A4/Letter page with ~1" side margins,
+  /// in DOCX points. 6.26" × 72 ≈ 451 pt. Matches the 9022-twip default
+  /// used by the table/grid layout code.
+  static const double _maxContentPt = 451.0;
+
+  /// CSS pixel → DOCX point. Word's drawingML is referenced at 72 DPI
+  /// while HTML/CSS pixels reference 96 DPI.
+  static const double _pxToPt = 72.0 / 96.0;
+
+  /// Last-resort fallback when no caller dims are given, no intrinsic
+  /// size can be read, and [useIntrinsicWhenMissing] is false.
+  static const double _fallbackWidthPt = 200.0;
+  static const double _fallbackHeightPt = 150.0;
 
   /// Resolves an image from a source string.
   ///
@@ -36,11 +69,16 @@ class ImageResolver {
   /// - Base64 data URI: `data:image/png;base64,...`
   /// - Remote URL: `http://...`, `https://...`
   /// - Local File Path: `/path/to/image.png` (if accessible)
+  ///
+  /// [width] and [height] are in **points** when supplied. When both are
+  /// null/zero and [useIntrinsicWhenMissing] is true, the intrinsic size
+  /// of the decoded bytes is used.
   static Future<ImageResult?> resolve(
     String source, {
     double? width,
     double? height,
     String? alt,
+    bool useIntrinsicWhenMissing = false,
   }) async {
     if (source.isEmpty) return null;
 
@@ -49,7 +87,6 @@ class ImageResolver {
 
     try {
       if (source.startsWith('data:image/')) {
-        // Handle Base64
         final regex = RegExp(r'data:image/(\w+);base64,(.+)');
         final match = regex.firstMatch(source);
         if (match != null) {
@@ -59,7 +96,6 @@ class ImageResolver {
         }
       } else if (source.startsWith('http://') ||
           source.startsWith('https://')) {
-        // Handle Remote URL
         final response = await http.get(Uri.parse(source)).timeout(
               const Duration(seconds: 10),
             );
@@ -69,40 +105,68 @@ class ImageResolver {
               _getImageExtension(source, response.headers['content-type']);
         }
       } else {
-        // Handle Local File via FileLoader abstraction
         final loader = getFileLoader();
         if (await loader.exists(source)) {
           bytes = await loader.loadBytes(source);
           extension = _getImageExtension(source, null);
         }
       }
-    } catch (e) {
-      // Log error or ignore? For now, we return null to allow fallback.
-      // print('DocxCreator ImageResolver Error: $e');
+    } catch (_) {
+      // Swallow network/IO failures so callers can fall through to a
+      // placeholder. Returning null here keeps the original behavior.
     }
 
     if (bytes == null) return null;
 
+    double wPt = width ?? 0;
+    double hPt = height ?? 0;
+
+    if ((wPt <= 0 || hPt <= 0) && useIntrinsicWhenMissing) {
+      final intrinsic = intrinsicSizePt(bytes);
+      if (intrinsic != null) {
+        if (wPt <= 0) wPt = intrinsic.$1;
+        if (hPt <= 0) hPt = intrinsic.$2;
+      }
+    }
+
+    if (wPt <= 0) wPt = _fallbackWidthPt;
+    if (hPt <= 0) hPt = _fallbackHeightPt;
+
+    // Cap at page content width preserving aspect ratio.
+    if (wPt > _maxContentPt) {
+      hPt = hPt * (_maxContentPt / wPt);
+      wPt = _maxContentPt;
+    }
+
     return ImageResult(
       bytes: bytes,
       extension: extension,
-      width: width ??
-          _parseDimension(null) ??
-          _defaultWidth, // _parseDimension handles px suffix if needed
-      height: height ?? _parseDimension(null) ?? _defaultHeight,
+      width: wPt,
+      height: hPt,
       altText: alt ?? 'Image',
     );
   }
 
-  static double? _parseDimension(String? value) {
-    if (value == null) return null;
-    final cleaned =
-        value.replaceAll(RegExp(r'px\s*$', caseSensitive: false), '').trim();
-    return double.tryParse(cleaned);
+  /// Reads the intrinsic pixel dimensions of an image from its header
+  /// (no full decode) and returns them converted to DOCX points.
+  /// Returns null if the format is unrecognised or the header is
+  /// malformed.
+  static (double, double)? intrinsicSizePt(Uint8List bytes) {
+    try {
+      final decoder = img.findDecoderForData(bytes);
+      if (decoder == null) return null;
+      final info = decoder.startDecode(bytes);
+      if (info == null) return null;
+      final wPt = info.width * _pxToPt;
+      final hPt = info.height * _pxToPt;
+      if (wPt <= 0 || hPt <= 0) return null;
+      return (wPt, hPt);
+    } catch (_) {
+      return null;
+    }
   }
 
   static String _getImageExtension(String url, String? contentType) {
-    // Try to get extension from URL/Path
     try {
       final uri = Uri.parse(url);
       final path = uri.path.toLowerCase();
@@ -114,7 +178,6 @@ class ImageResolver {
       if (path.endsWith('.tiff') || path.endsWith('.tif')) return 'tiff';
     } catch (_) {}
 
-    // Try to get from content-type
     if (contentType != null) {
       if (contentType.contains('png')) return 'png';
       if (contentType.contains('jpeg') || contentType.contains('jpg')) {
@@ -126,7 +189,6 @@ class ImageResolver {
       if (contentType.contains('tiff')) return 'tiff';
     }
 
-    // Default
     return 'png';
   }
 }

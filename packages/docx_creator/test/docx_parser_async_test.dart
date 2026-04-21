@@ -3,7 +3,7 @@ import 'package:test/test.dart';
 
 void main() {
   group('DocxParser Async', () {
-    test('parses base64 image', () async {
+    test('parses base64 image and converts pixel attrs to points', () async {
       // 1x1 pixel red dot PNG
       const base64Png =
           'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
@@ -17,8 +17,10 @@ void main() {
 
       final img = nodes.first as DocxImage;
       expect(img.extension, 'png');
-      expect(img.width, 100.0);
-      expect(img.height, 100.0);
+      // 100 CSS px → 75 DOCX pt (× 72/96). Prior to 1.2.2 this was a
+      // 100 pt passthrough, which rendered ~1.33× too large in Word.
+      expect(img.width, closeTo(75.0, 0.001));
+      expect(img.height, closeTo(75.0, 0.001));
       expect(img.altText, 'Red Dot');
       expect(img.bytes, isNotEmpty);
     });
