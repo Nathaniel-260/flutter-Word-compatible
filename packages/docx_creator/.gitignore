@@ -1,0 +1,15 @@
+# .graphifyignore
+vendor/
+node_modules/
+dist/
+*.generated.py
+.gemini/
+.dart_tool/
+.DS_Store
+.env
+.idea/
+.vscode/
+.agent/
+.cursor/
+.gemini/
+GEMINI.md
