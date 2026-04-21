@@ -96,21 +96,19 @@ class HtmlImageParser {
   /// the dimension is not declared at the HTML layer.
   _Dims _readDimensions(dom.Element element) {
     final style = element.attributes['style'];
-    final wPx = _readCssLength(style, 'width') ??
+    final widthPt = _readCssLength(style, 'width') ??
         _parsePxAttr(element.attributes['width']);
-    final hPx = _readCssLength(style, 'height') ??
+    final heightPt = _readCssLength(style, 'height') ??
         _parsePxAttr(element.attributes['height']);
     return _Dims(
-      widthPt: wPx == null ? null : wPx * _pxToPt,
-      heightPt: hPx == null ? null : hPx * _pxToPt,
+      widthPt: widthPt,
+      heightPt: heightPt,
     );
   }
 
   /// Extracts a numeric `propName: <n>px | <n>pt` declaration from a
-  /// CSS style string, returning the value in CSS pixels (`pt` values
-  /// are normalised back to px so the caller can apply the single
-  /// px→pt conversion at the boundary). Returns null if the property
-  /// is absent or malformed.
+  /// CSS style string, returning the value in points (**pt**).
+  /// Returns null if the property is absent or malformed.
   double? _readCssLength(String? style, String propName) {
     if (style == null) return null;
     final trimmedStyle = style.trim();
@@ -125,14 +123,15 @@ class HtmlImageParser {
     final n = double.tryParse(match.group(1)!);
     if (n == null) return null;
     final unit = (match.group(2) ?? 'px').toLowerCase();
-    return unit == 'pt' ? n / _pxToPt : n;
+    return unit == 'pt' ? n : n * _pxToPt;
   }
 
   double? _parsePxAttr(String? value) {
     if (value == null) return null;
     final cleaned =
         value.replaceAll(RegExp(r'px\s*$', caseSensitive: false), '').trim();
-    return double.tryParse(cleaned);
+    final n = double.tryParse(cleaned);
+    return n == null ? null : n * _pxToPt;
   }
 }
 
