@@ -1,26 +1,23 @@
 ## 1.2.3
 
 ### Fixed
-- **Invalid Path Decoding**: Added try-catch around `Uri.decodeFull` in `FileLoaderImpl` to prevent crashes when encountering invalid percent-encoded sequences (like a literal `%`) in file paths, especially on Windows (Issue #89).
-- **Zip Encoding Validation**: Added null/empty check for ZIP encoding results in `DocxExporter` to ensure document integrity (Issue #85).
+- **Invalid Path Decoding**: Added try-catch around `Uri.decodeFull` in `FileLoaderImpl` to prevent crashes when encountering invalid percent-encoded sequences (like a literal `%`) in file paths, especially on Windows (#89).
+- **Zip Encoding Validation**: Added null/empty check for ZIP encoding results in `DocxExporter` to ensure document integrity (#85).
 
 ### Added
-- **Custom Section Margins**: Added support for `marginTop`, `marginBottom`, `marginLeft`, and `marginRight` parameters in `DocxDocumentBuilder.section()`, allowing precise page layout control (Issue #88).
+- **Custom Section Margins**: Added support for `marginTop`, `marginBottom`, `marginLeft`, and `marginRight` parameters in `DocxDocumentBuilder.section()`, allowing precise page layout control (#88).
 - **AI Context**: Added `llm.txt` to the package root to provide better context for AI agents working with this codebase.
 
 ### Improved
-- **Path Handling**: Enhanced `FileLoaderImpl` to correctly handle encoded file paths for local images (Issue #77).
+- **Path Handling**: Enhanced `FileLoaderImpl` to correctly handle encoded file paths for local images (#77).
 
 ---
 
 ## 1.2.2
 
 ### Fixed
-- **HTML image sizing**: `HtmlImageParser` now honors CSS-declared sizes (`<img style="width: 600px; height: 400px">`), converts pixel-valued `width`/`height` attributes to DOCX points via the 72/96 DPI ratio, and falls back to the intrinsic pixel size of the decoded image when no HTML-level sizing is present. Previously every image sized via CSS collapsed to the 200×150 pt thumbnail default and every attribute-sized image rendered ~1.33× too large, clipping past the page margin (Issue #86).
+- **HTML image sizing**: `HtmlImageParser` now honors CSS-declared sizes (`<img style="width: 600px; height: 400px">`), converts pixel-valued `width`/`height` attributes to DOCX points via the 72/96 DPI ratio, and falls back to the intrinsic pixel size of the decoded image when no HTML-level sizing is present (#86).
 - **Oversized images clipping the page**: `ImageResolver` now caps the final width at ~451 pt (the printable content width of an A4/Letter page with 1" side margins) preserving aspect ratio, so large source images stay inside the text frame.
-
-### Notes
-- `DocxInlineImage` and `DocxImage` still accept `width` / `height` in **points**; only the HTML parser's interpretation of raw attribute numbers has changed. Tests that assert `width == 100` when the HTML reads `width="100"` should be updated to `width == 75` (100 px × 72/96).
 
 ---
 
@@ -28,11 +25,10 @@
 
 ### Added
 - **Modular DOCX Generator Architecture**: Refactored the monolithic `DocxExporter` into specialized generator classes (`DocumentGenerator`, `StylesGenerator`, `RelationshipsGenerator`, etc.) for improved maintainability and extensibility.
-- **Vertical Text Alignment**: Added support for `textAlignment` in `DocxParagraph.text`, `DocxParagraph.render`, and `DocxTableCell.text` factory methods (Issue #72).
 
 ### Fixed
-- **Table Widths**: Corrected `w:tcW` (table cell width) generation when `gridColumns` are specified, ensuring accurate table layouts in Microsoft Word (Issue #82).
-- **Footer Images**: Fixed issue where images in footers were not rendering in Word due to missing relationship (`.rels`) files (Issue #80).
+- **Table Widths**: Corrected `w:tcW` (table cell width) generation when `gridColumns` are specified, ensuring accurate table layouts in Microsoft Word (#82).
+- **Footer Images**: Fixed issue where images in footers were not rendering in Word due to missing relationship (`.rels`) files (#80).
 - **Table Width Calculation**: Improved logic for calculating automatic column widths for better visual fidelity.
 
 ---
@@ -54,7 +50,7 @@
 ### Fixed
 - **Image Borders**: Corrected XML element order (`a:prstGeom` before `a:ln`) in `DocxInlineImage` to ensure borders are properly rendered in Microsoft Word.
 - **Paragraph Alignment**: Fixed issue where left-aligned paragraphs in table cells incorrectly inherited table styles by always emitting explicit justification tags (`w:jc`).
-- **Paragraph Padding**: Fixed unwanted horizontal lines appearing when using `paddingTop` or `paddingBottom` by defaulting to invisible `nil` borders (Issue #70).
+- **Paragraph Padding**: Fixed unwanted horizontal lines appearing when using `paddingTop` or `paddingBottom` by defaulting to invisible `nil` borders (#70).
 
 ### Improved
 - **Alignment Mapping**: Updated `DocxAlign` to use modern `start` and `end` values for better compatibility and RTL support.
@@ -64,9 +60,9 @@
 ## 1.1.8
 
 ### Fixed
-- **Paragraph Vertical Alignment**: Added `DocxTextAlignment` enum and `textAlignment` property to `DocxParagraph` to support vertical text alignment (Issue #72).
-- **Header Visibility**: Fixed issue where custom headers were only visible on the first page by defaulting `headerReference` to `w:type="default"` (Issue #73).
-- **Table Row Height Enforcement**: Ensured strict matching of custom table row heights by adding `w:hRule="exact"` to the generated `w:trHeight` tag (Issue #74).
+- **Vertical Text Alignment**: Added support for vertical text alignment via `DocxTextAlignment` enum and `textAlignment` property in `DocxParagraph` and related factory methods (#72).
+- **Header Visibility**: Fixed issue where custom headers were only visible on the first page by defaulting `headerReference` to `w:type="default"` (#73).
+- **Table Row Height Enforcement**: Ensured strict matching of custom table row heights by adding `w:hRule="exact"` to the generated `w:trHeight` tag (#74).
 
 ---
 
@@ -82,16 +78,6 @@
 ---
 
 ## 1.1.6
-
-### Fixed
-- **Web Compatibility**: Removed all direct `dart:io` dependencies to enable full Flutter Web support.
-  - Replaced `dart:io` `File` usages with platform-agnostic `FileSaver` and `FileLoader` abstractions.
-  - Replaced `dart:io` `zlib` compression with `package:archive` for PDF generation and parsing on web.
-  - Updated `ImageResolver` to handle file loading via `FileLoader`.
-
----
-
-## 1.1.5
 
 ### Fixed
 - **Web Compatibility**: Removed all direct `dart:io` dependencies to enable full Flutter Web support.

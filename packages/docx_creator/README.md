@@ -950,7 +950,7 @@ See the `example/` directory for comprehensive examples:
 
 ## 🤖 AI-Agent Friendly
 
-This package includes an [`llm.txt`](llm.txt) file at the root, providing a structured map of the codebase and architectural patterns to help AI coding agents work more effectively and safely.
+This package includes an [**llm.txt**](llm.txt) file at the root, providing a structured map of the codebase and architectural patterns to help AI coding agents work more effectively and safely.
 
 ## License
 
