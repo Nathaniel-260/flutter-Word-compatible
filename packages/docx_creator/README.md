@@ -26,9 +26,10 @@ A **developer-first DOCX generation library** for Dart. Create, parse, read, and
 | 🧢**Drop Caps**          | Stylized drop caps for paragraph beginnings                |
 | 🎨**Theme Support**      | Theme colors, tints, shades, and font themes               |
 | 🧬**Advanced Styling**   | Proper inheritance from docDefaults and style hierarchy    |
-| 🤖**AI-Ready**         | Optimized for AI agents with [llm.txt](llm.txt) context   |
+| 🤖**AI-Ready**           | Optimized for AI agents with[llm.txt](llm.txt) context        |
 
 ---
+
 ## Help Maintenance
 
 I've been maintaining quite many repos these days and burning out slowly. If you could help me cheer up, buying me a cup of coffee will make my life really happy and get much energy out of it.
@@ -39,7 +40,7 @@ I've been maintaining quite many repos these days and burning out slowly. If you
 
 ## 🤖 AI-Agent Friendly
 
-This package includes an [**llm.txt**](llm.txt) file at the root, providing a structured map of the codebase and architectural patterns to help AI coding agents work more effectively and safely.
+This package includes an **[llm.txt](https://github.com/alihassan143/flutter-packages/tree/main/packages/docx_creator/llm.txt)** file at the root, providing a structured map of the codebase and architectural patterns to help AI coding agents work more effectively and safely.
 
 ## 📦 Installation
 
