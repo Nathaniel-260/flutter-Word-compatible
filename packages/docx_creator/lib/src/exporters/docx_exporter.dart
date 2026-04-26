@@ -150,7 +150,8 @@ class DocxExporter {
 
     final encoder = ZipEncoder();
     final bytes = encoder.encode(archive);
-    if (bytes.isEmpty) {
+    // ignore: unnecessary_null_comparison
+    if (bytes == null || bytes.isEmpty) {
       throw DocxExportException('Failed to encode ZIP', targetFormat: 'DOCX');
     }
 

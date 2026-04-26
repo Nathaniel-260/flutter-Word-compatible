@@ -13,3 +13,4 @@ dist/
 .cursor/
 .gemini/
 GEMINI.md
+graphify-out/

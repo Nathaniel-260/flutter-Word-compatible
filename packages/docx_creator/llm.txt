@@ -1,0 +1,45 @@
+# docx_creator
+
+A powerful Dart package for creating, reading, and editing DOCX documents. It also supports exporting to PDF and parsing HTML/Markdown into DOCX format.
+
+## Key Features
+
+- **Document Creation:** Fluent API for building DOCX documents from scratch.
+- **HTML/Markdown Support:** Convert HTML or Markdown strings directly into DOCX nodes.
+- **PDF Export:** Built-in PDF layout engine and exporter.
+- **PDF Reader:** Parse PDF documents and extract content.
+- **Styling:** Comprehensive support for fonts, colors, borders, and margins.
+- **Layouts:** Headers, footers, tables, lists, and background images.
+- **Embedded Fonts:** Support for bundling and using TTF fonts in the generated documents.
+
+## Project Structure
+
+- `lib/src/ast/`: Abstract Syntax Tree representing DOCX document elements.
+- `lib/src/builder/`: High-level builders for simplified document creation.
+- `lib/src/exporters/`: Logic for exporting DOCX to various formats (including PDF).
+- `lib/src/parser/`: Parsers for HTML and Markdown.
+- `lib/src/reader/`: Logic for reading existing DOCX and PDF files.
+- `lib/src/utils/`: Shared utilities like image resolvers and validators.
+
+## Core Concepts
+
+- **DocxNode:** Base class for all document elements (paragraphs, tables, sections, etc.).
+- **DocxDocumentBuilder:** The primary entry point for creating documents fluently.
+- **DocxSectionDef:** Defines page layout properties for a section.
+- **DocxParagraph:** Represents a paragraph containing text runs or images.
+
+## Common Usage
+
+```dart
+final doc = Docx()
+  .h1('Hello World')
+  .p('This is a **bold** paragraph.')
+  .bullet(['First item', 'Second item'])
+  .build();
+
+await doc.save('example.docx');
+```
+
+## AI Agent Integration
+
+This file provides context for LLMs and AI agents working on this codebase. Follow the established patterns of composition over inheritance and immutable data structures.

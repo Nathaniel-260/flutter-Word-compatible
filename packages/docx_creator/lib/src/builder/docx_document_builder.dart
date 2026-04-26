@@ -31,6 +31,10 @@ class DocxDocumentBuilder {
     DocxFooter? footer,
     DocxColor? backgroundColor,
     DocxBackgroundImage? backgroundImage,
+    int? marginTop,
+    int? marginBottom,
+    int? marginLeft,
+    int? marginRight,
   }) {
     _currentSection = DocxSectionDef(
       orientation: orientation,
@@ -39,6 +43,10 @@ class DocxDocumentBuilder {
       footer: footer,
       backgroundColor: backgroundColor,
       backgroundImage: backgroundImage,
+      marginTop: marginTop ?? kDefaultMarginTop,
+      marginBottom: marginBottom ?? kDefaultMarginBottom,
+      marginLeft: marginLeft ?? kDefaultMarginLeft,
+      marginRight: marginRight ?? kDefaultMarginRight,
     );
     return this;
   }
