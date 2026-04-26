@@ -1,45 +1,138 @@
-# docx_creator
+# docx_creator - Comprehensive AI Context
 
-A powerful Dart package for creating, reading, and editing DOCX documents. It also supports exporting to PDF and parsing HTML/Markdown into DOCX format.
+`docx_creator` is a robust Dart package for high-fidelity DOCX document generation, manipulation, and conversion. It supports exporting to PDF, reading/editing existing DOCX/PDF files, and parsing HTML/Markdown into DOCX format.
 
-## Key Features
+## Table of Contents
+1. [Core Architecture](#core-architecture)
+2. [Fluent API (DocxDocumentBuilder)](#fluent-api)
+3. [HTML & Markdown Parsing](#parsing)
+4. [DOCX Reader & Editor](#reader-editor)
+5. [PDF Features (Reader & Exporter)](#pdf-features)
+6. [Advanced Styling & Layout](#styling-layout)
+7. [Project Structure Reference](#project-structure)
 
-- **Document Creation:** Fluent API for building DOCX documents from scratch.
-- **HTML/Markdown Support:** Convert HTML or Markdown strings directly into DOCX nodes.
-- **PDF Export:** Built-in PDF layout engine and exporter.
-- **PDF Reader:** Parse PDF documents and extract content.
-- **Styling:** Comprehensive support for fonts, colors, borders, and margins.
-- **Layouts:** Headers, footers, tables, lists, and background images.
-- **Embedded Fonts:** Support for bundling and using TTF fonts in the generated documents.
+## 1. Core Architecture <a name="core-architecture"></a>
+The package uses an **AST (Abstract Syntax Tree)** approach. Every document element is a `DocxNode`.
+- **DocxBlock:** Paragraphs, Tables, Lists, Images (block-level).
+- **DocxInline:** Text runs, Inline Images, Tabs, Footnote/Endnote references.
+- **DocxBuiltDocument:** The final immutable document container.
 
-## Project Structure
+**Key Rule:** Favor composition over inheritance. Widgets and logic are built from smaller, reusable nodes.
 
-- `lib/src/ast/`: Abstract Syntax Tree representing DOCX document elements.
-- `lib/src/builder/`: High-level builders for simplified document creation.
-- `lib/src/exporters/`: Logic for exporting DOCX to various formats (including PDF).
-- `lib/src/parser/`: Parsers for HTML and Markdown.
-- `lib/src/reader/`: Logic for reading existing DOCX and PDF files.
-- `lib/src/utils/`: Shared utilities like image resolvers and validators.
-
-## Core Concepts
-
-- **DocxNode:** Base class for all document elements (paragraphs, tables, sections, etc.).
-- **DocxDocumentBuilder:** The primary entry point for creating documents fluently.
-- **DocxSectionDef:** Defines page layout properties for a section.
-- **DocxParagraph:** Represents a paragraph containing text runs or images.
-
-## Common Usage
+## 2. Fluent API (DocxDocumentBuilder) <a name="fluent-api"></a>
+The fastest way to build documents. Access it via the `docx()` or `Docx()` shorthand.
 
 ```dart
-final doc = Docx()
-  .h1('Hello World')
-  .p('This is a **bold** paragraph.')
-  .bullet(['First item', 'Second item'])
+import 'package:docx_creator/docx_creator.dart';
+
+final doc = docx()
+  .section(
+    orientation: DocxPageOrientation.portrait,
+    pageSize: DocxPageSize.a4,
+    marginTop: 1440, // 1 inch in twips
+    header: DocxHeader.text('Report 2026'),
+  )
+  .h1('Executive Summary')
+  .p('This is a **formatted** paragraph with [hyperlink](https://google.com).', align: DocxAlign.justify)
+  .bullet(['Key Point A', 'Key Point B'])
+  .table([
+    ['Header 1', 'Header 2'],
+    ['Data 1', 'Data 2'],
+  ])
+  .pageBreak()
+  .h2('Details')
   .build();
 
-await doc.save('example.docx');
+final bytes = await DocxExporter().exportToBytes(doc);
 ```
 
-## AI Agent Integration
+## 3. HTML & Markdown Parsing <a name="parsing"></a>
+### HTML Support
+Supports 141 CSS named colors, standard block/inline tags, and complex CSS properties.
+```dart
+final html = '<div style="color: red; font-size: 20pt;">Hello <b>World</b></div>';
+final nodes = await DocxParser.fromHtml(html);
+final doc = DocxBuiltDocument(elements: nodes);
+```
 
-This file provides context for LLMs and AI agents working on this codebase. Follow the established patterns of composition over inheritance and immutable data structures.
+### Markdown Support
+Supports headings, lists, tables, code blocks, and horizontal rules.
+```dart
+final md = '# Title\n- Item 1\n- Item 2\n\n| A | B |\n|---|---|\n| 1 | 2 |';
+final nodes = await MarkdownParser.parse(md);
+```
+
+## 4. DOCX Reader & Editor <a name="reader-editor"></a>
+Load existing documents, modify them, and save while preserving styles and metadata.
+```dart
+final original = await DocxReader.load('template.docx');
+final elements = List<DocxNode>.from(original.elements);
+
+// Add a signature at the end
+elements.add(DocxParagraph.text('Signed: AI Assistant'));
+
+final modified = DocxBuiltDocument(
+  elements: elements,
+  section: original.section,
+  stylesXml: original.stylesXml,
+  numberingXml: original.numberingXml,
+);
+
+await DocxExporter().exportToFile(modified, 'signed.docx');
+```
+
+## 5. PDF Features <a name="pdf-features"></a>
+### PDF Reader
+Parses PDF 1.0-1.7+, extracts text, images, and reconstructs structure.
+```dart
+final pdf = await PdfReader.load('input.pdf');
+print('Pages: ${pdf.pageCount}');
+final docxAst = pdf.toDocx();
+```
+
+### PDF Exporter
+Pure Dart implementation, no native dependencies. Uses accurate Helvetica metrics.
+```dart
+final exporter = PdfExporter();
+await exporter.exportToFile(doc, 'output.pdf');
+```
+
+## 6. Advanced Styling & Layout <a name="styling-layout"></a>
+### Custom Margins (New in v1.2.3)
+```dart
+docx().section(
+  marginTop: 720,    // 0.5 inch
+  marginBottom: 720,
+  marginLeft: 1440,  // 1.0 inch
+  marginRight: 1440,
+)
+```
+
+### Shapes & DrawingML
+```dart
+DocxParagraph(children: [
+  DocxShape.circle(diameter: 50, fillColor: DocxColor.blue),
+  DocxShape.star(points: 5, fillColor: DocxColor.gold),
+])
+```
+
+### Embedded Fonts
+```dart
+final builder = DocxDocumentBuilder();
+builder.addFont('Roboto', fontBytes);
+builder.p('Text in Roboto', fontFamily: 'Roboto');
+```
+
+## 7. Project Structure Reference <a name="project-structure"></a>
+- `lib/src/ast/`: Node definitions (Paragraph, Table, List, etc.)
+- `lib/src/builder/`: Fluent API implementation
+- `lib/src/exporters/`: Logic for .docx and .pdf generation
+- `lib/src/reader/`: Logic for reading existing .docx and .pdf
+- `lib/src/parsers/`: HTML and Markdown transformation logic
+- `lib/src/utils/`: Image resolution, file loading, and validation
+
+## Critical Development Rules
+1. **Always use `Uri.decodeFull(path)`** when loading local files to ensure cross-platform compatibility (Issue #77).
+2. **Preserve Metadata:** When editing DOCX files, always pass `stylesXml`, `numberingXml`, etc., to the new `DocxBuiltDocument` to prevent style loss.
+3. **Point/Twip Conversion:** Word uses **Twips** (1/1440 inch) for many internal sizes, but the public API often uses **Points** (1/72 inch). 1 pt = 20 twips.
+4. **Validation:** Run `DocxValidator` before export for mission-critical documents.
