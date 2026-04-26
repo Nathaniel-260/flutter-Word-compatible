@@ -1,3 +1,18 @@
+## 1.2.3
+
+### Fixed
+- **Invalid Path Decoding**: Added try-catch around `Uri.decodeFull` in `FileLoaderImpl` to prevent crashes when encountering invalid percent-encoded sequences (like a literal `%`) in file paths, especially on Windows (Issue #89).
+- **Zip Encoding Validation**: Added null/empty check for ZIP encoding results in `DocxExporter` to ensure document integrity (Issue #85).
+
+### Added
+- **Custom Section Margins**: Added support for `marginTop`, `marginBottom`, `marginLeft`, and `marginRight` parameters in `DocxDocumentBuilder.section()`, allowing precise page layout control (Issue #88).
+- **AI Context**: Added `llm.txt` to the package root to provide better context for AI agents working with this codebase.
+
+### Improved
+- **Path Handling**: Enhanced `FileLoaderImpl` to correctly handle encoded file paths for local images (Issue #77).
+
+---
+
 ## 1.2.2
 
 ### Fixed

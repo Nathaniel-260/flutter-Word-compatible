@@ -26,6 +26,7 @@ A **developer-first DOCX generation library** for Dart. Create, parse, read, and
 | 🧢**Drop Caps**          | Stylized drop caps for paragraph beginnings                |
 | 🎨**Theme Support**      | Theme colors, tints, shades, and font themes               |
 | 🧬**Advanced Styling**   | Proper inheritance from docDefaults and style hierarchy    |
+| 🤖**AI-Ready**         | Optimized for AI agents with `llm.txt` context             |
 
 ---
 ## Help Maintenance
@@ -42,7 +43,7 @@ Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  docx_creator: ^1.1.9
+  docx_creator: ^1.2.3
 ```
 
 Then run:
@@ -946,6 +947,10 @@ See the `example/` directory for comprehensive examples:
 - [`reader_editor_example.dart`](example/reader_editor_example.dart) - Read, edit, save workflow
 
 ---
+
+## 🤖 AI-Agent Friendly
+
+This package includes an [`llm.txt`](llm.txt) file at the root, providing a structured map of the codebase and architectural patterns to help AI coding agents work more effectively and safely.
 
 ## License
 

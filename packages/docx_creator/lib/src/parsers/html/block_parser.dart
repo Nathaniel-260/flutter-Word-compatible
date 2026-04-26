@@ -54,8 +54,9 @@ class HtmlBlockParser {
       );
       return built != null ? [built] : [];
     }
-    if (node is dom.Element)
+    if (node is dom.Element) {
       return parseElement(node, styleContext: styleContext);
+    }
     return [];
   }
 
