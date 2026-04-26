@@ -23,6 +23,9 @@ class HtmlStyleContext {
   final bool isEmboss;
   final bool isImprint;
 
+  /// Depth of current list nesting.
+  final int listLevel;
+
   const HtmlStyleContext({
     this.colorHex,
     this.fontSize,
@@ -42,6 +45,7 @@ class HtmlStyleContext {
     this.isShadow = false,
     this.isEmboss = false,
     this.isImprint = false,
+    this.listLevel = -1,
   });
 
   HtmlStyleContext copyWith({
@@ -63,6 +67,7 @@ class HtmlStyleContext {
     bool? isShadow,
     bool? isEmboss,
     bool? isImprint,
+    int? listLevel,
   }) {
     return HtmlStyleContext(
       colorHex: colorHex ?? this.colorHex,
@@ -83,6 +88,7 @@ class HtmlStyleContext {
       isShadow: isShadow ?? this.isShadow,
       isEmboss: isEmboss ?? this.isEmboss,
       isImprint: isImprint ?? this.isImprint,
+      listLevel: listLevel ?? this.listLevel,
     );
   }
 
@@ -226,6 +232,7 @@ class HtmlStyleContext {
       isShadow: isShadow,
       isEmboss: isEmboss,
       isImprint: isImprint,
+      listLevel: listLevel,
     );
   }
 }

@@ -1,6 +1,7 @@
 import 'package:docx_creator/docx_creator.dart';
 import 'package:html/dom.dart' as dom;
 
+import 'block_parser.dart';
 import 'color_utils.dart';
 import 'inline_parser.dart';
 import 'parser_context.dart';
@@ -9,8 +10,13 @@ import 'parser_context.dart';
 class HtmlTableParser {
   final HtmlParserContext context;
   final HtmlInlineParser inlineParser;
+  HtmlBlockParser? blockParser;
 
   HtmlTableParser(this.context, this.inlineParser);
+
+  void setBlockParser(HtmlBlockParser parser) {
+    blockParser = parser;
+  }
 
   /// Parse a table element.
   Future<DocxTable> parseTable(dom.Element element) async {
@@ -117,6 +123,10 @@ class HtmlTableParser {
 
   Future<List<DocxBlock>> _parseCellContent(List<dom.Node> nodes,
       {bool isHeader = false}) async {
+    if (blockParser != null) {
+      final results = await blockParser!.parseChildren(nodes);
+      return results.whereType<DocxBlock>().toList();
+    }
     final blocks = <DocxBlock>[];
     final inlines = <DocxInline>[];
 
@@ -144,12 +154,12 @@ class HtmlTableParser {
         } else if (_isBlockTag(tag)) {
           flushInlines();
           // Parse as paragraph
-          final nodeInlines = inlineParser.parseInlinesSync(node.nodes);
+          final nodeInlines = await inlineParser.parseInlines(node.nodes);
           if (nodeInlines.isNotEmpty) {
             blocks.add(DocxParagraph(children: nodeInlines));
           }
         } else {
-          inlines.addAll(inlineParser.parseInline(node));
+          inlines.addAll(await inlineParser.parseInline(node));
         }
       }
     }
