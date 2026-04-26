@@ -146,8 +146,7 @@ class HtmlInlineParser {
           fontSize: newCtx.fontSize,
           fontWeight: newCtx.fontWeight,
           fontStyle: newCtx.fontStyle,
-          color:
-              newCtx.colorHex != null ? DocxColor(newCtx.colorHex!) : null,
+          color: newCtx.colorHex != null ? DocxColor(newCtx.colorHex!) : null,
         )
       ];
     }

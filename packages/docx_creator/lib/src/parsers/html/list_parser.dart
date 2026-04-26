@@ -54,17 +54,20 @@ class HtmlListParser {
               nestedLists.add(await parseList(node,
                   ordered: false,
                   level: currentLevel + 1,
-                  styleContext: styleContext?.copyWith(listLevel: currentLevel + 1)));
+                  styleContext:
+                      styleContext?.copyWith(listLevel: currentLevel + 1)));
               continue;
             } else if (node.localName == 'ol') {
               nestedLists.add(await parseList(node,
                   ordered: true,
                   level: currentLevel + 1,
-                  styleContext: styleContext?.copyWith(listLevel: currentLevel + 1)));
+                  styleContext:
+                      styleContext?.copyWith(listLevel: currentLevel + 1)));
               continue;
             }
           }
-          inlines.addAll(await inlineParser.parseInline(node, context: styleContext));
+          inlines.addAll(
+              await inlineParser.parseInline(node, context: styleContext));
         }
 
         // Add current item

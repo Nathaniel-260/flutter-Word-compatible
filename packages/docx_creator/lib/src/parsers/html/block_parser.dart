@@ -54,7 +54,8 @@ class HtmlBlockParser {
       );
       return built != null ? [built] : [];
     }
-    if (node is dom.Element) return parseElement(node, styleContext: styleContext);
+    if (node is dom.Element)
+      return parseElement(node, styleContext: styleContext);
     return [];
   }
 
@@ -67,7 +68,8 @@ class HtmlBlockParser {
     final styleStr =
         context.mergeStyles(element.attributes['style'], element.classes);
     final parentCtx = styleContext ?? const HtmlStyleContext();
-    final currentCtx = parentCtx.mergeWith(tag, styleStr, ColorUtils.parseColor);
+    final currentCtx =
+        parentCtx.mergeWith(tag, styleStr, ColorUtils.parseColor);
 
     // Check if this element should be treated as a container of blocks
     bool hasBlockChildren = false;
@@ -80,7 +82,21 @@ class HtmlBlockParser {
 
     // If it has block children and is a container-like tag, recurse
     if (hasBlockChildren &&
-        !['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'table', 'ul', 'ol', 'img', 'pre', 'code'].contains(tag)) {
+        ![
+          'p',
+          'h1',
+          'h2',
+          'h3',
+          'h4',
+          'h5',
+          'h6',
+          'table',
+          'ul',
+          'ol',
+          'img',
+          'pre',
+          'code'
+        ].contains(tag)) {
       return parseChildren(element.nodes, styleContext: currentCtx);
     }
 
@@ -127,12 +143,14 @@ class HtmlBlockParser {
       case 'ul':
         final list = await _listParser.parseList(element,
             ordered: false,
-            styleContext: currentCtx.copyWith(listLevel: currentCtx.listLevel + 1));
+            styleContext:
+                currentCtx.copyWith(listLevel: currentCtx.listLevel + 1));
         return [list];
       case 'ol':
         final list = await _listParser.parseList(element,
             ordered: true,
-            styleContext: currentCtx.copyWith(listLevel: currentCtx.listLevel + 1));
+            styleContext:
+                currentCtx.copyWith(listLevel: currentCtx.listLevel + 1));
         return [list];
 
       case 'table':

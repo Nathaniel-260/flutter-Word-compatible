@@ -78,7 +78,8 @@ class MarkdownParser {
       // Paragraph
       case 'p':
         if (inlines.isEmpty) return [];
-        final p = DocumentBuilder.buildBlockElement(tag: 'p', children: inlines);
+        final p =
+            DocumentBuilder.buildBlockElement(tag: 'p', children: inlines);
         return p != null ? [p] : [];
 
       // Lists
@@ -93,7 +94,8 @@ class MarkdownParser {
 
       default:
         if (inlines.isNotEmpty) {
-          final p = DocumentBuilder.buildBlockElement(tag: 'p', children: inlines);
+          final p =
+              DocumentBuilder.buildBlockElement(tag: 'p', children: inlines);
           return p != null ? [p] : [];
         }
         return [];
@@ -268,7 +270,8 @@ class MarkdownParser {
         if (child.tag == 'thead' || child.tag == 'tbody') {
           for (var tr in child.children ?? []) {
             if (tr is md.Element && tr.tag == 'tr') {
-              rows.add(await _parseTableRow(tr, isHeader: child.tag == 'thead'));
+              rows.add(
+                  await _parseTableRow(tr, isHeader: child.tag == 'thead'));
             }
           }
         } else if (child.tag == 'tr') {

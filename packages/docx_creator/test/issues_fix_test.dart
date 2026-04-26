@@ -33,6 +33,25 @@ void main() {
       }
     });
 
+    test('Issue 89: FileLoaderImpl gracefully handles invalid percent encoding',
+        () async {
+      final loader = getFileLoader();
+
+      final tempDir = Directory.systemTemp.createTempSync('docx_test');
+      try {
+        final file = File('${tempDir.path}/test%file.txt');
+        file.writeAsStringSync('hello');
+
+        expect(await loader.exists(file.path), isTrue,
+            reason: 'Should find file with invalid percent encoding');
+        final bytes = await loader.loadBytes(file.path);
+        expect(bytes, isNotNull);
+        expect(utf8.decode(bytes!), equals('hello'));
+      } finally {
+        tempDir.deleteSync(recursive: true);
+      }
+    });
+
     test('Issue 82: Table contains w:tcW when gridColumns is set', () {
       final table = DocxTable(
         gridColumns: [1000, 3000],
