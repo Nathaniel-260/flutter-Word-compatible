@@ -18,60 +18,65 @@ class HtmlInlineParser {
       {HtmlStyleContext? context}) async {
     final results = <DocxInline>[];
     for (var node in nodes) {
-      if (node is dom.Element && node.localName?.toLowerCase() == 'img') {
-        final img = await _imageParser.parseInlineImage(node);
-        if (img != null) results.add(img);
-      } else {
-        results.addAll(parseInline(node, context: context));
-      }
+      results.addAll(await parseInline(node, context: context));
     }
     return results;
   }
 
   /// Parse inline content synchronously (no async image fetching).
+  /// Deprecated: prefer parseInlines for full feature support.
   List<DocxInline> parseInlinesSync(List<dom.Node> nodes,
       {HtmlStyleContext? context}) {
     final results = <DocxInline>[];
     for (var node in nodes) {
-      results.addAll(parseInline(node, context: context));
+      // Note: This will miss async features like images
+      results.addAll(_parseInlineSync(node, context: context));
     }
     return results;
   }
 
+  /// Internal sync parser for backward compatibility
+  List<DocxInline> _parseInlineSync(dom.Node node,
+      {HtmlStyleContext? context}) {
+    final ctx = context ?? const HtmlStyleContext();
+    if (node is dom.Text) {
+      return _parseTextNode(node.text, ctx);
+    }
+    if (node is dom.Element) {
+      final tag = node.localName?.toLowerCase();
+      final combinedStyle =
+          this.context.mergeStyles(node.attributes['style'], node.classes);
+      final newCtx = ctx.mergeWith(tag, combinedStyle, ColorUtils.parseColor);
+
+      switch (tag) {
+        case 'br':
+          return [DocxLineBreak()];
+        case 'a':
+          final href = node.attributes['href'];
+          // Sync version can't handle nested async stuff well, but we do our best
+          return parseInlinesSync(node.nodes,
+              context: newCtx.copyWith(href: href ?? '#', isLink: true));
+        case 'input':
+          return _parseInput(node, newCtx);
+        case 'code':
+          return _parseCode(node, newCtx);
+        case 'img':
+          // Sync version can't fetch images
+          return [];
+        default:
+          return parseInlinesSync(node.nodes, context: newCtx);
+      }
+    }
+    return [];
+  }
+
   /// Parse a single inline node.
-  List<DocxInline> parseInline(dom.Node node, {HtmlStyleContext? context}) {
+  Future<List<DocxInline>> parseInline(dom.Node node,
+      {HtmlStyleContext? context}) async {
     final ctx = context ?? const HtmlStyleContext();
 
     if (node is dom.Text) {
-      final text = node.text;
-      if (text.isEmpty) return [];
-
-      // Check for checkbox patterns
-      if (text.startsWith('[ ] ')) {
-        return [
-          DocumentBuilder.buildCheckbox(
-            isChecked: false,
-            fontSize: ctx.fontSize,
-            fontWeight: ctx.fontWeight,
-            fontStyle: ctx.fontStyle,
-            color: ctx.colorHex != null ? DocxColor(ctx.colorHex!) : null,
-          ),
-          _createText(text.substring(4), ctx)
-        ];
-      } else if (text.startsWith('[x] ') || text.startsWith('[X] ')) {
-        return [
-          DocumentBuilder.buildCheckbox(
-            isChecked: true,
-            fontSize: ctx.fontSize,
-            fontWeight: ctx.fontWeight,
-            fontStyle: ctx.fontStyle,
-            color: ctx.colorHex != null ? DocxColor(ctx.colorHex!) : null,
-          ),
-          _createText(text.substring(4), ctx)
-        ];
-      }
-
-      return [_createText(text, ctx)];
+      return _parseTextNode(node.text, ctx);
     }
 
     if (node is dom.Element) {
@@ -85,31 +90,65 @@ class HtmlInlineParser {
           return [DocxLineBreak()];
         case 'a':
           final href = node.attributes['href'];
-          return [
-            _createText(_getText(node),
-                newCtx.copyWith(href: href ?? '#', isLink: true))
-          ];
+          return await parseInlines(node.nodes,
+              context: newCtx.copyWith(href: href ?? '#', isLink: true));
+        case 'img':
+          final img = await _imageParser.parseInlineImage(node);
+          return img != null ? [img] : [];
         case 'input':
-          final type = node.attributes['type']?.toLowerCase();
-          if (type == 'checkbox') {
-            return [
-              DocumentBuilder.buildCheckbox(
-                isChecked: node.attributes.containsKey('checked'),
-                fontSize: newCtx.fontSize,
-                fontWeight: newCtx.fontWeight,
-                fontStyle: newCtx.fontStyle,
-                color: newCtx.colorHex != null
-                    ? DocxColor(newCtx.colorHex!)
-                    : null,
-              )
-            ];
-          }
-          return [];
+          return _parseInput(node, newCtx);
         case 'code':
           return _parseCode(node, newCtx);
         default:
-          return parseInlinesSync(node.nodes, context: newCtx);
+          return await parseInlines(node.nodes, context: newCtx);
       }
+    }
+    return [];
+  }
+
+  List<DocxInline> _parseTextNode(String text, HtmlStyleContext ctx) {
+    if (text.isEmpty) return [];
+
+    // Check for checkbox patterns
+    if (text.startsWith('[ ] ')) {
+      return [
+        DocumentBuilder.buildCheckbox(
+          isChecked: false,
+          fontSize: ctx.fontSize,
+          fontWeight: ctx.fontWeight,
+          fontStyle: ctx.fontStyle,
+          color: ctx.colorHex != null ? DocxColor(ctx.colorHex!) : null,
+        ),
+        createText(text.substring(4), ctx)
+      ];
+    } else if (text.startsWith('[x] ') || text.startsWith('[X] ')) {
+      return [
+        DocumentBuilder.buildCheckbox(
+          isChecked: true,
+          fontSize: ctx.fontSize,
+          fontWeight: ctx.fontWeight,
+          fontStyle: ctx.fontStyle,
+          color: ctx.colorHex != null ? DocxColor(ctx.colorHex!) : null,
+        ),
+        createText(text.substring(4), ctx)
+      ];
+    }
+
+    return [createText(text, ctx)];
+  }
+
+  List<DocxInline> _parseInput(dom.Element node, HtmlStyleContext newCtx) {
+    final type = node.attributes['type']?.toLowerCase();
+    if (type == 'checkbox') {
+      return [
+        DocumentBuilder.buildCheckbox(
+          isChecked: node.attributes.containsKey('checked'),
+          fontSize: newCtx.fontSize,
+          fontWeight: newCtx.fontWeight,
+          fontStyle: newCtx.fontStyle,
+          color: newCtx.colorHex != null ? DocxColor(newCtx.colorHex!) : null,
+        )
+      ];
     }
     return [];
   }
@@ -133,7 +172,7 @@ class HtmlInlineParser {
     return results;
   }
 
-  DocxText _createText(String text, HtmlStyleContext ctx) {
+  DocxText createText(String text, HtmlStyleContext ctx) {
     return DocxText(
       text,
       fontWeight: ctx.fontWeight,

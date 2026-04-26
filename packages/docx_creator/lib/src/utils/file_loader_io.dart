@@ -6,7 +6,13 @@ import 'file_loader.dart';
 class FileLoaderImpl implements FileLoader {
   @override
   Future<Uint8List?> loadBytes(String path) async {
-    final file = File(path);
+    String decodedPath;
+    try {
+      decodedPath = Uri.decodeFull(path);
+    } catch (e) {
+      decodedPath = path;
+    }
+    final file = File(decodedPath);
     if (await file.exists()) {
       return await file.readAsBytes();
     }
@@ -15,7 +21,13 @@ class FileLoaderImpl implements FileLoader {
 
   @override
   Future<bool> exists(String path) async {
-    return await File(path).exists();
+    String decodedPath;
+    try {
+      decodedPath = Uri.decodeFull(path);
+    } catch (e) {
+      decodedPath = path;
+    }
+    return await File(decodedPath).exists();
   }
 }
 

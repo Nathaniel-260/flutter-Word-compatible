@@ -23,43 +23,85 @@ class HtmlBlockParser {
     _tableParser = HtmlTableParser(context, _inlineParser);
     _listParser = HtmlListParser(context, _inlineParser);
     _imageParser = HtmlImageParser();
+
+    _tableParser.setBlockParser(this);
+    _listParser.setBlockParser(this);
   }
 
   /// Parse child nodes into DocxNode elements.
-  Future<List<DocxNode>> parseChildren(List<dom.Node> nodes) async {
+  Future<List<DocxNode>> parseChildren(List<dom.Node> nodes,
+      {HtmlStyleContext? styleContext}) async {
     final results = <DocxNode>[];
     for (var node in nodes) {
-      final parsed = await parseNode(node);
-      if (parsed != null) results.add(parsed);
+      final parsed = await parseNode(node, styleContext: styleContext);
+      results.addAll(parsed);
     }
     return results;
   }
 
   /// Parse a single DOM node.
-  Future<DocxNode?> parseNode(dom.Node node) async {
+  Future<List<DocxNode>> parseNode(dom.Node node,
+      {HtmlStyleContext? styleContext}) async {
     if (node is dom.Text) {
       final text = node.text.trim();
-      if (text.isEmpty) return null;
-      return DocumentBuilder.buildBlockElement(
+      if (text.isEmpty) return [];
+      final built = DocumentBuilder.buildBlockElement(
         tag: 'p',
-        children: [DocxText(text)],
+        children: [
+          _inlineParser.createText(
+              text, styleContext ?? const HtmlStyleContext())
+        ],
       );
+      return built != null ? [built] : [];
     }
-    if (node is dom.Element) return parseElement(node);
-    return null;
+    if (node is dom.Element) {
+      return parseElement(node, styleContext: styleContext);
+    }
+    return [];
   }
 
   /// Parse an HTML element.
-  Future<DocxNode?> parseElement(dom.Element element) async {
+  Future<List<DocxNode>> parseElement(dom.Element element,
+      {HtmlStyleContext? styleContext}) async {
     final tag = element.localName?.toLowerCase();
-    if (tag == null) return null;
+    if (tag == null) return [];
 
     final styleStr =
         context.mergeStyles(element.attributes['style'], element.classes);
+    final parentCtx = styleContext ?? const HtmlStyleContext();
+    final currentCtx =
+        parentCtx.mergeWith(tag, styleStr, ColorUtils.parseColor);
 
-    final initialContext = const HtmlStyleContext()
-        .mergeWith(tag, styleStr, ColorUtils.parseColor);
-    final blockContext = initialContext.resetBackground();
+    // Check if this element should be treated as a container of blocks
+    bool hasBlockChildren = false;
+    for (var node in element.nodes) {
+      if (node is dom.Element && isBlockTag(node.localName?.toLowerCase())) {
+        hasBlockChildren = true;
+        break;
+      }
+    }
+
+    // If it has block children and is a container-like tag, recurse
+    if (hasBlockChildren &&
+        ![
+          'p',
+          'h1',
+          'h2',
+          'h3',
+          'h4',
+          'h5',
+          'h6',
+          'table',
+          'ul',
+          'ol',
+          'img',
+          'pre',
+          'code'
+        ].contains(tag)) {
+      return parseChildren(element.nodes, styleContext: currentCtx);
+    }
+
+    final blockContext = currentCtx.resetBackground();
 
     // Parse inline children
     final children =
@@ -74,9 +116,10 @@ class HtmlBlockParser {
     if (built != null &&
         tag != 'p' &&
         tag != 'div' &&
+        tag != 'span' &&
         tag != 'pre' &&
         !tag.startsWith('h')) {
-      return built;
+      return [built];
     }
 
     final blockStyles = _parseBlockStyles(styleStr);
@@ -84,31 +127,44 @@ class HtmlBlockParser {
     switch (tag) {
       case 'p':
       case 'div':
-        if (children.isEmpty) return null;
-        return DocxParagraph(
-          children: children,
-          shadingFill: blockStyles.shadingFill,
-          align: blockStyles.align,
-          borderTop: blockStyles.borderTop,
-          borderBottomSide: blockStyles.borderBottom,
-          borderLeft: blockStyles.borderLeft,
-          borderRight: blockStyles.borderRight,
-        );
+      case 'span':
+        if (children.isEmpty) return [];
+        return [
+          DocxParagraph(
+            children: children,
+            shadingFill: blockStyles.shadingFill,
+            align: blockStyles.align,
+            borderTop: blockStyles.borderTop,
+            borderBottomSide: blockStyles.borderBottom,
+            borderLeft: blockStyles.borderLeft,
+            borderRight: blockStyles.borderRight,
+          )
+        ];
 
       case 'ul':
-        return _listParser.parseList(element, ordered: false);
+        final list = await _listParser.parseList(element,
+            ordered: false,
+            styleContext:
+                currentCtx.copyWith(listLevel: currentCtx.listLevel + 1));
+        return [list];
       case 'ol':
-        return _listParser.parseList(element, ordered: true);
+        final list = await _listParser.parseList(element,
+            ordered: true,
+            styleContext:
+                currentCtx.copyWith(listLevel: currentCtx.listLevel + 1));
+        return [list];
 
       case 'table':
-        return _tableParser.parseTable(element);
+        final table = await _tableParser.parseTable(element);
+        return [table];
 
       case 'img':
-        return _imageParser.parseBlockImage(element);
+        final img = await _imageParser.parseBlockImage(element);
+        return img != null ? [img] : [];
 
       case 'pre':
       case 'code':
-        return _parseCodeBlock(element, blockStyles.align);
+        return [_parseCodeBlock(element, blockStyles.align)];
 
       case 'h1':
       case 'h2':
@@ -119,24 +175,28 @@ class HtmlBlockParser {
       case 'blockquote':
       case 'hr':
         if (built is DocxParagraph) {
-          return built.copyWith(
-            shadingFill: blockStyles.shadingFill ?? built.shadingFill,
-            align: blockStyles.align,
-            borderTop: blockStyles.borderTop,
-            borderBottomSide: blockStyles.borderBottom,
-            borderLeft: blockStyles.borderLeft,
-            borderRight: blockStyles.borderRight,
-          );
+          return [
+            built.copyWith(
+              shadingFill: blockStyles.shadingFill ?? built.shadingFill,
+              align: blockStyles.align,
+              borderTop: blockStyles.borderTop,
+              borderBottomSide: blockStyles.borderBottom,
+              borderLeft: blockStyles.borderLeft,
+              borderRight: blockStyles.borderRight,
+            )
+          ];
         }
-        return built;
+        return built != null ? [built] : [];
 
       default:
-        if (children.isEmpty) return null;
-        return DocxParagraph(
-          children: children,
-          shadingFill: blockStyles.shadingFill,
-          align: blockStyles.align,
-        );
+        if (children.isEmpty) return [];
+        return [
+          DocxParagraph(
+            children: children,
+            shadingFill: blockStyles.shadingFill,
+            align: blockStyles.align,
+          )
+        ];
     }
   }
 
