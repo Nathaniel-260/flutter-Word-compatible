@@ -178,6 +178,7 @@ class DocxInlineImage extends DocxInline {
           },
         );
         _buildDocPr(builder);
+        _buildCNvGraphicFramePr(builder);
         _buildGraphic(builder, cx, cy);
       },
     );
@@ -259,6 +260,7 @@ class DocxInlineImage extends DocxInline {
 
         _buildTextWrap(builder);
         _buildDocPr(builder);
+        _buildCNvGraphicFramePr(builder);
         _buildGraphic(builder, cx, cy);
       },
     );
@@ -301,6 +303,19 @@ class DocxInlineImage extends DocxInline {
         if (altText != null) {
           builder.attribute('descr', altText!);
         }
+      },
+    );
+  }
+
+  void _buildCNvGraphicFramePr(XmlBuilder builder) {
+    builder.element(
+      'wp:cNvGraphicFramePr',
+      nest: () {
+        builder.element('a:graphicFrameLocks', nest: () {
+          builder.attribute('xmlns:a',
+              'http://schemas.openxmlformats.org/drawingml/2006/main');
+          builder.attribute('noChangeAspect', '1');
+        });
       },
     );
   }
