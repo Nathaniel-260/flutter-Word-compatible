@@ -1,3 +1,15 @@
+## 1.2.4
+
+### Fixed
+- **Images Not Showing in MS Word**: Fixed critical issue where images in body, headers, and footers would render in LibreOffice but not in Microsoft Word (#90).
+  - Added required `wp:cNvGraphicFramePr` element (with `a:graphicFrameLocks noChangeAspect="1"`) to both inline (`wp:inline`) and floating (`wp:anchor`) image drawings, as mandated by the OOXML specification.
+  - Added missing `xmlns:a` (DrawingML) and `xmlns:pic` (Picture) namespace declarations to header and footer XML files, which are separate documents from `document.xml` and require their own namespace bindings.
+
+### Added
+- **MS Word Compatibility Tests**: Added 8 comprehensive tests (`image_ms_word_compat_test.dart`) that generate DOCX files, extract the ZIP, and verify XML structure for MS Word compatibility — including `wp:cNvGraphicFramePr` presence, namespace declarations, `.rels` files, media inclusion, and content type registration.
+
+---
+
 ## 1.2.3
 
 ### Fixed

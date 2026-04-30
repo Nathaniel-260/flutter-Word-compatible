@@ -20,6 +20,10 @@ class DocxHeaderFooterGenerator {
             'http://schemas.openxmlformats.org/officeDocument/2006/relationships');
         builder.attribute('xmlns:wp',
             'http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing');
+        builder.attribute(
+            'xmlns:a', 'http://schemas.openxmlformats.org/drawingml/2006/main');
+        builder.attribute('xmlns:pic',
+            'http://schemas.openxmlformats.org/drawingml/2006/picture');
         (state.doc.section!.header as DocxNode).buildXml(builder);
       },
     );
@@ -44,6 +48,10 @@ class DocxHeaderFooterGenerator {
             'http://schemas.openxmlformats.org/officeDocument/2006/relationships');
         builder.attribute('xmlns:wp',
             'http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing');
+        builder.attribute(
+            'xmlns:a', 'http://schemas.openxmlformats.org/drawingml/2006/main');
+        builder.attribute('xmlns:pic',
+            'http://schemas.openxmlformats.org/drawingml/2006/picture');
         (state.doc.section!.footer as DocxNode).buildXml(builder);
       },
     );
