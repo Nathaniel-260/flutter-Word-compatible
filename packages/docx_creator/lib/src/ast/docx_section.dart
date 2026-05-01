@@ -399,9 +399,7 @@ class DocxFooter extends DocxSection {
     DocxAlign textAlign = DocxAlign.right,
   }) {
     const borderNone = DocxBorderSide(
-      size: 0,
-      color: DocxColor.white,
-      style: DocxBorder.single,
+      style: DocxBorder.none,
     );
 
     const tableStyle = DocxTableStyle(
