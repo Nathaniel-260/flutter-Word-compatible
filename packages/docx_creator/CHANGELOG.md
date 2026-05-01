@@ -1,3 +1,17 @@
+## 1.2.5
+
+### Fixed
+- **Standardized Footer/Header Image Rendering**: Fixed a critical issue where images in footers and headers were invisible in Microsoft Word due to missing DrawingML attributes and namespace discrepancies.
+  - Added mandatory `distT`, `distB`, `distL`, and `distR` attributes to `wp:inline`.
+  - Added `wp:effectExtent` element for proper boundary calculation.
+  - Synchronized `xmlns:mc`, `xmlns:w14`, and `xmlns:wp14` namespaces across all header and footer generators.
+- **Table-based Footer Layout**: Added `DocxFooter.imageAndText` factory for easier creation of professional footer layouts with images and text.
+
+### Added
+- **Global Image Rendering Tests**: Added `test/footer_global_fix_test.dart` to verify OOXML compliance of image generation without workarounds.
+
+---
+
 ## 1.2.4
 
 ### Fixed

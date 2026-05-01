@@ -1,11 +1,15 @@
+import 'dart:typed_data';
+
 import 'package:xml/xml.dart';
 
 import '../core/defaults.dart';
 import '../core/enums.dart';
 import 'docx_background_image.dart';
 import 'docx_block.dart';
+import 'docx_image.dart';
 import 'docx_inline.dart';
 import 'docx_node.dart';
+import 'docx_table.dart';
 
 /// Customizable heading style.
 ///
@@ -379,6 +383,68 @@ class DocxFooter extends DocxSection {
             DocxPageNumber(),
             DocxText(' of '),
             DocxPageCount(),
+          ],
+        ),
+      ],
+    );
+  }
+
+  /// Footer with an image on the left and text on the right using an invisible table.
+  factory DocxFooter.imageAndText({
+    required Uint8List imageBytes,
+    required String imageExtension,
+    required String text,
+    double imageWidth = 40,
+    double imageHeight = 40,
+    DocxAlign textAlign = DocxAlign.right,
+  }) {
+    const borderNone = DocxBorderSide(
+      size: 0,
+      color: DocxColor.white,
+      style: DocxBorder.single,
+    );
+
+    const tableStyle = DocxTableStyle(
+      borderTop: borderNone,
+      borderBottom: borderNone,
+      borderLeft: borderNone,
+      borderRight: borderNone,
+      borderInsideH: borderNone,
+      borderInsideV: borderNone,
+    );
+
+    return DocxFooter(
+      children: [
+        DocxTable(
+          width: 5000, // 100% in pct
+          widthType: DocxWidthType.pct,
+          style: tableStyle,
+          rows: [
+            DocxTableRow(
+              cells: [
+                DocxTableCell(
+                  verticalAlign: DocxVerticalAlign.center,
+                  children: [
+                    DocxImage(
+                      bytes: imageBytes,
+                      extension: imageExtension,
+                      width: imageWidth,
+                      height: imageHeight,
+                      align: DocxAlign.left,
+                    ),
+                  ],
+                ),
+                DocxTableCell(
+                  verticalAlign: DocxVerticalAlign.center,
+                  children: [
+                    DocxParagraph(
+                      align: textAlign,
+                      children: [DocxText(text)],
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ],
         ),
       ],

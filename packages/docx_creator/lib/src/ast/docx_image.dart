@@ -170,6 +170,11 @@ class DocxInlineImage extends DocxInline {
     builder.element(
       'wp:inline',
       nest: () {
+        builder.attribute('distT', distT.toString());
+        builder.attribute('distB', distB.toString());
+        builder.attribute('distL', distL.toString());
+        builder.attribute('distR', distR.toString());
+
         builder.element(
           'wp:extent',
           nest: () {
@@ -177,6 +182,17 @@ class DocxInlineImage extends DocxInline {
             builder.attribute('cy', cy);
           },
         );
+
+        builder.element(
+          'wp:effectExtent',
+          nest: () {
+            builder.attribute('l', effectExtentL.toString());
+            builder.attribute('t', effectExtentT.toString());
+            builder.attribute('r', effectExtentR.toString());
+            builder.attribute('b', effectExtentB.toString());
+          },
+        );
+
         _buildDocPr(builder);
         _buildCNvGraphicFramePr(builder);
         _buildGraphic(builder, cx, cy);

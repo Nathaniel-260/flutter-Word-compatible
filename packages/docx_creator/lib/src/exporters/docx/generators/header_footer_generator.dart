@@ -24,6 +24,13 @@ class DocxHeaderFooterGenerator {
             'xmlns:a', 'http://schemas.openxmlformats.org/drawingml/2006/main');
         builder.attribute('xmlns:pic',
             'http://schemas.openxmlformats.org/drawingml/2006/picture');
+        builder.attribute('xmlns:mc',
+            'http://schemas.openxmlformats.org/markup-compatibility/2006');
+        builder.attribute('xmlns:w14',
+            'http://schemas.microsoft.com/office/word/2010/wordml');
+        builder.attribute('xmlns:wp14',
+            'http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing');
+        builder.attribute('mc:Ignorable', 'w14 wp14');
         (state.doc.section!.header as DocxNode).buildXml(builder);
       },
     );
@@ -52,6 +59,13 @@ class DocxHeaderFooterGenerator {
             'xmlns:a', 'http://schemas.openxmlformats.org/drawingml/2006/main');
         builder.attribute('xmlns:pic',
             'http://schemas.openxmlformats.org/drawingml/2006/picture');
+        builder.attribute('xmlns:mc',
+            'http://schemas.openxmlformats.org/markup-compatibility/2006');
+        builder.attribute('xmlns:w14',
+            'http://schemas.microsoft.com/office/word/2010/wordml');
+        builder.attribute('xmlns:wp14',
+            'http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing');
+        builder.attribute('mc:Ignorable', 'w14 wp14');
         (state.doc.section!.footer as DocxNode).buildXml(builder);
       },
     );
@@ -153,6 +167,13 @@ class DocxHeaderFooterGenerator {
             'xmlns:a', 'http://schemas.openxmlformats.org/drawingml/2006/main');
         builder.attribute('xmlns:pic',
             'http://schemas.openxmlformats.org/drawingml/2006/picture');
+        builder.attribute('xmlns:mc',
+            'http://schemas.openxmlformats.org/markup-compatibility/2006');
+        builder.attribute('xmlns:w14',
+            'http://schemas.microsoft.com/office/word/2010/wordml');
+        builder.attribute('xmlns:wp14',
+            'http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing');
+        builder.attribute('mc:Ignorable', 'w14 wp14');
 
         _buildBackgroundImageParagraph(builder, state);
       },
