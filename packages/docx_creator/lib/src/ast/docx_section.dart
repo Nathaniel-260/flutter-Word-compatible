@@ -400,6 +400,8 @@ class DocxFooter extends DocxSection {
   }) {
     const borderNone = DocxBorderSide(
       style: DocxBorder.none,
+      size: 0,
+      color: DocxColor.white,
     );
 
     const tableStyle = DocxTableStyle(
