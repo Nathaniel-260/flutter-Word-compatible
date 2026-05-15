@@ -268,6 +268,9 @@ class DocxListItem extends DocxNode {
     DocxListStyle style,
     bool isOrdered,
   ) {
+    final effectiveStyle = overrideStyle ?? style;
+    final leftIndent = effectiveStyle.indentPerLevel * (level + 1);
+
     builder.element(
       'w:p',
       nest: () {
@@ -289,6 +292,15 @@ class DocxListItem extends DocxNode {
                     builder.attribute('w:val', numId.toString());
                   },
                 );
+              },
+            );
+            // Apply indentation from the effective style
+            builder.element(
+              'w:ind',
+              nest: () {
+                builder.attribute('w:left', leftIndent.toString());
+                builder.attribute(
+                    'w:hanging', effectiveStyle.hangingIndent.toString());
               },
             );
           },

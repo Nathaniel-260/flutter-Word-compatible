@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:archive/archive.dart';
+import 'package:docx_creator/docx_creator.dart';
 import 'package:xml/xml.dart';
 
 import '../docx_export_state.dart';
@@ -136,6 +137,12 @@ class DocxNumberingGenerator {
     }
     buffer.writeln('  </w:abstractNum>');
 
+    // Abstract Custom List Styles (non-default bullet chars or number formats)
+    state.customAbstractStyles.forEach((absId, style) {
+      final isOrdered = state.customAbstractIsOrdered[absId] ?? false;
+      buffer.writeln(_buildCustomAbstractNum(absId, style, isOrdered));
+    });
+
     // Abstract Custom Image Bullets
     state.abstractNumImageBulletMap.forEach((absId, bulletIndex) {
       buffer.writeln('  <w:abstractNum w:abstractNumId="$absId">');
@@ -186,6 +193,99 @@ class DocxNumberingGenerator {
       utf8.encode(xml).length,
       utf8.encode(xml),
     );
+  }
+
+  static String _numFmtXml(DocxNumberFormat fmt) {
+    switch (fmt) {
+      case DocxNumberFormat.decimal:
+        return 'decimal';
+      case DocxNumberFormat.lowerAlpha:
+        return 'lowerLetter';
+      case DocxNumberFormat.upperAlpha:
+        return 'upperLetter';
+      case DocxNumberFormat.lowerRoman:
+        return 'lowerRoman';
+      case DocxNumberFormat.upperRoman:
+        return 'upperRoman';
+      case DocxNumberFormat.bullet:
+        return 'bullet';
+    }
+  }
+
+  static String _escapeXml(String value) => value
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&apos;');
+
+  static String _buildCustomAbstractNum(
+      int absId, DocxListStyle style, bool isOrdered) {
+    final buf = StringBuffer();
+    buf.writeln('  <w:abstractNum w:abstractNumId="$absId">');
+    buf.writeln(
+        '    <w:nsid w:val="${(0xFFFF00 + absId).toRadixString(16).padLeft(8, '0').toUpperCase()}"/>');
+    buf.writeln('    <w:multiLevelType w:val="hybridMultilevel"/>');
+
+    for (int lvl = 0; lvl < 9; lvl++) {
+      final indent = style.indentPerLevel * (lvl + 1);
+      final hanging = style.hangingIndent;
+
+      buf.writeln('    <w:lvl w:ilvl="$lvl">');
+      buf.writeln('      <w:start w:val="1"/>');
+
+      if (isOrdered) {
+        final fmt = _numFmtXml(style.numberFormat);
+        final lvlText = '%${lvl + 1}.';
+        buf.writeln('      <w:numFmt w:val="$fmt"/>');
+        buf.writeln('      <w:lvlText w:val="$lvlText"/>');
+      } else {
+        buf.writeln('      <w:numFmt w:val="bullet"/>');
+        buf.writeln('      <w:lvlText w:val="${_escapeXml(style.bullet)}"/>');
+      }
+
+      buf.writeln('      <w:lvlJc w:val="left"/>');
+      buf.writeln('      <w:pPr>');
+      buf.writeln(
+          '        <w:tabs><w:tab w:val="num" w:pos="$indent"/></w:tabs>');
+      buf.writeln('        <w:ind w:left="$indent" w:hanging="$hanging"/>');
+      buf.writeln('      </w:pPr>');
+
+      // rPr: font family (default to Symbol for bullet chars, Arial otherwise)
+      final fontName = style.fontFamily ??
+          (isOrdered ? null : _bulletFont(style.bullet));
+      buf.writeln('      <w:rPr>');
+      if (fontName != null) {
+        buf.writeln(
+            '        <w:rFonts w:ascii="${_escapeXml(fontName)}" w:hAnsi="${_escapeXml(fontName)}" w:hint="default"/>');
+      }
+      if (style.fontWeight == DocxFontWeight.bold) {
+        buf.writeln('        <w:b/>');
+      }
+      if (style.color != DocxColor.black) {
+        buf.writeln('        <w:color w:val="${style.color.hex}"/>');
+      }
+      if (style.fontSize != null) {
+        final halfPt = (style.fontSize! * 2).toInt();
+        buf.writeln('        <w:sz w:val="$halfPt"/>');
+        buf.writeln('        <w:szCs w:val="$halfPt"/>');
+      }
+      buf.writeln('      </w:rPr>');
+      buf.writeln('    </w:lvl>');
+    }
+
+    buf.writeln('  </w:abstractNum>');
+    return buf.toString();
+  }
+
+  /// Returns an appropriate font for a given bullet character so Word renders
+  /// it correctly. Falls back to the default body font for unknown chars.
+  static String? _bulletFont(String bullet) {
+    const symbolBullets = {'•', '◦', '▪'};
+    const wingdingsBullets = {'➢', '➤', '✓', '✗', '★'};
+    if (symbolBullets.contains(bullet)) return 'Symbol';
+    if (wingdingsBullets.contains(bullet)) return 'Wingdings';
+    return null;
   }
 
   static ArchiveFile createNumberingRels(DocxExportState state) {

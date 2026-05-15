@@ -2,6 +2,7 @@ import 'package:xml/xml.dart';
 
 import '../core/enums.dart';
 import '../reader/docx_reader/models/docx_font.dart';
+import 'docx_hyperlink_registry.dart';
 import 'docx_node.dart';
 
 /// A styled text run within a paragraph.
@@ -570,6 +571,20 @@ class DocxText extends DocxInline {
 
   @override
   void buildXml(XmlBuilder builder) {
+    if (isLink) {
+      final rId = DocxHyperlinkRegistry.lookup(href!);
+      if (rId != null) {
+        builder.element('w:hyperlink', nest: () {
+          builder.attribute('r:id', rId);
+          _buildRun(builder);
+        });
+        return;
+      }
+    }
+    _buildRun(builder);
+  }
+
+  void _buildRun(XmlBuilder builder) {
     builder.element(
       'w:r',
       nest: () {

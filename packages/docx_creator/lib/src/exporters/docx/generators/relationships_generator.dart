@@ -158,6 +158,19 @@ class DocxRelationshipsGenerator {
             });
           }
         }
+
+        // External hyperlinks
+        for (final entry in state.hyperlinkRelIds.entries) {
+          builder.element('Relationship', nest: () {
+            builder.attribute('Id', entry.value);
+            builder.attribute(
+              'Type',
+              'http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink',
+            );
+            builder.attribute('Target', entry.key);
+            builder.attribute('TargetMode', 'External');
+          });
+        }
       },
     );
     final xml = builder.buildDocument().toXmlString();

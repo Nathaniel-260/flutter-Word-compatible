@@ -1,3 +1,14 @@
+## 1.2.6
+
+### Fixed
+- **Hyperlinks now generate clickable links** (#95): `DocxText.link` and the `href` parameter on `DocxText` were previously ignored during export. The generated XML now wraps the run in a `w:hyperlink` element with a proper relationship ID, and the corresponding `TargetMode=External` entry is added to `word/_rels/document.xml.rels`. All `const` constructors are preserved.
+- **DocxListStyle is now fully respected** (#94): `DocxListItem.buildXmlWithStyle` previously ignored the `style` parameter entirely. Custom bullet characters, number formats (lowerAlpha, upperRoman, etc.), indentation, and font/color properties are now applied. Non-default styles receive their own `abstractNum` definition in `numbering.xml`, and each list item's `w:ind` reflects the effective `indentPerLevel` and `hangingIndent` from the style or per-item `overrideStyle`.
+
+### Added
+- **14 unit tests** covering hyperlink XML generation, relationship deduplication, and list style application (`test/issues_95_94_83_test.dart`).
+
+---
+
 ## 1.2.5
 
 ### Fixed
