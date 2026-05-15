@@ -1,3 +1,10 @@
+## 1.2.7
+
+### Fixed
+- **Invisible footer table borders**: `DocxFooter.imageAndText` now correctly sets `size: 0` and `color: DocxColor.white` on the `borderNone` constant so table borders are truly invisible. Previously the `DocxBorderSide` defaults (`size=4`, `color=black`) were used, producing a 0.5pt black border.
+
+---
+
 ## 1.2.6
 
 ### Fixed
