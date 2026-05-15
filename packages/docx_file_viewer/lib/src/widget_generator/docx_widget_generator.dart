@@ -125,9 +125,7 @@ class DocxWidgetGenerator {
     widgets.addAll(_generateBlockWidgets(doc.elements, counter: counter));
 
     // 3. Footnotes
-    if (config.showFootnotes &&
-        doc.footnotes != null &&
-        doc.footnotes!.isNotEmpty) {
+    if (doc.footnotes != null && doc.footnotes!.isNotEmpty) {
       widgets.add(const Divider(height: 32, thickness: 1));
       widgets.add(Padding(
         padding: const EdgeInsets.only(bottom: 8.0),
@@ -142,9 +140,7 @@ class DocxWidgetGenerator {
     }
 
     // 4. Endnotes
-    if (config.showEndnotes &&
-        doc.endnotes != null &&
-        doc.endnotes!.isNotEmpty) {
+    if (doc.endnotes != null && doc.endnotes!.isNotEmpty) {
       widgets.add(const Divider(height: 32, thickness: 1));
       widgets.add(Padding(
         padding: const EdgeInsets.only(bottom: 8.0),
