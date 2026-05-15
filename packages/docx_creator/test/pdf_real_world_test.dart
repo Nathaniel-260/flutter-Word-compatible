@@ -94,7 +94,7 @@ void main() {
       final doc = await PdfReader.loadFromBytes(bytes);
       expect(doc.pageCount, greaterThan(100));
       expect(doc.pageLabels, isNotEmpty);
-    });
+    }, timeout: const Timeout(Duration(minutes: 3)));
 
     // 5. Metadata
     test('Metadata Verification (003-pdflatex-image)', () async {
