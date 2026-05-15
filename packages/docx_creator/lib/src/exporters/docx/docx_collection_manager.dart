@@ -179,41 +179,17 @@ class DocxCollectionManager {
   static void _collectHyperlinks(DocxExportState state) {
     final texts = <DocxText>[];
 
-    void visitNode(DocxNode node) {
-      if (node is DocxText && node.isLink) {
-        texts.add(node);
-      } else if (node is DocxParagraph) {
-        for (final c in node.children) {
-          visitNode(c);
-        }
-      } else if (node is DocxTable) {
-        for (final row in node.rows) {
-          for (final cell in row.cells) {
-            for (final c in cell.children) {
-              visitNode(c);
-            }
-          }
-        }
-      } else if (node is DocxList) {
-        for (final item in node.items) {
-          for (final c in item.children) {
-            visitNode(c);
-          }
-        }
-      }
-    }
-
     for (final el in state.doc.elements) {
-      visitNode(el);
+      _collectHyperlinksFromNode(el, texts);
     }
     if (state.doc.section?.header != null) {
       for (final c in state.doc.section!.header!.children) {
-        visitNode(c);
+        _collectHyperlinksFromNode(c, texts);
       }
     }
     if (state.doc.section?.footer != null) {
       for (final c in state.doc.section!.footer!.children) {
-        visitNode(c);
+        _collectHyperlinksFromNode(c, texts);
       }
     }
 
@@ -227,27 +203,56 @@ class DocxCollectionManager {
     }
   }
 
+  static void _collectHyperlinksFromNode(DocxNode node, List<DocxText> texts) {
+    if (node is DocxText && node.isLink) {
+      texts.add(node);
+    } else if (node is DocxParagraph) {
+      for (final child in node.children) {
+        _collectHyperlinksFromNode(child, texts);
+      }
+    } else if (node is DocxTable) {
+      for (final row in node.rows) {
+        for (final cell in row.cells) {
+          for (final child in cell.children) {
+            _collectHyperlinksFromNode(child, texts);
+          }
+        }
+      }
+    } else if (node is DocxList) {
+      for (final item in node.items) {
+        for (final child in item.children) {
+          _collectHyperlinksFromNode(child, texts);
+        }
+      }
+    } else if (node is DocxHeader) {
+      for (final child in node.children) {
+        _collectHyperlinksFromNode(child, texts);
+      }
+    } else if (node is DocxFooter) {
+      for (final child in node.children) {
+        _collectHyperlinksFromNode(child, texts);
+      }
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Custom list style detection
   // ---------------------------------------------------------------------------
 
+  static const _defaultListStyle = DocxListStyle();
+
   static bool _isCustomListStyle(DocxListStyle style, bool isOrdered) {
+    const ref = _defaultListStyle;
+    final hasCustomFormatting = style.fontFamily != null ||
+        style.fontSize != null ||
+        style.fontWeight != ref.fontWeight ||
+        style.color != ref.color ||
+        style.indentPerLevel != ref.indentPerLevel ||
+        style.hangingIndent != ref.hangingIndent;
     if (isOrdered) {
-      return style.numberFormat != DocxNumberFormat.decimal ||
-          style.fontFamily != null ||
-          style.fontSize != null ||
-          style.fontWeight != DocxFontWeight.normal ||
-          style.color != DocxColor.black ||
-          style.indentPerLevel != 720 ||
-          style.hangingIndent != 360;
+      return hasCustomFormatting || style.numberFormat != ref.numberFormat;
     } else {
-      return style.bullet != '•' ||
-          style.fontFamily != null ||
-          style.fontSize != null ||
-          style.fontWeight != DocxFontWeight.normal ||
-          style.color != DocxColor.black ||
-          style.indentPerLevel != 720 ||
-          style.hangingIndent != 360;
+      return hasCustomFormatting || style.bullet != ref.bullet;
     }
   }
 

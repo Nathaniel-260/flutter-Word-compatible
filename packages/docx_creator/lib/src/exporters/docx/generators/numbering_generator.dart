@@ -212,6 +212,13 @@ class DocxNumberingGenerator {
     }
   }
 
+  static String _escapeXml(String value) => value
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&apos;');
+
   static String _buildCustomAbstractNum(
       int absId, DocxListStyle style, bool isOrdered) {
     final buf = StringBuffer();
@@ -234,7 +241,7 @@ class DocxNumberingGenerator {
         buf.writeln('      <w:lvlText w:val="$lvlText"/>');
       } else {
         buf.writeln('      <w:numFmt w:val="bullet"/>');
-        buf.writeln('      <w:lvlText w:val="${style.bullet}"/>');
+        buf.writeln('      <w:lvlText w:val="${_escapeXml(style.bullet)}"/>');
       }
 
       buf.writeln('      <w:lvlJc w:val="left"/>');
@@ -250,7 +257,7 @@ class DocxNumberingGenerator {
       buf.writeln('      <w:rPr>');
       if (fontName != null) {
         buf.writeln(
-            '        <w:rFonts w:ascii="$fontName" w:hAnsi="$fontName" w:hint="default"/>');
+            '        <w:rFonts w:ascii="${_escapeXml(fontName)}" w:hAnsi="${_escapeXml(fontName)}" w:hint="default"/>');
       }
       if (style.fontWeight == DocxFontWeight.bold) {
         buf.writeln('        <w:b/>');
