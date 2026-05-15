@@ -4,6 +4,7 @@ import 'package:archive/archive.dart';
 import 'package:docx_creator/docx_creator.dart';
 import 'package:xml/xml.dart';
 
+import '../../../ast/docx_hyperlink_registry.dart';
 import '../docx_export_state.dart';
 
 class DocxDocumentGenerator {
@@ -84,16 +85,21 @@ class DocxDocumentGenerator {
         // Add background (color and/or image)
         _buildBackground(builder, state);
 
-        builder.element(
-          'w:body',
-          nest: () {
-            for (final element in state.doc.elements) {
-              element.buildXml(builder);
-            }
-            // Build section properties including background header reference
-            _buildSectionProperties(builder, state);
-          },
-        );
+        DocxHyperlinkRegistry.begin(state.hyperlinkRelIds);
+        try {
+          builder.element(
+            'w:body',
+            nest: () {
+              for (final element in state.doc.elements) {
+                element.buildXml(builder);
+              }
+              // Build section properties including background header reference
+              _buildSectionProperties(builder, state);
+            },
+          );
+        } finally {
+          DocxHyperlinkRegistry.end();
+        }
       },
     );
     final xml = builder.buildDocument().toXmlString();

@@ -60,5 +60,22 @@ class DocxExportState {
   /// Mapping of exportedNumId -> startIndex.
   final Map<int, int> listStartOverrides = {};
 
+  // -------------------------------------------------------------
+  // Hyperlink State
+  // -------------------------------------------------------------
+
+  /// Map of href URL -> relationship ID for all hyperlinks in the document.
+  final Map<String, String> hyperlinkRelIds = {};
+
+  // -------------------------------------------------------------
+  // Custom List Style State
+  // -------------------------------------------------------------
+
+  /// Styles for custom abstract numbering definitions (abstractNumId -> style).
+  final Map<int, DocxListStyle> customAbstractStyles = {};
+
+  /// Whether the custom abstract num is for an ordered list.
+  final Map<int, bool> customAbstractIsOrdered = {};
+
   DocxExportState(this.doc, this.fontManager, this.idGenerator);
 }

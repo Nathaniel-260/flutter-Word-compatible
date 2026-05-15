@@ -19,6 +19,9 @@ class DocxCollectionManager {
       state.images['word/media/background.$ext'] = state.backgroundImage!.bytes;
     }
 
+    // Collect hyperlinks and assign relationship IDs
+    _collectHyperlinks(state);
+
     // Process images recursively
     _collectImagesGrouped(state);
 
@@ -144,6 +147,15 @@ class DocxCollectionManager {
           final absId = abstractNumIdCounter++;
           state.abstractNumImageBulletMap[absId] = bulletIndex;
           state.listAbstractNumMap[exportedNumId] = absId;
+        } else if (_isCustomListStyle(list.style, list.isOrdered)) {
+          // Custom bullet char or number format: needs its own abstractNum
+          final absId = abstractNumIdCounter++;
+          state.customAbstractStyles[absId] = list.style;
+          state.customAbstractIsOrdered[absId] = list.isOrdered;
+          state.listAbstractNumMap[exportedNumId] = absId;
+          if (list.isOrdered && list.startIndex > 1) {
+            state.listStartOverrides[exportedNumId] = list.startIndex;
+          }
         } else {
           // Standard List
           state.listAbstractNumMap[exportedNumId] = list.isOrdered ? 1 : 0;
@@ -157,6 +169,85 @@ class DocxCollectionManager {
       // Note: We mutate DocxBuiltDocument.list.numId here during the export process.
       // If immutability is required in the future, this should be refactored to clone the list.
       list.numId = exportedNumId;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Hyperlink collection
+  // ---------------------------------------------------------------------------
+
+  static void _collectHyperlinks(DocxExportState state) {
+    final texts = <DocxText>[];
+
+    void visitNode(DocxNode node) {
+      if (node is DocxText && node.isLink) {
+        texts.add(node);
+      } else if (node is DocxParagraph) {
+        for (final c in node.children) {
+          visitNode(c);
+        }
+      } else if (node is DocxTable) {
+        for (final row in node.rows) {
+          for (final cell in row.cells) {
+            for (final c in cell.children) {
+              visitNode(c);
+            }
+          }
+        }
+      } else if (node is DocxList) {
+        for (final item in node.items) {
+          for (final c in item.children) {
+            visitNode(c);
+          }
+        }
+      }
+    }
+
+    for (final el in state.doc.elements) {
+      visitNode(el);
+    }
+    if (state.doc.section?.header != null) {
+      for (final c in state.doc.section!.header!.children) {
+        visitNode(c);
+      }
+    }
+    if (state.doc.section?.footer != null) {
+      for (final c in state.doc.section!.footer!.children) {
+        visitNode(c);
+      }
+    }
+
+    int counter = 1;
+    for (final text in texts) {
+      final href = text.href!;
+      if (!state.hyperlinkRelIds.containsKey(href)) {
+        state.hyperlinkRelIds[href] = 'rIdHyperlink$counter';
+        counter++;
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Custom list style detection
+  // ---------------------------------------------------------------------------
+
+  static bool _isCustomListStyle(DocxListStyle style, bool isOrdered) {
+    if (isOrdered) {
+      return style.numberFormat != DocxNumberFormat.decimal ||
+          style.fontFamily != null ||
+          style.fontSize != null ||
+          style.fontWeight != DocxFontWeight.normal ||
+          style.color != DocxColor.black ||
+          style.indentPerLevel != 720 ||
+          style.hangingIndent != 360;
+    } else {
+      return style.bullet != '•' ||
+          style.fontFamily != null ||
+          style.fontSize != null ||
+          style.fontWeight != DocxFontWeight.normal ||
+          style.color != DocxColor.black ||
+          style.indentPerLevel != 720 ||
+          style.hangingIndent != 360;
     }
   }
 
