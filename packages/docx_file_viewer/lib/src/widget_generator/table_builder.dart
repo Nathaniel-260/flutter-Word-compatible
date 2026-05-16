@@ -57,8 +57,13 @@ class TableBuilder {
       }
     }
 
-    // Initialize skip counts for vertical merges
+    // Initialize skip counts for vertical merges.
+    // skipCounts[i]: remaining rows to skip at grid column i.
     final skipCounts = List<int>.filled(colWidths.length, 0);
+    // skipColSpans[i]: column-span of the merge group whose leader starts at i.
+    //   > 0 → group leader spanning that many columns.
+    //   -1  → subsumed by the leader to the left (do not render separately).
+    final skipColSpans = List<int>.filled(colWidths.length, 1);
 
     // 2. Build Rows with table-level context
     final rowWidgets = <Widget>[];
@@ -67,6 +72,7 @@ class TableBuilder {
         table.rows[r],
         colWidths,
         skipCounts,
+        skipColSpans,
         table: table,
         rowIndex: r,
         totalRows: table.rows.length,
@@ -112,7 +118,8 @@ class TableBuilder {
   Widget _buildRow(
     DocxTableRow row,
     List<double> colWidths,
-    List<int> skipCounts, {
+    List<int> skipCounts,
+    List<int> skipColSpans, {
     required DocxTable table,
     required int rowIndex,
     required int totalRows,
@@ -215,32 +222,48 @@ class TableBuilder {
 
       if (skipCounts[gridIndex] > 0) {
         // --- CONTINUED CELL (Merged Placeholder) ---
-        skipCounts[gridIndex]--;
-        final remainingSkips = skipCounts[gridIndex];
+        final groupSpan = skipColSpans[gridIndex];
 
-        double width = colWidths[gridIndex];
-        bool isLastRowOfMerge = remainingSkips == 0;
+        if (groupSpan < 0) {
+          // This column is subsumed by a multi-column merge group whose leader
+          // has already been rendered — skip it silently.
+          skipCounts[gridIndex]--;
+          gridIndex++;
+        } else {
+          // Group leader: accumulate the combined width of all spanned columns.
+          double width = 0;
+          int remainingSkips = 0;
+          for (int k = 0; k < groupSpan; k++) {
+            final idx = gridIndex + k;
+            if (idx < colWidths.length) {
+              width += colWidths[idx];
+              skipCounts[idx]--;
+              remainingSkips = skipCounts[idx];
+            }
+          }
+          final isLastRowOfMerge = remainingSkips == 0;
 
-        cells.add(_buildCell(
-          null, // No content
-          width,
-          drawTop: false,
-          drawBottom: isLastRowOfMerge,
-          isEmpty: true,
-          tableStyle: effectiveTableStyle, // Pass effective style
-          tableLook: look,
-          rowBackground: rowBackground,
-          isHeaderRow: isHeaderRow,
-          isLastRow: isLastRow,
-          isFirstColumn: isFirstColumn,
-          isLastColumn: isLastColumn,
-          isFirstRowActual: rowIndex == 0,
-          isLastRowActual: rowIndex == totalRows - 1,
-          isFirstColumnActual: gridIndex == 0,
-          isLastColumnActual: gridIndex >= totalColumns - 1,
-        ));
+          cells.add(_buildCell(
+            null, // No content
+            width,
+            drawTop: false,
+            drawBottom: isLastRowOfMerge,
+            isEmpty: true,
+            tableStyle: effectiveTableStyle,
+            tableLook: look,
+            rowBackground: rowBackground,
+            isHeaderRow: isHeaderRow,
+            isLastRow: isLastRow,
+            isFirstColumn: isFirstColumn,
+            isLastColumn: isLastColumn,
+            isFirstRowActual: rowIndex == 0,
+            isLastRowActual: rowIndex == totalRows - 1,
+            isFirstColumnActual: gridIndex == 0,
+            isLastColumnActual: gridIndex + groupSpan - 1 >= totalColumns - 1,
+          ));
 
-        gridIndex++;
+          gridIndex += groupSpan;
+        }
       } else {
         // --- NEW CELL ---
         if (cellIndex < row.cells.length) {
@@ -258,9 +281,14 @@ class TableBuilder {
 
           final rowSpan = cell.rowSpan > 1 ? cell.rowSpan : 1;
 
-          for (int k = 0; k < span; k++) {
-            if (gridIndex + k < skipCounts.length) {
-              skipCounts[gridIndex + k] = rowSpan - 1;
+          if (rowSpan > 1) {
+            for (int k = 0; k < span; k++) {
+              final idx = gridIndex + k;
+              if (idx < skipCounts.length) {
+                skipCounts[idx] = rowSpan - 1;
+                // Mark the first column as group leader; the rest are subsumed.
+                skipColSpans[idx] = k == 0 ? span : -1;
+              }
             }
           }
 

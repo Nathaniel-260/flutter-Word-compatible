@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.2] - 2026-05-16
+
+### ✨ New Features
+
+- **First-line indent** (`w:firstLine`) — positive `indentFirstLine` now prepends a zero-height `WidgetSpan` spacer so the first line is indented relative to the paragraph body
+- **Hanging indent** (`w:hanging`) — negative `indentFirstLine` values reduce the container left padding to approximate hanging-indent layout
+- **Line-rule variants** — `lineRule` values `'exact'` and `'atLeast'` are now handled separately from `'auto'`: `exact` clamps the scale to 0.5–10, `atLeast` floors it at 1.0
+
+### 🐛 Bug Fixes
+
+- **Multi-column vertical merge placeholder** — a cell spanning N columns across multiple rows previously produced N separate thin placeholders in continuation rows; it now correctly emits one wide placeholder whose width covers all spanned columns
+
+### 🧪 Tests
+
+- Added `test/parser_test.dart` — 5 unit tests covering the cascade rule, table grid matrix, crash immunity, first-line indent spacer, and line-rule variants
+- Added `test/widget_test.dart` — 4 widget tests covering row height `ConstrainedBox`, multi-column vMerge placeholder child count, search highlight character ranges, and floating image `Row` layout
+
+### 🔧 Improvements
+
+- Extracted `_resolveLineHeightScale()` helper in `ParagraphBuilder` to centralise line-height logic
+- `TableBuilder._buildRow()` now tracks a parallel `skipColSpans` array alongside `skipCounts` to correctly group multi-column vertical merges
+- Added `.claude/` and `graphify-out/` to `.gitignore`
+
 ## [1.0.1] - 2026-01-07
 
 ### 🎉 Stable Release

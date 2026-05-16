@@ -124,14 +124,18 @@ class ParagraphBuilder {
     List<DocxInline> currentRightFloats = [];
     List<DocxInline> currentInlines = [];
 
-    double? lineHeightScale;
-    if (paragraph.lineSpacing != null) {
-      lineHeightScale = paragraph.lineSpacing! / 240.0;
-    }
+    final lineHeightScale = _resolveLineHeightScale(paragraph);
     final textAlign = _convertAlign(paragraph.align);
 
     // Track current text offset for highlighting
     int currentTextOffset = 0;
+
+    // First-line indent (w:firstLine > 0). Negative values are hanging indents,
+    // handled by _wrapWithParagraphStyle instead.
+    final double firstLineIndentPx = (paragraph.indentFirstLine ?? 0) > 0
+        ? ((paragraph.indentFirstLine! / 15.0).clamp(0.0, 300.0))
+        : 0.0;
+    bool isFirstFlush = true;
 
     // Helper to flush current buffers into a single layout row
     void flushBuffer() {
@@ -146,7 +150,9 @@ class ParagraphBuilder {
         lineHeight: lineHeightScale,
         matches: matches,
         startOffset: currentTextOffset,
+        firstLineIndentPx: isFirstFlush ? firstLineIndentPx : 0.0,
       );
+      isFirstFlush = false;
 
       // Update offset
       for (final inline in currentInlines) {
@@ -388,6 +394,14 @@ class ParagraphBuilder {
     // Clamp all padding values to non-negative to prevent assertion errors
     double leftPadding =
         ((paragraph.indentLeft ?? 0) * twipsToPixels).clamp(0, double.infinity);
+    // Hanging indent (w:hanging): negative indentFirstLine pulls the first line
+    // to the left of the body text. Approximate by reducing the container's left
+    // edge to the hanging position; all lines sit at the same widget position.
+    if ((paragraph.indentFirstLine ?? 0) < 0) {
+      final hangingPx =
+          ((-paragraph.indentFirstLine!) * twipsToPixels).clamp(0.0, leftPadding);
+      leftPadding = (leftPadding - hangingPx).clamp(0.0, double.infinity);
+    }
     double rightPadding = ((paragraph.indentRight ?? 0) * twipsToPixels)
         .clamp(0, double.infinity);
     double topPadding = ((paragraph.spacingBefore ?? 80) * twipsToPixels)
@@ -518,13 +532,25 @@ class ParagraphBuilder {
   }
 
   /// Build TextSpans from inline elements.
+  ///
+  /// [firstLineIndentPx] prepends a zero-height spacer to simulate `w:firstLine` indent.
   List<InlineSpan> buildInlineSpans(
     List<DocxInline> inlines, {
     double? lineHeight,
     List<SearchMatch>? matches,
     int startOffset = 0,
+    double firstLineIndentPx = 0.0,
   }) {
     final spans = <InlineSpan>[];
+
+    if (firstLineIndentPx > 0) {
+      spans.add(WidgetSpan(
+        alignment: PlaceholderAlignment.baseline,
+        baseline: TextBaseline.alphabetic,
+        child: SizedBox(width: firstLineIndentPx, height: 0),
+      ));
+    }
+
     int currentOffset = startOffset;
 
     for (final inline in inlines) {
@@ -972,6 +998,25 @@ class ParagraphBuilder {
     }
 
     return baseColor;
+  }
+
+  /// Resolves the TextStyle line-height scale from [DocxParagraph.lineSpacing]
+  /// and [DocxParagraph.lineRule].
+  ///
+  /// - `'auto'` (default): `lineSpacing / 240` where 240 twips = one standard line.
+  /// - `'exact'`: lineSpacing is an absolute height; normalised against the same baseline.
+  /// - `'atLeast'`: minimum spacing — clamped to ≥ 1.0 so lines never collapse.
+  double? _resolveLineHeightScale(DocxParagraph paragraph) {
+    if (paragraph.lineSpacing == null) return null;
+    final spacing = paragraph.lineSpacing!;
+    switch (paragraph.lineRule ?? 'auto') {
+      case 'exact':
+        return (spacing / 240.0).clamp(0.5, 10.0);
+      case 'atLeast':
+        return (spacing / 240.0).clamp(1.0, 10.0);
+      default:
+        return spacing / 240.0;
+    }
   }
 
   /// Build a widget for a paragraph with a drop cap.
