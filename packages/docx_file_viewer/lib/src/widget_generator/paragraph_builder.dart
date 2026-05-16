@@ -130,10 +130,16 @@ class ParagraphBuilder {
     // Track current text offset for highlighting
     int currentTextOffset = 0;
 
-    // First-line indent (w:firstLine > 0). Negative values are hanging indents,
-    // handled by _wrapWithParagraphStyle instead.
-    final double firstLineIndentPx = (paragraph.indentFirstLine ?? 0) > 0
-        ? ((paragraph.indentFirstLine! / 15.0).clamp(0.0, 300.0))
+    // First-line indent (w:firstLine > 0).
+    // Hanging indent (w:hanging) = negative indentFirstLine: the container is
+    // already shifted left by _wrapWithParagraphStyle; body lines (non-first)
+    // need a positive spacer of the same magnitude to align them at indentLeft.
+    final int rawFirstLine = paragraph.indentFirstLine ?? 0;
+    final double firstLineIndentPx = rawFirstLine > 0
+        ? (rawFirstLine / 15.0).clamp(0.0, 300.0)
+        : 0.0;
+    final double bodyLineIndentPx = rawFirstLine < 0
+        ? ((-rawFirstLine) / 15.0).clamp(0.0, 300.0)
         : 0.0;
     bool isFirstFlush = true;
 
@@ -150,7 +156,7 @@ class ParagraphBuilder {
         lineHeight: lineHeightScale,
         matches: matches,
         startOffset: currentTextOffset,
-        firstLineIndentPx: isFirstFlush ? firstLineIndentPx : 0.0,
+        firstLineIndentPx: isFirstFlush ? firstLineIndentPx : bodyLineIndentPx,
       );
       isFirstFlush = false;
 
@@ -1011,9 +1017,16 @@ class ParagraphBuilder {
     final spacing = paragraph.lineSpacing!;
     switch (paragraph.lineRule ?? 'auto') {
       case 'exact':
-        return (spacing / 240.0).clamp(0.5, 10.0);
       case 'atLeast':
-        return (spacing / 240.0).clamp(1.0, 10.0);
+        // TextStyle.height is relative to the rendered font size, so dividing
+        // by the fixed 240-twip baseline (12pt) produces an incorrect scale for
+        // any font other than 12pt. Normalize against the theme default instead.
+        final baseFontSizePx = theme.defaultTextStyle.fontSize ?? 16.0;
+        final baseHeightTwips = baseFontSizePx * 15.0;
+        final scale = spacing / baseHeightTwips;
+        return (paragraph.lineRule == 'exact')
+            ? scale.clamp(0.5, 10.0)
+            : scale.clamp(1.0, 10.0);
       default:
         return spacing / 240.0;
     }

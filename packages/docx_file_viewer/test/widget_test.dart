@@ -156,14 +156,16 @@ void main() {
       expect(rows.length, greaterThanOrEqualTo(2),
           reason: 'Both table rows must be wrapped in IntrinsicHeight > Row');
 
-      // The continuation row (row index 1) should have 2 children, not 3.
-      // We can't easily identify which IntrinsicHeight is row 1, but at least
-      // one Row should have exactly 2 children (the merged placeholder + C).
-      final twoChildRows = rows.where((r) => r.children.length == 2);
-      expect(twoChildRows, isNotEmpty,
-          reason:
-              'A row with the merged placeholder must have exactly 2 children, '
-              'not 3 (i.e., two separate thin sub-cells)');
+      // Both rows must have exactly 2 children:
+      //   Row 0: [cellA (colSpan=2 width), cellB]
+      //   Row 1: [merged placeholder, cellC]
+      // A broken vMerge fix would produce 3 children in the continuation row.
+      for (final row in rows) {
+        expect(row.children.length, 2,
+            reason:
+                'Each table row must have exactly 2 children; '
+                'a broken vMerge fix produces 3 in the continuation row');
+      }
     });
 
     // -----------------------------------------------------------------------
@@ -211,14 +213,11 @@ void main() {
       expect(richFinder, findsWidgets,
           reason: 'Paragraph must produce text widgets');
 
-      // 'Hello ' should be visible as plain text, 'World' highlighted.
-      // We cannot easily inspect TextSpan colours in widget tests, but we CAN
-      // verify that the full text is rendered (not silently dropped).
-      // Dump the semantics tree to confirm 'Hello World' is represented.
-      final semantics = tester.getSemantics(find.byType(Scaffold));
-      expect(semantics.label.contains('Hello') || semantics.label.isEmpty,
-          isTrue,
-          reason: 'Semantics should include paragraph text or be empty (no crash)');
+      // Both runs must be rendered — 'Hello ' as plain text, 'World' highlighted.
+      expect(find.textContaining('Hello'), findsWidgets,
+          reason: 'Paragraph text must be rendered');
+      expect(find.textContaining('World'), findsWidgets,
+          reason: 'Highlighted search match must be rendered');
     });
 
     // -----------------------------------------------------------------------
@@ -265,6 +264,25 @@ void main() {
       expect(find.byType(IntrinsicHeight), findsOneWidget,
           reason: 'Floating image must use IntrinsicHeight Row layout');
       expect(find.byType(Row), findsOneWidget);
+
+      // Inline image — must NOT produce IntrinsicHeight/Row wrapping.
+      final inlineParagraph = DocxParagraph(children: [
+        DocxText('Inline: '),
+        DocxInlineImage(
+          bytes: gifBytes,
+          positionMode: DocxDrawingPosition.inline,
+          extension: 'gif',
+          width: 50,
+          height: 50,
+        ),
+      ]);
+
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(body: builder.build(inlineParagraph)),
+      ));
+
+      expect(find.byType(IntrinsicHeight), findsNothing,
+          reason: 'Inline image must not use IntrinsicHeight Row layout');
     });
   });
 }
