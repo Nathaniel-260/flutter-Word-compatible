@@ -135,12 +135,10 @@ class ParagraphBuilder {
     // already shifted left by _wrapWithParagraphStyle; body lines (non-first)
     // need a positive spacer of the same magnitude to align them at indentLeft.
     final int rawFirstLine = paragraph.indentFirstLine ?? 0;
-    final double firstLineIndentPx = rawFirstLine > 0
-        ? (rawFirstLine / 15.0).clamp(0.0, 300.0)
-        : 0.0;
-    final double bodyLineIndentPx = rawFirstLine < 0
-        ? ((-rawFirstLine) / 15.0).clamp(0.0, 300.0)
-        : 0.0;
+    final double firstLineIndentPx =
+        rawFirstLine > 0 ? (rawFirstLine / 15.0).clamp(0.0, 300.0) : 0.0;
+    final double bodyLineIndentPx =
+        rawFirstLine < 0 ? ((-rawFirstLine) / 15.0).clamp(0.0, 300.0) : 0.0;
     bool isFirstFlush = true;
 
     // Helper to flush current buffers into a single layout row
@@ -404,8 +402,8 @@ class ParagraphBuilder {
     // to the left of the body text. Approximate by reducing the container's left
     // edge to the hanging position; all lines sit at the same widget position.
     if ((paragraph.indentFirstLine ?? 0) < 0) {
-      final hangingPx =
-          ((-paragraph.indentFirstLine!) * twipsToPixels).clamp(0.0, leftPadding);
+      final hangingPx = ((-paragraph.indentFirstLine!) * twipsToPixels)
+          .clamp(0.0, leftPadding);
       leftPadding = (leftPadding - hangingPx).clamp(0.0, double.infinity);
     }
     double rightPadding = ((paragraph.indentRight ?? 0) * twipsToPixels)

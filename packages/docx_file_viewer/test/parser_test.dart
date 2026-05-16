@@ -56,8 +56,8 @@ void main() {
         </w:r>
       ''');
 
-      final run =
-          parser.parseRun(xml.rootElement, parentStyle: parentStyle) as DocxText;
+      final run = parser.parseRun(xml.rootElement, parentStyle: parentStyle)
+          as DocxText;
 
       expect(run.content, 'Hello');
       expect(run.fontSize, 24,
@@ -242,7 +242,8 @@ void main() {
           lineRule: lineRule,
         );
         expect(() => builder.build(para), returnsNormally,
-            reason: 'lineRule=$lineRule lineSpacing=$lineSpacing must not throw');
+            reason:
+                'lineRule=$lineRule lineSpacing=$lineSpacing must not throw');
       }
 
       checkRenders('auto', 240); // 1× spacing

@@ -148,10 +148,8 @@ void main() {
       // Row 0 and Row 1 both use IntrinsicHeight.
       // Row 1's Row should have 2 children: [placeholder, cellC].
       // Row 0's Row should have 2 children: [cellA (span=2 width), cellB].
-      final rows = intrinsicHeights
-          .map((ih) => ih.child)
-          .whereType<Row>()
-          .toList();
+      final rows =
+          intrinsicHeights.map((ih) => ih.child).whereType<Row>().toList();
 
       expect(rows.length, greaterThanOrEqualTo(2),
           reason: 'Both table rows must be wrapped in IntrinsicHeight > Row');
@@ -162,8 +160,7 @@ void main() {
       // A broken vMerge fix would produce 3 children in the continuation row.
       for (final row in rows) {
         expect(row.children.length, 2,
-            reason:
-                'Each table row must have exactly 2 children; '
+            reason: 'Each table row must have exactly 2 children; '
                 'a broken vMerge fix produces 3 in the continuation row');
       }
     });
@@ -208,8 +205,8 @@ void main() {
       ));
 
       // The widget tree must contain at least one RichText / SelectableText.
-      final richFinder = find.byWidgetPredicate(
-          (w) => w is RichText || w is SelectableText);
+      final richFinder =
+          find.byWidgetPredicate((w) => w is RichText || w is SelectableText);
       expect(richFinder, findsWidgets,
           reason: 'Paragraph must produce text widgets');
 
@@ -226,16 +223,54 @@ void main() {
     // A DocxInlineImage with positionMode = floating must be laid out in a Row
     // (wrapping text around it) while an inline image stays inside the text flow.
     // -----------------------------------------------------------------------
-    testWidgets('Floating image is placed in a Row; inline image stays in text flow',
+    testWidgets(
+        'Floating image is placed in a Row; inline image stays in text flow',
         (tester) async {
       // We're inside an async closure — use a minimal valid GIF.
       final gifBytes = Uint8List.fromList([
-        0x47, 0x49, 0x46, 0x38, 0x39, 0x61,
-        0x01, 0x00, 0x01, 0x00,
-        0x80, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00,
-        0x21, 0xF9, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x2C, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00,
-        0x02, 0x02, 0x44, 0x01, 0x00, 0x3B,
+        0x47,
+        0x49,
+        0x46,
+        0x38,
+        0x39,
+        0x61,
+        0x01,
+        0x00,
+        0x01,
+        0x00,
+        0x80,
+        0x00,
+        0x00,
+        0xFF,
+        0xFF,
+        0xFF,
+        0x00,
+        0x00,
+        0x00,
+        0x21,
+        0xF9,
+        0x04,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x2C,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x01,
+        0x00,
+        0x01,
+        0x00,
+        0x00,
+        0x02,
+        0x02,
+        0x44,
+        0x01,
+        0x00,
+        0x3B,
       ]);
 
       // Floating (left-align) image
