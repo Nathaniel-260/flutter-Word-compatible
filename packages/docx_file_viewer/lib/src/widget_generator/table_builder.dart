@@ -96,12 +96,28 @@ class TableBuilder {
           child: tableContent);
     }
 
-    // Wrap in horizontal scroll for overflow protection
+    // טיפול בטבלה רחבה מהמרחב הזמין: במקום לחתוך (ה-clip של הדף), מכווצים
+    // פרופורציונלית — בדומה ל-AutoFit של Word — אחרת מציגים בגודל הטבעי עם
+    // גלילה אופקית. מונע אובדן עמודות בדף A4 צר.
+    final tableTotalWidth = colWidths.fold<double>(0.0, (a, b) => a + b);
     Widget scrollableTable = Padding(
       padding: const EdgeInsets.symmetric(vertical: 8.0),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: tableContent,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          if (constraints.maxWidth.isFinite &&
+              constraints.maxWidth > 0 &&
+              tableTotalWidth > constraints.maxWidth) {
+            return FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.topCenter,
+              child: SizedBox(width: tableTotalWidth, child: tableContent),
+            );
+          }
+          return SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: tableContent,
+          );
+        },
       ),
     );
 

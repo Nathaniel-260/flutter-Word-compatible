@@ -99,6 +99,18 @@ class DocxSectionDef extends DocxSection {
   final int marginBottom;
   final int marginLeft;
   final int marginRight;
+
+  /// מרחק הכותרת העליונה (header) מקצה העמוד העליון (w:header, twips).
+  /// בד"כ קטן מ-[marginTop] — ה-header יושב באזור השוליים העליונים.
+  final int marginHeader;
+
+  /// מרחק הכותרת התחתונה (footer) מקצה העמוד התחתון (w:footer, twips).
+  /// בד"כ קטן מ-[marginBottom] — ה-footer יושב באזור השוליים התחתונים.
+  final int marginFooter;
+
+  /// מרווח כריכה (w:gutter, twips) — נוסף לשוליים בצד הכריכה (ברירת מחדל: שמאל).
+  final int gutter;
+
   final DocxSectionBreak breakType;
   final DocxHeader? header;
   final DocxFooter? footer;
@@ -121,6 +133,9 @@ class DocxSectionDef extends DocxSection {
     this.marginBottom = kDefaultMarginBottom,
     this.marginLeft = kDefaultMarginLeft,
     this.marginRight = kDefaultMarginRight,
+    this.marginHeader = kDefaultHeaderDistance,
+    this.marginFooter = kDefaultFooterDistance,
+    this.gutter = 0,
     this.breakType = DocxSectionBreak.nextPage,
     this.header,
     this.footer,
@@ -139,6 +154,9 @@ class DocxSectionDef extends DocxSection {
     int? marginBottom,
     int? marginLeft,
     int? marginRight,
+    int? marginHeader,
+    int? marginFooter,
+    int? gutter,
     DocxSectionBreak? breakType,
     DocxHeader? header,
     DocxFooter? footer,
@@ -154,6 +172,9 @@ class DocxSectionDef extends DocxSection {
       marginBottom: marginBottom ?? this.marginBottom,
       marginLeft: marginLeft ?? this.marginLeft,
       marginRight: marginRight ?? this.marginRight,
+      marginHeader: marginHeader ?? this.marginHeader,
+      marginFooter: marginFooter ?? this.marginFooter,
+      gutter: gutter ?? this.gutter,
       breakType: breakType ?? this.breakType,
       header: header ?? this.header,
       footer: footer ?? this.footer,
@@ -229,8 +250,9 @@ class DocxSectionDef extends DocxSection {
             builder.attribute('w:right', marginRight.toString());
             builder.attribute('w:bottom', marginBottom.toString());
             builder.attribute('w:left', marginLeft.toString());
-            builder.attribute('w:header', kDefaultHeaderDistance.toString());
-            builder.attribute('w:footer', kDefaultFooterDistance.toString());
+            builder.attribute('w:header', marginHeader.toString());
+            builder.attribute('w:footer', marginFooter.toString());
+            if (gutter != 0) builder.attribute('w:gutter', gutter.toString());
           },
         );
       },

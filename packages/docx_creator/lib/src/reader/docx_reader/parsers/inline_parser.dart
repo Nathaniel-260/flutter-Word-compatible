@@ -38,9 +38,11 @@ class InlineParser {
 
   /// Parse a single run (w:r) element.
   DocxInline parseRun(XmlElement run, {DocxStyle? parentStyle}) {
-    // Check for line break
-    if (run.findAllElements('w:br').isNotEmpty) {
-      return const DocxLineBreak();
+    // Check for line break — מבחין בין מעבר שורה למעבר עמוד (w:type="page").
+    final br = run.findAllElements('w:br').firstOrNull;
+    if (br != null) {
+      final isPage = br.getAttribute('w:type') == 'page';
+      return DocxLineBreak(isPageBreak: isPage);
     }
     // Check for tab
     if (run.findAllElements('w:tab').isNotEmpty) {
@@ -118,6 +120,8 @@ class InlineParser {
         fontWeight: finalProps.fontWeight ?? DocxFontWeight.normal,
         fontStyle: finalProps.fontStyle ?? DocxFontStyle.normal,
         decorations: finalProps.decorations,
+        underlineStyle: finalProps.underlineStyle,
+        underlineColor: finalProps.underlineColor,
         color: effectiveColor,
         shadingFill: parsedProps.shadingFill, // Only direct shading
         fontSize: directFontSize ??

@@ -364,18 +364,30 @@ class _DocxViewState extends State<DocxView> {
         widget.config.backgroundColor ?? theme.backgroundColor ?? Colors.white;
 
     Widget content;
-    final list = SingleChildScrollView(
-      padding: widget.config.padding,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: _widgets!.map((child) {
-          if (widget.config.pageMode == DocxPageMode.paged) {
-            return Center(child: child);
-          }
-          return child;
-        }).toList(),
-      ),
-    );
+    final bool isPaged = widget.config.pageMode == DocxPageMode.paged;
+    // virtualization: כשאין zoom (InteractiveViewer דורש גודל סופי) ואין רוחב-עמוד
+    // legacy, מרנדרים ב-ListView.builder — רק הבלוקים הנראים מקבלים RenderObject,
+    // כך ש-RAM נשאר נמוך וגלילה חלקה גם במסמך של מאות עמודים.
+    // ראו WORD_FIDELITY_VIEWER_PLAN.md §4.1.
+    final bool canVirtualize =
+        !widget.config.enableZoom && widget.config.pageWidth == null;
+    final Widget list = canVirtualize
+        ? ListView.builder(
+            padding: widget.config.padding,
+            itemCount: _widgets!.length,
+            itemBuilder: (context, i) =>
+                isPaged ? Center(child: _widgets![i]) : _widgets![i],
+          )
+        : SingleChildScrollView(
+            padding: widget.config.padding,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: _widgets!.map((child) {
+                if (isPaged) return Center(child: child);
+                return child;
+              }).toList(),
+            ),
+          );
 
     if (widget.config.pageMode == DocxPageMode.paged) {
       // Paged View: Canvas style

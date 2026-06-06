@@ -7,28 +7,27 @@
 class DocxUnits {
   DocxUnits._();
 
-  /// Converts twips to logical pixels.
+  /// Converts twips to logical pixels at **96 DPI** (consistent with EMU).
   ///
-  /// Twips are 1/20th of a point. At 96 DPI:
-  /// - 1 point = 96/72 pixels = 1.333 pixels
-  /// - 1 twip = 1/20 point = 1.333/20 pixels = 0.0667 pixels
-  ///
-  /// Simplified: twips / 20 gives approximate pixel value.
-  static double twipsToPixels(int twips) => twips / 20.0;
+  /// Twips are 1/20th of a point. At 96 DPI: 1 twip = 1.333/20 px = 1/15 px.
+  /// (הגרסה הקודמת השתמשה ב-twips/20 = 72 DPI, מה שהקטין את גודל העמוד והשוליים
+  /// ביחס לתמונות שכבר חושבו ב-96 DPI — אי-עקביות שגרמה לחיתוך תוכן.)
+  static double twipsToPixels(int twips) => twips / 15.0;
 
-  /// Converts twips to pixels (nullable version).
+  /// Converts twips to pixels (nullable version, 96 DPI).
   static double? twipsToPixelsOrNull(int? twips) =>
-      twips != null ? twips / 20.0 : null;
+      twips != null ? twips / 15.0 : null;
 
-  /// Converts half-points to logical pixels.
+  /// Converts half-points to logical pixels at **96 DPI**.
   ///
   /// Font sizes in DOCX are specified in half-points (sz attribute).
-  /// For example, sz="24" means 12pt font.
-  static double halfPointsToPixels(int halfPoints) => halfPoints / 2.0;
+  /// For example, sz="24" = 12pt = 16px at 96 DPI (12 * 96/72).
+  static double halfPointsToPixels(int halfPoints) =>
+      halfPoints / 2.0 * 96.0 / 72.0;
 
-  /// Converts half-points to pixels (nullable version).
+  /// Converts half-points to pixels (nullable version, 96 DPI).
   static double? halfPointsToPixelsOrNull(int? halfPoints) =>
-      halfPoints != null ? halfPoints / 2.0 : null;
+      halfPoints != null ? halfPoints / 2.0 * 96.0 / 72.0 : null;
 
   /// Converts EMU (English Metric Units) to logical pixels.
   ///

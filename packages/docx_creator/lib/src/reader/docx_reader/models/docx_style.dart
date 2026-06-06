@@ -38,6 +38,12 @@ class DocxStyle {
   final DocxFontWeight? fontWeight;
   final DocxFontStyle? fontStyle;
   final List<DocxTextDecoration> decorations;
+
+  /// Underline pattern parsed from `w:u w:val` (e.g. double, wave).
+  final DocxUnderlineStyle? underlineStyle;
+
+  /// Underline color parsed from `w:u w:color`/`w:themeColor`.
+  final DocxColor? underlineColor;
   final DocxColor? color;
   final double? fontSize;
   final DocxFont? fonts;
@@ -88,6 +94,8 @@ class DocxStyle {
     this.fontWeight,
     this.fontStyle,
     this.decorations = const [],
+    this.underlineStyle,
+    this.underlineColor,
     this.color,
     this.fontSize,
     this.fonts,
@@ -153,6 +161,8 @@ class DocxStyle {
       fontWeight: rProps.fontWeight,
       fontStyle: rProps.fontStyle,
       decorations: rProps.decorations,
+      underlineStyle: rProps.underlineStyle,
+      underlineColor: rProps.underlineColor,
       color: rProps.color,
       fontSize: rProps.fontSize,
       fonts: rProps.fonts,
@@ -205,6 +215,8 @@ class DocxStyle {
       fontStyle: other.fontStyle ?? fontStyle,
       decorations:
           other.decorations.isNotEmpty ? other.decorations : decorations,
+      underlineStyle: other.underlineStyle ?? underlineStyle,
+      underlineColor: other.underlineColor ?? underlineColor,
       color: other.color ?? color,
       fontSize: other.fontSize ?? fontSize,
       fonts: fonts?.merge(other.fonts) ?? other.fonts,
@@ -382,6 +394,8 @@ class DocxStyle {
     DocxFontWeight? fontWeight;
     DocxFontStyle? fontStyle;
     List<DocxTextDecoration> decorations = [];
+    DocxUnderlineStyle? underlineStyle;
+    DocxColor? underlineColor;
     DocxColor? color;
     String? shadingFill;
     double? fontSize;
@@ -411,8 +425,25 @@ class DocxStyle {
     if (rPr != null) {
       if (rPr.getElement('w:b') != null) fontWeight = DocxFontWeight.bold;
       if (rPr.getElement('w:i') != null) fontStyle = DocxFontStyle.italic;
-      if (rPr.getElement('w:u') != null) {
-        decorations.add(DocxTextDecoration.underline);
+      final uElem = rPr.getElement('w:u');
+      if (uElem != null) {
+        final val = uElem.getAttribute('w:val');
+        final parsedStyle = DocxUnderlineStyleExtension.fromXml(val);
+        // `w:val="none"` explicitly disables the underline.
+        if (val != 'none' && parsedStyle != DocxUnderlineStyle.none) {
+          decorations.add(DocxTextDecoration.underline);
+          underlineStyle = parsedStyle; // null (unknown token) → treated as single
+          final themeColor = uElem.getAttribute('w:themeColor');
+          final colorVal = uElem.getAttribute('w:color');
+          if ((colorVal != null && colorVal != 'auto') || themeColor != null) {
+            underlineColor = DocxColor(
+              (colorVal != null && colorVal != 'auto') ? colorVal : 'auto',
+              themeColor: themeColor,
+              themeTint: uElem.getAttribute('w:themeTint'),
+              themeShade: uElem.getAttribute('w:themeShade'),
+            );
+          }
+        }
       }
       if (rPr.getElement('w:strike') != null) {
         decorations.add(DocxTextDecoration.strikethrough);
@@ -546,6 +577,8 @@ class DocxStyle {
       fontWeight: fontWeight,
       fontStyle: fontStyle,
       decorations: decorations,
+      underlineStyle: underlineStyle,
+      underlineColor: underlineColor,
       color: color,
       shadingFill: shadingFill,
       themeFill: themeFill,

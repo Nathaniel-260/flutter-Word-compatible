@@ -200,6 +200,97 @@ enum DocxFontStyle { normal, italic }
 
 enum DocxTextDecoration { none, underline, strikethrough }
 
+/// Underline patterns, mirroring the OOXML `ST_Underline` simple type
+/// (the `w:val` attribute of the `<w:u>` element).
+///
+/// Enum names match the OOXML tokens 1:1, so [xmlValue] is just [Enum.name]
+/// and [fromXml] is a reverse name lookup.
+///
+/// ```dart
+/// DocxText('Wavy', underlineStyle: DocxUnderlineStyle.wave,
+///     underlineColor: DocxColor.red)
+/// ```
+enum DocxUnderlineStyle {
+  /// No underline (explicit `w:val="none"`).
+  none,
+
+  /// A single line.
+  single,
+
+  /// Underline non-space characters only (words, not the spaces between them).
+  words,
+
+  /// Two lines.
+  double,
+
+  /// A single thick line.
+  thick,
+
+  /// A dotted line.
+  dotted,
+
+  /// A thick dotted line.
+  dottedHeavy,
+
+  /// A dashed line.
+  dash,
+
+  /// A thick dashed line.
+  dashedHeavy,
+
+  /// A line of long dashes.
+  dashLong,
+
+  /// A thick line of long dashes.
+  dashLongHeavy,
+
+  /// A dash-dot line.
+  dotDash,
+
+  /// A thick dash-dot line.
+  dashDotHeavy,
+
+  /// A dash-dot-dot line.
+  dotDotDash,
+
+  /// A thick dash-dot-dot line.
+  dashDotDotHeavy,
+
+  /// A wavy line.
+  wave,
+
+  /// A thick wavy line.
+  wavyHeavy,
+
+  /// A double wavy line.
+  wavyDouble,
+}
+
+extension DocxUnderlineStyleExtension on DocxUnderlineStyle {
+  /// The OOXML `w:val` token for this style (matches [Enum.name]).
+  String get xmlValue => name;
+
+  /// Whether this style is a "heavy"/thick variant.
+  bool get isHeavy =>
+      this == DocxUnderlineStyle.thick ||
+      this == DocxUnderlineStyle.dottedHeavy ||
+      this == DocxUnderlineStyle.dashedHeavy ||
+      this == DocxUnderlineStyle.dashLongHeavy ||
+      this == DocxUnderlineStyle.dashDotHeavy ||
+      this == DocxUnderlineStyle.dashDotDotHeavy ||
+      this == DocxUnderlineStyle.wavyHeavy;
+
+  /// Parse an OOXML `w:val` token into a [DocxUnderlineStyle], or `null` if the
+  /// token is unknown.
+  static DocxUnderlineStyle? fromXml(String? val) {
+    if (val == null) return null;
+    for (final s in DocxUnderlineStyle.values) {
+      if (s.name == val) return s;
+    }
+    return null;
+  }
+}
+
 /// Highlight (background) colors for text.
 enum DocxHighlight {
   none,

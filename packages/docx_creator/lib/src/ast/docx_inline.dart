@@ -24,6 +24,16 @@ class DocxText extends DocxInline {
   final DocxFontWeight fontWeight;
   final DocxFontStyle fontStyle;
   final List<DocxTextDecoration> decorations;
+
+  /// Underline pattern (e.g. [DocxUnderlineStyle.double], [DocxUnderlineStyle.wave]).
+  ///
+  /// Only meaningful when [decorations] contains [DocxTextDecoration.underline].
+  /// When null the underline defaults to [DocxUnderlineStyle.single].
+  final DocxUnderlineStyle? underlineStyle;
+
+  /// Underline color. When null the underline follows the text [color].
+  final DocxColor? underlineColor;
+
   final DocxColor? color;
   final DocxHighlight highlight;
   final String? shadingFill; // Background color hex
@@ -69,6 +79,8 @@ class DocxText extends DocxInline {
     this.fontWeight = DocxFontWeight.normal,
     this.fontStyle = DocxFontStyle.normal,
     this.decorations = const [],
+    this.underlineStyle,
+    this.underlineColor,
     this.color,
     this.highlight = DocxHighlight.none,
     this.shadingFill,
@@ -116,6 +128,8 @@ class DocxText extends DocxInline {
   })  : fontWeight = DocxFontWeight.bold,
         fontStyle = DocxFontStyle.normal,
         decorations = const [],
+        underlineStyle = null,
+        underlineColor = null,
         characterSpacing = null,
         href = null,
         themeColor = null,
@@ -148,6 +162,8 @@ class DocxText extends DocxInline {
   })  : fontWeight = DocxFontWeight.normal,
         fontStyle = DocxFontStyle.italic,
         decorations = const [],
+        underlineStyle = null,
+        underlineColor = null,
         characterSpacing = null,
         href = null,
         themeColor = null,
@@ -180,6 +196,8 @@ class DocxText extends DocxInline {
   })  : fontWeight = DocxFontWeight.bold,
         fontStyle = DocxFontStyle.italic,
         decorations = const [],
+        underlineStyle = null,
+        underlineColor = null,
         characterSpacing = null,
         href = null,
         themeColor = null,
@@ -197,8 +215,13 @@ class DocxText extends DocxInline {
         textBorder = null;
 
   /// Underlined text.
+  ///
+  /// Use [style] to pick the underline pattern (single, double, wave, …) and
+  /// [underlineColor] to color the line independently of the text.
   const DocxText.underline(
     this.content, {
+    DocxUnderlineStyle style = DocxUnderlineStyle.single,
+    this.underlineColor,
     this.color,
     this.highlight = DocxHighlight.none,
     this.shadingFill,
@@ -212,6 +235,7 @@ class DocxText extends DocxInline {
   })  : fontWeight = DocxFontWeight.normal,
         fontStyle = DocxFontStyle.normal,
         decorations = const [DocxTextDecoration.underline],
+        underlineStyle = style,
         characterSpacing = null,
         href = null,
         themeColor = null,
@@ -244,6 +268,8 @@ class DocxText extends DocxInline {
   })  : fontWeight = DocxFontWeight.normal,
         fontStyle = DocxFontStyle.normal,
         decorations = const [DocxTextDecoration.strikethrough],
+        underlineStyle = null,
+        underlineColor = null,
         characterSpacing = null,
         href = null,
         themeColor = null,
@@ -275,6 +301,8 @@ class DocxText extends DocxInline {
   })  : fontWeight = DocxFontWeight.normal,
         fontStyle = DocxFontStyle.normal,
         decorations = const [DocxTextDecoration.underline],
+        underlineStyle = null,
+        underlineColor = null,
         color = DocxColor.blue,
         highlight = DocxHighlight.none,
         characterSpacing = null,
@@ -304,6 +332,8 @@ class DocxText extends DocxInline {
       : fontWeight = DocxFontWeight.normal,
         fontStyle = DocxFontStyle.normal,
         decorations = const [],
+        underlineStyle = null,
+        underlineColor = null,
         highlight = DocxHighlight.none,
         fontFamily = 'Courier New',
         fonts = null,
@@ -339,6 +369,8 @@ class DocxText extends DocxInline {
   })  : fontWeight = DocxFontWeight.normal,
         fontStyle = DocxFontStyle.normal,
         decorations = const [],
+        underlineStyle = null,
+        underlineColor = null,
         characterSpacing = null,
         href = null,
         themeColor = null,
@@ -366,6 +398,8 @@ class DocxText extends DocxInline {
       : fontWeight = DocxFontWeight.normal,
         fontStyle = DocxFontStyle.normal,
         decorations = const [],
+        underlineStyle = null,
+        underlineColor = null,
         color = null,
         highlight = DocxHighlight.none,
         fontFamily = null,
@@ -397,6 +431,8 @@ class DocxText extends DocxInline {
       : fontWeight = DocxFontWeight.normal,
         fontStyle = DocxFontStyle.normal,
         decorations = const [],
+        underlineStyle = null,
+        underlineColor = null,
         color = null,
         highlight = DocxHighlight.none,
         fontFamily = null,
@@ -431,6 +467,8 @@ class DocxText extends DocxInline {
   })  : fontWeight = DocxFontWeight.normal,
         fontStyle = DocxFontStyle.normal,
         decorations = const [],
+        underlineStyle = null,
+        underlineColor = null,
         color = null,
         highlight = DocxHighlight.none,
         characterSpacing = null,
@@ -463,6 +501,8 @@ class DocxText extends DocxInline {
   })  : fontWeight = DocxFontWeight.normal,
         fontStyle = DocxFontStyle.normal,
         decorations = const [],
+        underlineStyle = null,
+        underlineColor = null,
         color = null,
         highlight = DocxHighlight.none,
         characterSpacing = null,
@@ -490,6 +530,8 @@ class DocxText extends DocxInline {
     DocxFontWeight? fontWeight,
     DocxFontStyle? fontStyle,
     List<DocxTextDecoration>? decorations,
+    DocxUnderlineStyle? underlineStyle,
+    DocxColor? underlineColor,
     DocxColor? color,
     DocxHighlight? highlight,
     String? shadingFill,
@@ -520,6 +562,8 @@ class DocxText extends DocxInline {
       fontWeight: fontWeight ?? this.fontWeight,
       fontStyle: fontStyle ?? this.fontStyle,
       decorations: decorations ?? this.decorations,
+      underlineStyle: underlineStyle ?? this.underlineStyle,
+      underlineColor: underlineColor ?? this.underlineColor,
       color: color ?? this.color,
       highlight: highlight ?? this.highlight,
       shadingFill: shadingFill ?? this.shadingFill,
@@ -556,6 +600,14 @@ class DocxText extends DocxInline {
   bool get isItalic => fontStyle == DocxFontStyle.italic;
   bool get isUnderline => decorations.contains(DocxTextDecoration.underline);
   bool get isStrike => decorations.contains(DocxTextDecoration.strikethrough);
+
+  /// The effective underline pattern to render/write: the explicit
+  /// [underlineStyle] when set, otherwise [DocxUnderlineStyle.single] when the
+  /// run is underlined, else `null`.
+  DocxUnderlineStyle? get effectiveUnderlineStyle {
+    if (underlineStyle != null) return underlineStyle;
+    return isUnderline ? DocxUnderlineStyle.single : null;
+  }
   DocxTextDecoration get decoration =>
       decorations.isNotEmpty ? decorations.first : DocxTextDecoration.none;
   bool get isLink => href != null;
@@ -718,12 +770,26 @@ class DocxText extends DocxInline {
                 );
               }
 
-              // 16. u (Underline)
-              if (isUnderline) {
+              // 16. u (Underline) — pattern + optional independent color.
+              final uStyle = effectiveUnderlineStyle;
+              if (uStyle != null && uStyle != DocxUnderlineStyle.none) {
                 builder.element(
                   'w:u',
                   nest: () {
-                    builder.attribute('w:val', 'single');
+                    builder.attribute('w:val', uStyle.xmlValue);
+                    final uc = underlineColor;
+                    if (uc != null) {
+                      builder.attribute('w:color', uc.hex);
+                      if (uc.themeColor != null) {
+                        builder.attribute('w:themeColor', uc.themeColor!);
+                      }
+                      if (uc.themeTint != null) {
+                        builder.attribute('w:themeTint', uc.themeTint!);
+                      }
+                      if (uc.themeShade != null) {
+                        builder.attribute('w:themeShade', uc.themeShade!);
+                      }
+                    }
                   },
                 );
               }
@@ -829,7 +895,11 @@ class DocxText extends DocxInline {
 
 /// A line break.
 class DocxLineBreak extends DocxInline {
-  const DocxLineBreak({super.id});
+  /// האם זהו מעבר עמוד (`w:br w:type="page"`) ולא מעבר שורה רגיל.
+  /// מנוע התצוגה משתמש בזה כדי לשבור לעמוד חדש במצב paged.
+  final bool isPageBreak;
+
+  const DocxLineBreak({super.id, this.isPageBreak = false});
 
   @override
   void accept(DocxVisitor visitor) => visitor.visitText(this);
@@ -839,7 +909,9 @@ class DocxLineBreak extends DocxInline {
     builder.element(
       'w:r',
       nest: () {
-        builder.element('w:br');
+        builder.element('w:br', nest: () {
+          if (isPageBreak) builder.attribute('w:type', 'page');
+        });
       },
     );
   }

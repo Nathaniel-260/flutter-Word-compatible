@@ -21,6 +21,9 @@ class SectionParser {
     int marginBottom = kDefaultMarginBottom;
     int marginLeft = kDefaultMarginLeft;
     int marginRight = kDefaultMarginRight;
+    int marginHeader = kDefaultHeaderDistance;
+    int marginFooter = kDefaultFooterDistance;
+    int gutter = 0;
     DocxHeader? header;
     DocxFooter? footer;
     DocxBackgroundImage? backgroundImage;
@@ -59,6 +62,13 @@ class SectionParser {
             int.tryParse(pgMar.getAttribute('w:left') ?? '') ?? marginLeft;
         marginRight =
             int.tryParse(pgMar.getAttribute('w:right') ?? '') ?? marginRight;
+        // מרחקי header/footer מהקצה + מרווח כריכה — חיוניים למיקום הכותרות
+        // באזור השוליים (ולא בתוך הגוף) ולמרווח הכריכה.
+        marginHeader =
+            int.tryParse(pgMar.getAttribute('w:header') ?? '') ?? marginHeader;
+        marginFooter =
+            int.tryParse(pgMar.getAttribute('w:footer') ?? '') ?? marginFooter;
+        gutter = int.tryParse(pgMar.getAttribute('w:gutter') ?? '') ?? gutter;
       }
 
       // Headers
@@ -98,6 +108,9 @@ class SectionParser {
       marginBottom: marginBottom,
       marginLeft: marginLeft,
       marginRight: marginRight,
+      marginHeader: marginHeader,
+      marginFooter: marginFooter,
+      gutter: gutter,
       header: header,
       footer: footer,
       backgroundColor: backgroundColor,

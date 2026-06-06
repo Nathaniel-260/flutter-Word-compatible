@@ -5,6 +5,7 @@ import '../docx_view_config.dart';
 import '../search/docx_search_controller.dart';
 import '../theme/docx_view_theme.dart';
 import '../utils/block_index_counter.dart';
+import '../utils/docx_units.dart';
 import 'image_builder.dart';
 import 'list_builder.dart';
 import 'paragraph_builder.dart';
@@ -168,22 +169,41 @@ class DocxWidgetGenerator {
   List<Widget> _generatePagedWidgets(DocxBuiltDocument doc) {
     final pages = <List<Widget>>[];
     var currentPageContent = <Widget>[];
+    // תמונות "מאחורי הטקסט" (behindDoc) לכל עמוד — מרונדרות כשכבת רקע ב-Stack.
+    final pageBgs = <List<DocxInlineImage>>[];
+    final currentBgs = <DocxInlineImage>[];
     final counter = BlockIndexCounter();
     _lastCounter = counter;
 
-    // Page dimensions
-    final pageWidth = config.pageWidth ?? 794;
-    final pageHeight = config.pageHeight ?? (pageWidth * 1.414);
-    const pagePadding = 48.0 * 2;
+    // Page dimensions — נלקחות מהמסמך (w:sectPr→w:pgSz) ולא מ-A4 קבוע, כדי
+    // לכבד את גודל העמוד המקורי של ה-Word (ראו WORD_FIDELITY_VIEWER_PLAN.md).
+    final pageSection = doc.section;
+    final pageWidth = config.pageWidth ??
+        (pageSection != null
+            ? DocxUnits.twipsToPixels(pageSection.effectiveWidth)
+            : 794);
+    final pageHeight = config.pageHeight ??
+        (pageSection != null
+            ? DocxUnits.twipsToPixels(pageSection.effectiveHeight)
+            : pageWidth * 1.414);
+    final pagePadding = pageSection != null
+        ? DocxUnits.twipsToPixels(
+            pageSection.marginTop + pageSection.marginBottom)
+        : 96.0;
     const headerFooterEstimate = 100.0;
-    final availableHeight = pageHeight - pagePadding - headerFooterEstimate;
+    // clamp להגנה: מסמך עם שוליים גדולים מאוד / עמוד קטן עלול לתת ערך שלילי,
+    // מה שהיה שובר את העימוד (עמוד נפרד לכל בלוק). 200px = מינימום שמיש סביר.
+    final availableHeight = (pageHeight - pagePadding - headerFooterEstimate)
+        .clamp(200.0, double.infinity);
 
     double currentPageHeight = 0;
 
     void startNewPage() {
       if (currentPageContent.isNotEmpty) {
         pages.add(List.from(currentPageContent));
+        pageBgs.add(List.from(currentBgs));
         currentPageContent.clear();
+        currentBgs.clear();
         currentPageHeight = 0;
       }
     }
@@ -221,6 +241,7 @@ class DocxWidgetGenerator {
         // Generate widgets for the batch (preserves floating element grouping)
         final widgets = _generateBlockWidgets(currentBatch, counter: counter);
         currentPageContent.addAll(widgets);
+        currentBgs.addAll(_collectBehindTextImages(currentBatch));
         currentPageHeight += batchHeight;
         currentBatch.clear();
       }
@@ -235,6 +256,11 @@ class DocxWidgetGenerator {
         isPageBreak = true;
       }
 
+      // מעבר עמוד inline (w:br w:type="page") בתוך פסקה — שובר *אחרי* הפסקה.
+      final bool hasInlinePageBreak = element is DocxParagraph &&
+          element.children
+              .any((c) => c is DocxLineBreak && c.isPageBreak);
+
       if (isPageBreak) {
         flushBatch();
         startNewPage();
@@ -244,15 +270,21 @@ class DocxWidgetGenerator {
       } else {
         currentBatch.add(element);
 
-        // Check if we should flush (content getting too tall)
-        // But don't flush right after adding a floating table - let it group with next paragraphs
-        bool lastWasFloatingTable =
-            element is DocxTable && element.position != null;
+        if (hasInlinePageBreak) {
+          // הפסקה שייכת לעמוד הנוכחי; השבירה מתחילה עמוד חדש אחריה.
+          flushBatch();
+          startNewPage();
+        } else {
+          // Check if we should flush (content getting too tall)
+          // But don't flush right after adding a floating table - let it group with next paragraphs
+          bool lastWasFloatingTable =
+              element is DocxTable && element.position != null;
 
-        if (!lastWasFloatingTable) {
-          final batchHeight = estimateBatchHeight(currentBatch);
-          if (batchHeight > availableHeight) {
-            flushBatch();
+          if (!lastWasFloatingTable) {
+            final batchHeight = estimateBatchHeight(currentBatch);
+            if (batchHeight > availableHeight) {
+              flushBatch();
+            }
           }
         }
       }
@@ -263,14 +295,34 @@ class DocxWidgetGenerator {
 
     if (pages.isEmpty) {
       pages.add([]);
+      pageBgs.add([]);
     }
 
     return pages.asMap().entries.map((entry) {
       final index = entry.key;
       final content = entry.value;
       final headerWidgets = (index == 0) ? firstPageHeaderWidgets : null;
-      return _buildPageContainer(content, doc, headerWidgets: headerWidgets);
+      return _buildPageContainer(content, doc,
+          headerWidgets: headerWidgets, backgroundImages: pageBgs[index]);
     }).toList();
+  }
+
+  /// אוסף תמונות "מאחורי הטקסט" (behindDoc) מתוך רצף בלוקים — מרונדרות
+  /// כשכבת רקע ברמת העמוד (Stack), לא כ-float בצד. כך הטקסט מופיע *בתוך*
+  /// המסגרת/רקע במקום מתחתיה.
+  List<DocxInlineImage> _collectBehindTextImages(List<DocxNode> elements) {
+    final result = <DocxInlineImage>[];
+    for (final el in elements) {
+      if (el is DocxParagraph) {
+        for (final child in el.children) {
+          if (child is DocxInlineImage &&
+              child.textWrap == DocxTextWrap.behindText) {
+            result.add(child);
+          }
+        }
+      }
+    }
+    return result;
   }
 
   /// Estimate the height of a document element for pagination.
@@ -331,42 +383,61 @@ class DocxWidgetGenerator {
   }
 
   Widget _buildPageContainer(List<Widget> content, DocxBuiltDocument doc,
-      {List<Widget>? headerWidgets}) {
-    List<Widget> pageChildren = [];
+      {List<Widget>? headerWidgets,
+      List<DocxInlineImage> backgroundImages = const []}) {
+    final section = doc.section;
 
-    // Header
-    if (doc.section?.header != null) {
-      if (headerWidgets != null) {
-        pageChildren.addAll(headerWidgets);
-      } else {
-        // Regenerate for subsequent pages (no counter, so no indices/keys)
-        pageChildren
-            .addAll(_generateBlockWidgets(doc.section!.header!.children));
-      }
-      pageChildren.add(const SizedBox(height: 20)); // Header margin
+    // כותרת עליונה — נאספת בנפרד כדי למקם אותה *באזור השוליים העליונים*
+    // (במרחק w:header מהקצה), ולא בתוך הגוף שדוחף את הטקסט מטה.
+    final List<Widget> headerCol = [];
+    if (section?.header != null) {
+      headerCol.addAll(
+          headerWidgets ?? _generateBlockWidgets(section!.header!.children));
     }
 
-    pageChildren.addAll(content);
-
-    if (doc.section?.footer != null) {
-      // Use SizedBox for margin
-      pageChildren.add(const SizedBox(height: 40));
-      pageChildren.add(const Divider());
-      pageChildren.addAll(_generateBlockWidgets(doc.section!.footer!.children));
+    // כותרת תחתונה — באזור השוליים התחתונים (במרחק w:footer מהקצה).
+    final List<Widget> footerCol = [];
+    if (section?.footer != null) {
+      footerCol.add(const Divider());
+      footerCol.addAll(_generateBlockWidgets(section!.footer!.children));
     }
 
-    // Calculate page dimensions
-    final pageWidth = config.pageWidth ?? 794;
-    final pageHeight = config.pageHeight ?? (pageWidth * 1.414); // A4 ratio
-    const pagePadding = 48.0;
+    // מידות העמוד מהמסמך (w:pgSz / w:pgMar), לא A4 קבוע.
+    final pageWidth = config.pageWidth ??
+        (section != null
+            ? DocxUnits.twipsToPixels(section.effectiveWidth)
+            : 794.0);
+    final pageHeight = config.pageHeight ??
+        (section != null
+            ? DocxUnits.twipsToPixels(section.effectiveHeight)
+            : pageWidth * 1.414);
+    // gutter (מרווח כריכה) מתווסף לשוליים השמאליים (ברירת המחדל של Word).
+    final gutter = DocxUnits.twipsToPixels(section?.gutter ?? 0);
+    final padLeft =
+        DocxUnits.twipsToPixels(section?.marginLeft ?? 1440) + gutter;
+    final padRight = DocxUnits.twipsToPixels(section?.marginRight ?? 1440);
+    final padTop = DocxUnits.twipsToPixels(section?.marginTop ?? 1440);
+    final padBottom = DocxUnits.twipsToPixels(section?.marginBottom ?? 1440);
+    // מרחקי הכותרות מקצה העמוד — מציבים אותן *באזור השוליים*, לא בגוף.
+    final headerDist = DocxUnits.twipsToPixels(section?.marginHeader ?? 720);
+    final footerDist = DocxUnits.twipsToPixels(section?.marginFooter ?? 720);
 
     return Container(
       width: pageWidth,
-      height: pageHeight,
+      constraints: BoxConstraints(minHeight: pageHeight),
       margin: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
-      clipBehavior: Clip.hardEdge,
       decoration: BoxDecoration(
         color: theme.backgroundColor ?? Colors.white,
+        // תמונת "מאחורי הטקסט" (behindDoc, למשל מסגרת/עיטור עמוד-שער) מצוירת
+        // כרקע של העמוד כולו, מתחת לטקסט — כך הטקסט מופיע *בתוכה*.
+        image: backgroundImages.isNotEmpty
+            ? DecorationImage(
+                image: MemoryImage(backgroundImages.first.bytes),
+                fit: BoxFit.fill,
+                // תמונת רקע פגומה לא תפיל את כל העמוד — נבלעת בשקט.
+                onError: (_, __) {},
+              )
+            : null,
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.1),
@@ -375,16 +446,46 @@ class DocxWidgetGenerator {
           )
         ],
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(pagePadding),
-        child: SingleChildScrollView(
-          physics: const NeverScrollableScrollPhysics(),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: pageChildren,
+      // Stack של 3 אזורים נאמן ל-Word: גוף בין השוליים, header באזור העליון,
+      // footer באזור התחתון — כל אחד במרחק הנכון מקצה העמוד. ה-ConstrainedBox
+      // על הגוף מבטיח שה-Stack בגובה העמוד (כך ה-Positioned bottom של ה-footer
+      // יושב בתחתית העמוד גם כשהתוכן קצר), אך גמיש כלפי מעלה (לא חותך תוכן ארוך).
+      child: Stack(
+        children: [
+          ConstrainedBox(
+            constraints: BoxConstraints(minHeight: pageHeight),
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(padLeft, padTop, padRight, padBottom),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: content,
+              ),
+            ),
           ),
-        ),
+          if (headerCol.isNotEmpty)
+            Positioned(
+              top: headerDist,
+              left: padLeft,
+              right: padRight,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: headerCol,
+              ),
+            ),
+          if (footerCol.isNotEmpty)
+            Positioned(
+              bottom: footerDist,
+              left: padLeft,
+              right: padRight,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: footerCol,
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -620,6 +721,24 @@ class DocxWidgetGenerator {
     final rightFloats = <DocxInline>[];
 
     for (final child in paragraph.children) {
+      // תמונה/צורה "מאחורי הטקסט" (behindDoc) אינה float בצד — היא רקע של
+      // העמוד (מסגרת/עיטור עמוד-שער). מדולגת כאן כדי שלא תרונדר כבלוק שדוחף
+      // את הטקסט; היא נאספת בנפרד ומצוירת כרקע (ראו _collectBehindTextImages).
+      //
+      // הערה מכוונת: רקע-עמוד מוצג רק ב-DocxPageMode.paged, שם יש "מיכל עמוד"
+      // (Stack) לשים מאחוריו את התמונה. במצב continuous (גלילה רציפה) הפלט הוא
+      // רשימה שטוחה ללא גבולות עמוד, ולכן רקעי-עמוד *אינם* מוצגים — זהו מצב
+      // reflow לקריאה, לא נאמנות-עמוד. אי-הצגה זו היא בחירת עיצוב, לא אובדן באג.
+      if (child is DocxInlineImage &&
+          child.textWrap == DocxTextWrap.behindText) {
+        continue;
+      }
+      // צורה (DocxShape) "מאחורי הטקסט" מדולגת אף היא, אך כרגע **אינה** נאספת
+      // לרקע (רק תמונות נאספות ב-_collectBehindTextImages) — צורות-רקע נעלמות.
+      // edge case נדיר במסמכי קודש (רקע הוא כמעט תמיד תמונה); ליטוש עתידי.
+      if (child is DocxShape && child.behindDocument) {
+        continue;
+      }
       if (child is DocxInlineImage &&
           child.positionMode == DocxDrawingPosition.floating) {
         if (child.hAlign == DrawingHAlign.right) {

@@ -75,6 +75,33 @@ class ParagraphBuilder {
         excludedFloats: excludedFloats, matches: matches, key: key);
   }
 
+  /// מזהה את כיוון הפסקה (RTL/LTR).
+  ///
+  /// docx_creator אינו חושף `w:bidi`/`w:rtl`, ולכן הכיוון נגזר מהתוכן לפי
+  /// אלגוריתם "first strong" (התו החזק הראשון): עברית/ערבית → RTL, לטינית → LTR.
+  /// עוטפים את הפסקה ב-[Directionality] עם הכיוון הזה כך ש-RichText, Column
+  /// ו-`TextAlign.start` מתפרשים נכון ל-RTL (קריטי למסמכי קודש עבריים).
+  static TextDirection _detectDirection(DocxParagraph paragraph) {
+    for (final child in paragraph.children) {
+      if (child is DocxText) {
+        for (final rune in child.content.runes) {
+          // Hebrew, Arabic and related RTL Unicode blocks.
+          if ((rune >= 0x0590 && rune <= 0x08FF) ||
+              (rune >= 0xFB1D && rune <= 0xFDFF) ||
+              (rune >= 0xFE70 && rune <= 0xFEFF)) {
+            return TextDirection.rtl;
+          }
+          // Latin letters → strong LTR.
+          if ((rune >= 0x0041 && rune <= 0x005A) ||
+              (rune >= 0x0061 && rune <= 0x007A)) {
+            return TextDirection.ltr;
+          }
+        }
+      }
+    }
+    return TextDirection.ltr;
+  }
+
   /// Native Flutter builder for standard paragraphs.
   Widget _buildNativeParagraph(DocxParagraph paragraph,
       {Set<DocxInline>? excludedFloats, List<SearchMatch>? matches, Key? key}) {
@@ -125,7 +152,14 @@ class ParagraphBuilder {
     List<DocxInline> currentInlines = [];
 
     final lineHeightScale = _resolveLineHeightScale(paragraph);
-    final textAlign = _convertAlign(paragraph.align);
+    final direction = _detectDirection(paragraph);
+    // `DocxAlign.left` הוא גם ברירת המחדל של הקורא (כשאין `w:jc` מפורש) וגם
+    // יישור-שמאל אמיתי. ב-RTL זה כמעט תמיד ברירת מחדל לא-רצויה, ולכן ממפים
+    // אותו ל-`TextAlign.start` (כיוון-תלוי): תחת Directionality.rtl → ימין,
+    // תחת ltr → שמאל. center/right/justify מפורשים נשמרים כפי שהם.
+    final textAlign = paragraph.align == DocxAlign.left
+        ? TextAlign.start
+        : _convertAlign(paragraph.align);
 
     // Track current text offset for highlighting
     int currentTextOffset = 0;
@@ -219,6 +253,14 @@ class ParagraphBuilder {
       if (excludedFloats?.contains(child) ?? false) {
         continue; // Skip specific excluded float
       }
+      // תמונה "מאחורי הטקסט" (behindDoc) — לא float בצד אלא רקע של העמוד.
+      // מדולגת כאן ומרונדרת כשכבת Stack ברמת העמוד (ראו _buildPageContainer),
+      // כדי שהטקסט יופיע *בתוך* המסגרת/רקע ולא מתחת או נדחק על-ידה (וגם מונע
+      // את ה-overflow של ה-Row כשהתמונה רחבה כמעט כרוחב העמוד).
+      if (child is DocxInlineImage &&
+          child.textWrap == DocxTextWrap.behindText) {
+        continue;
+      }
       DocxAlign? align;
       if (child is DocxInlineImage) {
         if (child.positionMode == DocxDrawingPosition.floating) {
@@ -286,7 +328,14 @@ class ParagraphBuilder {
       );
     }
 
-    return _wrapWithParagraphStyle(paragraph, finalContent, key: key);
+    // עטיפת הפסקה ב-Directionality: כל ה-RichText/SelectableText/Column הפנימיים
+    // יורשים את הכיוון הזה (RichText יורש textDirection מה-ambient Directionality),
+    // כך ש-RTL מסתדר נכון בלי להזריק textDirection לכל widget בנפרד.
+    return _wrapWithParagraphStyle(
+      paragraph,
+      Directionality(textDirection: direction, child: finalContent),
+      key: key,
+    );
   }
 
   // ... (keeping internal helper structures same) ...
@@ -669,12 +718,35 @@ class ParagraphBuilder {
     TextDecoration decoration = TextDecoration.none;
     final decorations = <TextDecoration>[];
 
-    if (text.decoration == DocxTextDecoration.underline) {
+    // Underline pattern → Flutter decoration style/thickness/color.
+    // Flutter exposes a single decorationStyle/Color/Thickness shared by all
+    // decorations on a span, so the underline pattern takes priority over the
+    // double-strike style mapping when both are present.
+    TextDecorationStyle decorationStyle = TextDecorationStyle.solid;
+    double? decorationThickness;
+    Color? decorationColor;
+
+    final uStyle = text.effectiveUnderlineStyle;
+    if (uStyle != null && uStyle != DocxUnderlineStyle.none) {
       decorations.add(TextDecoration.underline);
+      final mapped = _mapUnderline(uStyle);
+      decorationStyle = mapped.$1;
+      decorationThickness = mapped.$2;
+      if (text.underlineColor != null) {
+        decorationColor = _resolveColor(
+          text.underlineColor!.hex,
+          text.underlineColor!.themeColor,
+          text.underlineColor!.themeTint,
+          text.underlineColor!.themeShade,
+        );
+      }
     }
-    if (text.decoration == DocxTextDecoration.strikethrough ||
-        text.isDoubleStrike) {
+
+    if (text.isStrike || text.isDoubleStrike) {
       decorations.add(TextDecoration.lineThrough);
+      if (text.isDoubleStrike && !text.isUnderline) {
+        decorationStyle = TextDecorationStyle.double;
+      }
     }
 
     if (decorations.isNotEmpty) {
@@ -809,16 +881,18 @@ class ParagraphBuilder {
       fontWeight: fontWeight,
       fontStyle: fontStyle,
       decoration: decoration,
-      decorationStyle: text.isDoubleStrike
-          ? TextDecorationStyle.double
-          : TextDecorationStyle.solid,
+      decorationStyle: decorationStyle,
+      decorationColor: decorationColor,
+      decorationThickness: decorationThickness,
       color: foreground == null
           ? (textColor ?? theme.defaultTextStyle.color)
           : null,
       foreground: foreground,
       backgroundColor: backgroundColor,
+      // characterSpacing is in twips; convert at 96 DPI (twips/15) to stay
+      // consistent with DocxUnits and avoid mixing 72/96 DPI in one layout.
       letterSpacing:
-          text.characterSpacing != null ? text.characterSpacing! / 20.0 : null,
+          text.characterSpacing != null ? text.characterSpacing! / 15.0 : null,
       fontSize: fontSize,
       fontFamily: fontFamily,
       fontFamilyFallback: config.customFontFallbacks,
@@ -1091,8 +1165,9 @@ class ParagraphBuilder {
         mode: DropCapMode.inside,
         forceNoDescent: true,
         dropCapLines: dropCap.lines,
+        // hSpace is in twips; convert at 96 DPI (twips/15) for consistency.
         dropCapPadding:
-            EdgeInsets.only(right: (dropCap.hSpace / 20.0).clamp(4.0, 20.0)),
+            EdgeInsets.only(right: (dropCap.hSpace / 15.0).clamp(4.0, 20.0)),
       ),
     );
   }
@@ -1146,6 +1221,46 @@ class ParagraphBuilder {
             : null,
       ),
     );
+  }
+
+  /// Maps a Word underline pattern to the closest Flutter
+  /// [TextDecorationStyle] and a relative thickness multiplier.
+  ///
+  /// Word distinguishes more patterns than Flutter can render: `dash`,
+  /// `dashLong`, `dotDash` and `dotDotDash` all collapse to
+  /// [TextDecorationStyle.dashed], and `wavyDouble` falls back to a single
+  /// [TextDecorationStyle.wavy]. "Heavy"/`thick` variants are approximated with
+  /// a thicker line via the returned multiplier.
+  (TextDecorationStyle, double) _mapUnderline(DocxUnderlineStyle style) {
+    switch (style) {
+      case DocxUnderlineStyle.none:
+      case DocxUnderlineStyle.single:
+      case DocxUnderlineStyle.words:
+        return (TextDecorationStyle.solid, 1.0);
+      case DocxUnderlineStyle.thick:
+        return (TextDecorationStyle.solid, 2.5);
+      case DocxUnderlineStyle.double:
+        return (TextDecorationStyle.double, 1.0);
+      case DocxUnderlineStyle.dotted:
+        return (TextDecorationStyle.dotted, 1.0);
+      case DocxUnderlineStyle.dottedHeavy:
+        return (TextDecorationStyle.dotted, 2.5);
+      case DocxUnderlineStyle.dash:
+      case DocxUnderlineStyle.dashLong:
+      case DocxUnderlineStyle.dotDash:
+      case DocxUnderlineStyle.dotDotDash:
+        return (TextDecorationStyle.dashed, 1.0);
+      case DocxUnderlineStyle.dashedHeavy:
+      case DocxUnderlineStyle.dashLongHeavy:
+      case DocxUnderlineStyle.dashDotHeavy:
+      case DocxUnderlineStyle.dashDotDotHeavy:
+        return (TextDecorationStyle.dashed, 2.5);
+      case DocxUnderlineStyle.wave:
+      case DocxUnderlineStyle.wavyDouble:
+        return (TextDecorationStyle.wavy, 1.0);
+      case DocxUnderlineStyle.wavyHeavy:
+        return (TextDecorationStyle.wavy, 2.5);
+    }
   }
 
   TextAlign _convertAlign(DocxAlign align) {
