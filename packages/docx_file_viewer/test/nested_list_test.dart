@@ -243,6 +243,81 @@ void main() {
       expect(markers[27], 'ab.');
     });
 
+    testWidgets('marker matches body font size and aligns to its baseline',
+        (tester) async {
+      // Body text larger than the theme default; the marker must scale to match
+      // instead of rendering small and raised like a superscript.
+      const noSelect = DocxViewConfig(enableSelection: false);
+      final builder = ListBuilder(
+        config: noSelect,
+        theme: viewTheme,
+        paragraphBuilder: ParagraphBuilder(config: noSelect, theme: viewTheme),
+      );
+      final list = DocxList(isOrdered: true, items: const [
+        DocxListItem([DocxText('פריט גדול', fontSize: 28)]),
+      ]);
+
+      await tester.pumpWidget(
+          MaterialApp(home: Scaffold(body: builder.build(list))));
+
+      // Marker glyph and the body line share the same baseline (not top-pinned).
+      final row = tester.widget<Row>(find.byType(Row));
+      expect(row.crossAxisAlignment, CrossAxisAlignment.baseline);
+
+      // Marker font size equals the body run's font size.
+      final markerSize = tester
+          .widgetList<Text>(find.byType(Text))
+          .map((t) => t.style?.fontSize)
+          .firstWhere((s) => s != null);
+      final bodyRich = tester.widget<RichText>(find.descendant(
+        of: find.byType(Expanded),
+        matching: find.byType(RichText),
+      ));
+      double? bodySize;
+      void visit(InlineSpan s) {
+        if (bodySize != null) return;
+        if (s is TextSpan) {
+          if ((s.text?.isNotEmpty ?? false) && s.style?.fontSize != null) {
+            bodySize = s.style!.fontSize;
+            return;
+          }
+          s.children?.forEach(visit);
+        }
+      }
+
+      visit(bodyRich.text);
+      expect(bodySize, isNotNull);
+      expect(markerSize, bodySize);
+    });
+
+    test('firstSpanFontSize inherits a wrapper span size for nested text', () {
+      // Parent declares the size; only the leaf child holds the text. The marker
+      // sizing must still resolve 22 rather than falling back to the default.
+      const spans = [
+        TextSpan(
+          style: TextStyle(fontSize: 22),
+          children: [TextSpan(text: 'nested')],
+        ),
+      ];
+      expect(ListBuilder.firstSpanFontSize(spans), 22);
+    });
+
+    test('firstSpanFontSize prefers an explicit child size over the wrapper',
+        () {
+      const spans = [
+        TextSpan(
+          style: TextStyle(fontSize: 22),
+          children: [TextSpan(text: 'leaf', style: TextStyle(fontSize: 18))],
+        ),
+      ];
+      expect(ListBuilder.firstSpanFontSize(spans), 18);
+    });
+
+    test('firstSpanFontSize returns null when no span declares a size', () {
+      const spans = [TextSpan(text: 'plain')];
+      expect(ListBuilder.firstSpanFontSize(spans), isNull);
+    });
+
     testWidgets('numbered list nested in a bullet list keeps its numbers',
         (tester) async {
       // Parent is unordered; the level-1 items carry an ordered override, as

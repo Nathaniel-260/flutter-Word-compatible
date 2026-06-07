@@ -210,11 +210,16 @@ class ListBuilder {
         ? docxTheme!.fonts.getFont(style.themeFont!)
         : null;
 
+    // Size the marker to the item's own body text rather than the theme
+    // default. A document whose runs are larger than the default would
+    // otherwise render a tiny marker that, top-aligned, looks like a raised
+    // superscript next to the text.
+    final bodyFontSize = firstSpanFontSize(spans);
     final markerStyle = TextStyle(
       color: markerColor,
       fontSize: style.fontSize != null
           ? style.fontSize! * 1.333
-          : theme.defaultTextStyle.fontSize,
+          : (bodyFontSize ?? theme.defaultTextStyle.fontSize),
       fontWeight: style.fontWeight == DocxFontWeight.bold
           ? FontWeight.bold
           : FontWeight.normal,
@@ -268,7 +273,14 @@ class ListBuilder {
         // indent away from the correct margin.
         padding: EdgeInsetsDirectional.only(start: indent, top: 2, bottom: 2),
         child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          // Baseline-align text markers so the number/letter sits on the same
+          // baseline as the first line of body text even when their font
+          // metrics differ slightly. Image bullets have no text baseline, so
+          // they keep top alignment.
+          crossAxisAlignment: style.imageBulletBytes != null
+              ? CrossAxisAlignment.start
+              : CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
           children: [
             // Min-width keeps short markers aligned; long ones (e.g. Roman
             // "viii." or a large gematria value) grow the box instead of
@@ -290,6 +302,35 @@ class ListBuilder {
         ),
       ),
     );
+  }
+
+  /// The font size of the first text-bearing span, used to size the list
+  /// marker to match the body text. Returns null when no span declares a size.
+  ///
+  /// Exposed for testing: the inheritance handling for nested spans is easier to
+  /// verify against synthetic span trees than to coax out of the paragraph
+  /// builder.
+  @visibleForTesting
+  static double? firstSpanFontSize(List<InlineSpan> spans) {
+    for (final span in spans) {
+      final size = _spanFontSize(span);
+      if (size != null) return size;
+    }
+    return null;
+  }
+
+  /// Walks an [InlineSpan] tree for the first text-bearing span's effective font
+  /// size. [inherited] carries an ancestor's size down so a wrapper span that
+  /// declares the size while its children hold the text still resolves correctly.
+  static double? _spanFontSize(InlineSpan span, [double? inherited]) {
+    if (span is! TextSpan) return null;
+    final effective = span.style?.fontSize ?? inherited;
+    if (span.text?.isNotEmpty ?? false) return effective;
+    for (final child in span.children ?? const <InlineSpan>[]) {
+      final size = _spanFontSize(child, effective);
+      if (size != null) return size;
+    }
+    return null;
   }
 
   /// Get bullet marker based on level and style.
