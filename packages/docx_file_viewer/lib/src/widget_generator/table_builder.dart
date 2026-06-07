@@ -33,7 +33,15 @@ class TableBuilder {
   });
 
   /// Build a widget from a [DocxTable].
-  Widget build(DocxTable table, {BlockIndexCounter? counter}) {
+  ///
+  /// [nested] must be true when this table is rendered inside another table's
+  /// cell. A nested table is laid out inside the parent row's [IntrinsicHeight],
+  /// which queries intrinsic dimensions of its children — but the page-level
+  /// autofit wrapper uses a [LayoutBuilder], which throws "does not support
+  /// returning intrinsic dimensions". So for nested tables we skip the
+  /// autofit/scroll wrapper and return the intrinsic-friendly table content
+  /// directly (the cell already bounds its width).
+  Widget build(DocxTable table, {BlockIndexCounter? counter, bool nested = false}) {
     if (table.rows.isEmpty) {
       return const SizedBox.shrink();
     }
@@ -81,7 +89,14 @@ class TableBuilder {
     }
 
     // 3. Build table content
+    // mainAxisSize.min: this Column sits inside a horizontal SingleChildScrollView,
+    // whose cross axis (vertical) constraint is passed through unchanged. In paged
+    // mode the page is laid out by a ListView with an *unbounded* main-axis height,
+    // so without min the Column would try to expand to infinite height → it is left
+    // unsized → the sliver's `child.hasSize` assertion fires and the whole page
+    // fails to paint (the "RenderBox was not laid out" cascade).
     Widget tableContent = Column(
+      mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: rowWidgets,
     );
@@ -96,10 +111,25 @@ class TableBuilder {
           child: tableContent);
     }
 
+    // טבלה מקוננת (בתוך תא): נמצאת בתוך ה-IntrinsicHeight של שורת-האב, שמבקש
+    // intrinsic dimensions. ה-LayoutBuilder של ה-autofit *זורק* על בקשה כזו,
+    // ולכן מדלגים עליו ומחזירים את התוכן ישירות ברוחבו הטבעי (התא כבר חוסם את
+    // הרוחב). כך נמנעת הקריסה "LayoutBuilder does not support returning
+    // intrinsic dimensions" שמפילה את כל העמוד.
+    final tableTotalWidth = colWidths.fold<double>(0.0, (a, b) => a + b);
+    if (nested) {
+      Widget nestedTable = SizedBox(width: tableTotalWidth, child: tableContent);
+      if (table.alignment == DocxAlign.center) {
+        return Center(child: nestedTable);
+      } else if (table.alignment == DocxAlign.right) {
+        return Align(alignment: Alignment.centerRight, child: nestedTable);
+      }
+      return nestedTable;
+    }
+
     // טיפול בטבלה רחבה מהמרחב הזמין: במקום לחתוך (ה-clip של הדף), מכווצים
     // פרופורציונלית — בדומה ל-AutoFit של Word — אחרת מציגים בגודל הטבעי עם
     // גלילה אופקית. מונע אובדן עמודות בדף A4 צר.
-    final tableTotalWidth = colWidths.fold<double>(0.0, (a, b) => a + b);
     Widget scrollableTable = Padding(
       padding: const EdgeInsets.symmetric(vertical: 8.0),
       child: LayoutBuilder(
@@ -528,7 +558,7 @@ class TableBuilder {
         if (child is DocxParagraph) {
           children.add(paragraphBuilder.build(child, counter: counter));
         } else if (child is DocxTable) {
-          children.add(build(child, counter: counter)); // Recursive
+          children.add(build(child, counter: counter, nested: true)); // Recursive
         } else if (child is DocxList) {
           children.add(listBuilder.build(child, counter: counter));
         } else if (child is DocxImage) {
