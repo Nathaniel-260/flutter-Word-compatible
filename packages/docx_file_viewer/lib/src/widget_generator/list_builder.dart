@@ -47,33 +47,35 @@ class ListBuilder {
   Widget build(DocxList list, {BlockIndexCounter? counter}) {
     final itemWidgets = <Widget>[];
 
-    // Track numbering per level for nested lists
-    final numberingByLevel = <int, int>{};
+    // Current counter value per level. Seeded lazily from each level's start so
+    // both custom start values ("list starting from 5") and Word's compound
+    // (legal) numbering — %1.%2.%3 — can reference any ancestor's count.
+    final counters = <int, int>{};
 
     for (final item in list.items) {
-      final level = item.level;
+      final level = item.level.clamp(0, DocxList.maxLevels - 1);
       final ordered = _itemIsOrdered(item, list);
       final isCheckbox = _itemIsCheckbox(item);
 
-      // Only consume a number when the item actually renders an ordered marker;
-      // bullet and checkbox items must not advance the counter (otherwise a
-      // checkbox between "1." and "3." would silently skip "2.").
-      var number = 1;
+      String? orderedMarker;
       if (ordered && !isCheckbox) {
-        numberingByLevel[level] = (numberingByLevel[level] ?? 0) + 1;
-        number = numberingByLevel[level]!;
+        // Advance this level (seeding from its start on first appearance);
+        // bullet/checkbox items must not consume a number.
+        counters[level] =
+            counters.containsKey(level) ? counters[level]! + 1 : _startForLevel(list, level);
+        orderedMarker = _composeMarker(list, item, level, counters);
       }
 
-      // Reset numbering for deeper levels when we go back up
+      // A shallower (or equal, for the next sibling) item resets deeper levels
+      // so nested counters restart — matching Word and the previous behaviour.
       for (var i = level + 1; i < DocxList.maxLevels; i++) {
-        numberingByLevel.remove(i);
+        counters.remove(i);
       }
 
       itemWidgets.add(_buildListItem(
         item,
         list: list,
-        number: number,
-        ordered: ordered,
+        orderedMarker: orderedMarker,
         isCheckbox: isCheckbox,
         counter: counter,
       ));
@@ -88,11 +90,75 @@ class ListBuilder {
     );
   }
 
+  /// The 1-based value the first item at [level] should display. Honors the
+  /// resolved per-level start (`w:start` / `w:startOverride`) and, for the top
+  /// level, list continuation via [DocxList.startIndex].
+  int _startForLevel(DocxList list, int level) {
+    final base = list.levelFor(level)?.start ?? 1;
+    if (level == 0 && list.startIndex > base) return list.startIndex;
+    return base;
+  }
+
+  /// Builds the marker for an ordered item at [level] given the live [counters].
+  ///
+  /// When the document supplies a compound template (`w:lvlText`, e.g.
+  /// `%1.%2.%3.`) it is expanded against every referenced ancestor counter —
+  /// reproducing Word's multilevel "legal" numbering. Otherwise it falls back to
+  /// the single-component marker (resolved per-level format, or the default
+  /// decimal cascade for factory-built lists).
+  String _composeMarker(
+      DocxList list, DocxListItem item, int level, Map<int, int> counters) {
+    final levelDef = list.levelFor(level);
+    final template = levelDef?.lvlText;
+    if (template != null && template.contains('%')) {
+      return _expandLvlText(list, template, counters);
+    }
+    final value = counters[level] ?? _startForLevel(list, level);
+    if (levelDef != null) {
+      // Resolved from the document: use its actual format, no synthetic cascade.
+      return '${_formatComponent(value, level, levelDef.format)}.';
+    }
+    // Factory-built list with no resolved definition: honor a per-item override
+    // format, else the base style, applying the default decimal cascade by depth.
+    final format = item.overrideStyle?.numberFormat ?? list.style.numberFormat;
+    return _getOrderedMarker(value, level, format);
+  }
+
+  /// Expands a `w:lvlText` template, replacing each `%n` with the count of
+  /// level `n-1` formatted in that level's own format.
+  String _expandLvlText(DocxList list, String template, Map<int, int> counters) {
+    return template.replaceAllMapped(RegExp(r'%(\d)'), (m) {
+      final refLevel = int.parse(m.group(1)!) - 1;
+      final value = counters[refLevel] ?? _startForLevel(list, refLevel);
+      final fmt = list.levelFor(refLevel)?.format ?? DocxNumberFormat.decimal;
+      return _formatComponent(value, refLevel, fmt);
+    });
+  }
+
+  /// Formats a single numbering component (no trailing separator).
+  String _formatComponent(int n, int level, DocxNumberFormat format) {
+    switch (format) {
+      case DocxNumberFormat.decimal:
+        return '$n';
+      case DocxNumberFormat.lowerAlpha:
+        return _toLowerAlpha(n);
+      case DocxNumberFormat.upperAlpha:
+        return _toUpperAlpha(n);
+      case DocxNumberFormat.lowerRoman:
+        return _toRoman(n).toLowerCase();
+      case DocxNumberFormat.upperRoman:
+        return _toRoman(n);
+      case DocxNumberFormat.hebrew:
+        return _toHebrewNumber(n);
+      case DocxNumberFormat.bullet:
+        return DocxList.bulletForLevel(level);
+    }
+  }
+
   Widget _buildListItem(
     DocxListItem item, {
     required DocxList list,
-    required int number,
-    required bool ordered,
+    required String? orderedMarker,
     required bool isCheckbox,
     BlockIndexCounter? counter,
   }) {
@@ -177,8 +243,8 @@ class ListBuilder {
       String markerText;
       if (isCheckbox) {
         markerText = '';
-      } else if (ordered && style.numberFormat != DocxNumberFormat.bullet) {
-        markerText = _getOrderedMarker(number, level, style.numberFormat);
+      } else if (orderedMarker != null) {
+        markerText = orderedMarker;
       } else {
         markerText = _getBulletMarker(level, style);
       }
@@ -296,16 +362,23 @@ class ListBuilder {
         .replaceAll('יו', 'טז'); // 16 → טז (not יו)
   }
 
-  String _toLowerAlpha(int n) {
-    if (n <= 0) return '';
-    final code = ((n - 1) % 26) + 97; // 'a' = 97
-    return String.fromCharCode(code);
-  }
+  String _toLowerAlpha(int n) => _toAlpha(n, 97); // 'a'
 
-  String _toUpperAlpha(int n) {
+  String _toUpperAlpha(int n) => _toAlpha(n, 65); // 'A'
+
+  /// Bijective base-26 alphabetical numbering, matching Word: a..z, then aa, ab
+  /// … az, ba … (there is no "zero" digit, so it is not plain base-26).
+  String _toAlpha(int n, int base) {
     if (n <= 0) return '';
-    final code = ((n - 1) % 26) + 65; // 'A' = 65
-    return String.fromCharCode(code);
+    final buffer = StringBuffer();
+    var remaining = n;
+    while (remaining > 0) {
+      final rem = (remaining - 1) % 26;
+      buffer.writeCharCode(base + rem);
+      remaining = (remaining - 1) ~/ 26;
+    }
+    // Digits were produced least-significant first; reverse to read left→right.
+    return String.fromCharCodes(buffer.toString().codeUnits.reversed);
   }
 
   String _toRoman(int n) {

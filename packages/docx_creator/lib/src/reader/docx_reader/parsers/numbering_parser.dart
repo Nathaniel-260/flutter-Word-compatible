@@ -57,10 +57,24 @@ class NumberingParser {
         final abstractNumId = int.tryParse(abstractNumIdRef ?? '');
         if (abstractNumId == null) continue;
 
+        // A numbering instance may restart one or more levels via
+        // <w:lvlOverride><w:startOverride>; apply those onto a copy of the
+        // abstract level so a "list starting from 5" keeps its start value.
+        final overrides = _parseStartOverrides(num);
+        var levels = _abstractNums[abstractNumId] ?? const [];
+        if (overrides.isNotEmpty) {
+          levels = [
+            for (final lvl in levels)
+              overrides.containsKey(lvl.level)
+                  ? lvl.copyWith(start: overrides[lvl.level])
+                  : lvl,
+          ];
+        }
+
         _numberings[numId] = DocxNumberingDef(
           abstractNumId: abstractNumId,
           numId: numId,
-          levels: _abstractNums[abstractNumId] ?? [],
+          levels: levels,
         );
       }
     } catch (e) {
@@ -92,6 +106,21 @@ class NumberingParser {
         context.pictureBullets[id] = rId;
       }
     }
+  }
+
+  /// Parse `<w:lvlOverride w:ilvl="N"><w:startOverride w:val="M"/>` entries on a
+  /// `w:num` instance into a map of level → start value.
+  Map<int, int> _parseStartOverrides(XmlElement num) {
+    final overrides = <int, int>{};
+    for (final lvlOverride in num.findElements('w:lvlOverride')) {
+      final ilvl = int.tryParse(lvlOverride.getAttribute('w:ilvl') ?? '');
+      if (ilvl == null) continue;
+      final start = int.tryParse(
+          lvlOverride.getElement('w:startOverride')?.getAttribute('w:val') ??
+              '');
+      if (start != null) overrides[ilvl] = start;
+    }
+    return overrides;
   }
 
   DocxNumberingLevel? _parseLevel(XmlElement lvl) {

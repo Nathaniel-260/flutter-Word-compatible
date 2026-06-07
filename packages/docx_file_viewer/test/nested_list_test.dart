@@ -143,6 +143,106 @@ void main() {
       expect(paddings[1].start, greaterThan(paddings[0].start));
     });
 
+    testWidgets('compound (legal) lvlText renders 1, 1.1, 1.1.1, 1.2',
+        (tester) async {
+      // Mirrors a Word multilevel "legal" list: each level's lvlText composes
+      // all ancestor counters (%1.%2.%3) rather than a single component.
+      const levels = [
+        DocxListLevel(
+            level: 0, format: DocxNumberFormat.decimal, lvlText: '%1'),
+        DocxListLevel(
+            level: 1, format: DocxNumberFormat.decimal, lvlText: '%1.%2'),
+        DocxListLevel(
+            level: 2, format: DocxNumberFormat.decimal, lvlText: '%1.%2.%3'),
+      ];
+      final list = DocxList(
+        isOrdered: true,
+        levels: levels,
+        items: const [
+          DocxListItem([DocxText('Agreement')], level: 0),
+          DocxListItem([DocxText('Payment terms')], level: 1),
+          DocxListItem([DocxText('Timing')], level: 2),
+          DocxListItem([DocxText('Method')], level: 2),
+          DocxListItem([DocxText('Termination')], level: 1),
+        ],
+      );
+
+      await tester.pumpWidget(MaterialApp(
+          home: Scaffold(
+              body: SingleChildScrollView(child: makeBuilder().build(list)))));
+
+      final markers = markersOf(tester).where((m) => m.isNotEmpty).toList();
+      expect(markers, ['1', '1.1', '1.1.1', '1.1.2', '1.2']);
+    });
+
+    testWidgets('custom level start renders a list beginning at 5',
+        (tester) async {
+      final list = DocxList(
+        isOrdered: true,
+        levels: const [
+          DocxListLevel(
+              level: 0, format: DocxNumberFormat.decimal, lvlText: '%1)', start: 5),
+        ],
+        items: const [
+          DocxListItem([DocxText('Fifth item')], level: 0),
+          DocxListItem([DocxText('Sixth item')], level: 0),
+        ],
+      );
+
+      await tester.pumpWidget(
+          MaterialApp(home: Scaffold(body: makeBuilder().build(list))));
+
+      final markers = markersOf(tester).where((m) => m.isNotEmpty).toList();
+      expect(markers, ['5)', '6)']);
+    });
+
+    testWidgets('mixed-format compound numbering formats each component',
+        (tester) async {
+      // Level 0 upper-roman, level 1 lower-alpha → "I", "I.a".
+      const levels = [
+        DocxListLevel(
+            level: 0, format: DocxNumberFormat.upperRoman, lvlText: '%1'),
+        DocxListLevel(
+            level: 1, format: DocxNumberFormat.lowerAlpha, lvlText: '%1.%2'),
+      ];
+      final list = DocxList(
+        isOrdered: true,
+        levels: levels,
+        items: const [
+          DocxListItem([DocxText('Main')], level: 0),
+          DocxListItem([DocxText('Sub')], level: 1),
+        ],
+      );
+
+      await tester.pumpWidget(
+          MaterialApp(home: Scaffold(body: makeBuilder().build(list))));
+
+      final markers = markersOf(tester).where((m) => m.isNotEmpty).toList();
+      expect(markers, ['I', 'I.a']);
+    });
+
+    testWidgets('lower-alpha numbering continues past z as aa, ab',
+        (tester) async {
+      // Bijective base-26: item 26 → z, 27 → aa, 28 → ab (Word behaviour).
+      final list = DocxList(
+        isOrdered: true,
+        style: DocxListStyle.lowerAlpha,
+        items: List.generate(
+          28,
+          (i) => DocxListItem([DocxText('item ${i + 1}')]),
+        ),
+      );
+
+      await tester.pumpWidget(MaterialApp(
+          home: Scaffold(
+              body: SingleChildScrollView(child: makeBuilder().build(list)))));
+
+      final markers = markersOf(tester).where((m) => m.isNotEmpty).toList();
+      expect(markers[25], 'z.');
+      expect(markers[26], 'aa.');
+      expect(markers[27], 'ab.');
+    });
+
     testWidgets('numbered list nested in a bullet list keeps its numbers',
         (tester) async {
       // Parent is unordered; the level-1 items carry an ordered override, as

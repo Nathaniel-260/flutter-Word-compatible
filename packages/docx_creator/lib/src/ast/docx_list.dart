@@ -105,6 +105,39 @@ class DocxListStyle {
   );
 }
 
+/// Resolved numbering definition for a single nesting level of a [DocxList].
+///
+/// Carries the information the renderer needs to reproduce Word's multilevel
+/// (legal) numbering — the per-level [format], the compound [lvlText] template
+/// (e.g. `%1.%2.%3.`) and the [start] value — which a flat [DocxListStyle]
+/// cannot express. When a level has no [lvlText] the renderer falls back to a
+/// single-component marker in [format].
+class DocxListLevel {
+  /// Level index (0-based, 0..[DocxList.maxLevels]-1).
+  final int level;
+
+  /// Number format for this level's own component.
+  final DocxNumberFormat format;
+
+  /// Word's `w:lvlText` template, e.g. `%1.`, `%1.%2`, `%1.%2.%3.`.
+  ///
+  /// Each `%n` references the counter of level `n-1`, formatted in that level's
+  /// own [format]. Null for levels that should render a plain single-component
+  /// marker.
+  final String? lvlText;
+
+  /// 1-based start value for this level (honors `w:start` and any
+  /// `w:startOverride`).
+  final int start;
+
+  const DocxListLevel({
+    required this.level,
+    required this.format,
+    this.lvlText,
+    this.start = 1,
+  });
+}
+
 /// Number format for ordered lists.
 enum DocxNumberFormat {
   decimal, // 1, 2, 3
@@ -145,6 +178,14 @@ class DocxList extends DocxBlock {
   final DocxListStyle style;
   final int startIndex;
 
+  /// Resolved per-level numbering definitions, indexed by [DocxListLevel.level].
+  ///
+  /// Populated by the DOCX reader so the renderer can reproduce compound
+  /// (legal) numbering and custom start values. Empty for lists built through
+  /// the simple factory constructors, in which case the renderer falls back to
+  /// [style] and the default cascade.
+  final List<DocxListLevel> levels;
+
   int? numId;
 
   DocxList({
@@ -152,9 +193,15 @@ class DocxList extends DocxBlock {
     this.isOrdered = false,
     this.style = const DocxListStyle(),
     this.startIndex = 1,
+    this.levels = const [],
     this.numId,
     super.id,
   });
+
+  /// The [DocxListLevel] for [level], or null when no resolved definition is
+  /// available (e.g. lists built via factory constructors).
+  DocxListLevel? levelFor(int level) =>
+      levels.where((l) => l.level == level).firstOrNull;
 
   /// Maximum number of nesting levels a list supports (levels 0..8), matching
   /// Word's multilevel lists. Single source of truth for every per-level loop
@@ -255,12 +302,14 @@ class DocxList extends DocxBlock {
     DocxListStyle? style,
     int? numId,
     int? startIndex,
+    List<DocxListLevel>? levels,
   }) {
     final list = DocxList(
       items: items ?? this.items,
       isOrdered: isOrdered ?? this.isOrdered,
       style: style ?? this.style,
       startIndex: startIndex ?? this.startIndex,
+      levels: levels ?? this.levels,
       id: id,
     );
     list.numId = numId ?? this.numId;

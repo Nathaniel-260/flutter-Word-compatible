@@ -217,32 +217,7 @@ class BlockParser {
             numberingDef.levels.where((l) => l.level == level).firstOrNull;
 
         if (levelDef != null) {
-          DocxNumberFormat format = DocxNumberFormat.decimal;
-          switch (levelDef.numFmt) {
-            case 'bullet':
-              format = DocxNumberFormat.bullet;
-              break;
-            case 'lowerLetter':
-            case 'lowerAlpha':
-              format = DocxNumberFormat.lowerAlpha;
-              break;
-            case 'upperLetter':
-            case 'upperAlpha':
-              format = DocxNumberFormat.upperAlpha;
-              break;
-            case 'lowerRoman':
-              format = DocxNumberFormat.lowerRoman;
-              break;
-            case 'upperRoman':
-              format = DocxNumberFormat.upperRoman;
-              break;
-            case 'hebrew1':
-            case 'hebrew2':
-              format = DocxNumberFormat.hebrew;
-              break;
-            default:
-              format = DocxNumberFormat.decimal;
-          }
+          final format = _mapNumFmt(levelDef.numFmt);
 
           return DocxListStyle(
             imageBulletBytes: levelDef.picBulletImage,
@@ -293,13 +268,50 @@ class BlockParser {
 
     _numIdItemCounts[numId] = (start - 1) + items.length;
 
+    // Carry the full per-level definition (format + compound lvlText + start)
+    // so the renderer can reproduce Word's multilevel / "legal" numbering.
+    final levels = <DocxListLevel>[
+      if (numberingDef != null)
+        for (final lvl in numberingDef.levels)
+          DocxListLevel(
+            level: lvl.level,
+            format: _mapNumFmt(lvl.numFmt),
+            lvlText: lvl.lvlText,
+            start: lvl.start,
+          ),
+    ];
+
     return DocxList(
       items: items,
       isOrdered: _isOrderedList(numId),
       style: baseStyle,
       startIndex: start,
+      levels: levels,
       numId: numId,
     );
+  }
+
+  /// Maps an OOXML `w:numFmt` value to the AST [DocxNumberFormat].
+  DocxNumberFormat _mapNumFmt(String numFmt) {
+    switch (numFmt) {
+      case 'bullet':
+        return DocxNumberFormat.bullet;
+      case 'lowerLetter':
+      case 'lowerAlpha':
+        return DocxNumberFormat.lowerAlpha;
+      case 'upperLetter':
+      case 'upperAlpha':
+        return DocxNumberFormat.upperAlpha;
+      case 'lowerRoman':
+        return DocxNumberFormat.lowerRoman;
+      case 'upperRoman':
+        return DocxNumberFormat.upperRoman;
+      case 'hebrew1':
+      case 'hebrew2':
+        return DocxNumberFormat.hebrew;
+      default:
+        return DocxNumberFormat.decimal;
+    }
   }
 
   /// Determine if a list is ordered based on numbering definitions.

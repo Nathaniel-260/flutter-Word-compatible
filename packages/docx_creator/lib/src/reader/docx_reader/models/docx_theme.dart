@@ -307,6 +307,23 @@ class DocxNumberingLevel {
     this.picBulletImage,
   });
 
+  DocxNumberingLevel copyWith({int? start}) => DocxNumberingLevel(
+        level: level,
+        numFmt: numFmt,
+        lvlText: lvlText,
+        start: start ?? this.start,
+        indentLeft: indentLeft,
+        hanging: hanging,
+        bulletChar: bulletChar,
+        bulletFont: bulletFont,
+        themeFont: themeFont,
+        themeColor: themeColor,
+        themeTint: themeTint,
+        themeShade: themeShade,
+        picBulletId: picBulletId,
+        picBulletImage: picBulletImage,
+      );
+
   /// Returns true if this is a bullet level.
   bool get isBullet => numFmt == 'bullet';
 
