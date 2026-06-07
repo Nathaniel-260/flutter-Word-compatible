@@ -27,9 +27,6 @@ class DocxNumberingGenerator {
       'xmlns:wne="http://schemas.microsoft.com/office/word/2006/wordml">',
     );
 
-    // Bullet characters for each level
-    const bulletChars = ['•', '○', '▪', '•', '○', '▪', '•', '○', '▪'];
-
     // Image Bullets definitions
     const vmlShapetype =
         '<v:shapetype id="_x0000_t75" coordsize="21600,21600" o:spt="75" o:preferrelative="t" path="m@4@5l@4@11@9@11@9@5xe" filled="f" stroked="f">'
@@ -69,9 +66,9 @@ class DocxNumberingGenerator {
     buffer.writeln('    <w:multiLevelType w:val="hybridMultilevel"/>');
     buffer.writeln('    <w:tmpl w:val="29761A62"/>');
 
-    for (int lvl = 0; lvl < 9; lvl++) {
+    for (int lvl = 0; lvl < DocxList.maxLevels; lvl++) {
       final indent = (lvl + 1) * 720;
-      final bullet = bulletChars[lvl];
+      final bullet = _escapeXml(DocxList.bulletForLevel(lvl));
       buffer.writeln('''
     <w:lvl w:ilvl="$lvl">
       <w:start w:val="1"/>
@@ -89,40 +86,19 @@ class DocxNumberingGenerator {
     }
     buffer.writeln('  </w:abstractNum>');
 
-    // Number formats for each level of ordered lists
-    const numFormats = [
-      'decimal', // 1, 2, 3
-      'lowerLetter', // a, b, c
-      'lowerRoman', // i, ii, iii
-      'decimal', // 1, 2, 3
-      'lowerLetter', // a, b, c
-      'lowerRoman', // i, ii, iii
-      'decimal', // 1, 2, 3
-      'lowerLetter', // a, b, c
-      'lowerRoman', // i, ii, iii
-    ];
-    const lvlTextFormats = [
-      '%1.',
-      '%2.',
-      '%3.',
-      '%4.',
-      '%5.',
-      '%6.',
-      '%7.',
-      '%8.',
-      '%9.'
-    ];
-
-    // Abstract numbering for decimals (abstractNumId=1) - 9 levels
+    // Abstract numbering for decimals (abstractNumId=1) - 9 levels.
+    // Per-level format cascades decimal → lowerLetter → lowerRoman via the
+    // shared [DocxList.cascadeFormatForLevel] (single source of truth with the
+    // viewer renderer).
     buffer.writeln('  <w:abstractNum w:abstractNumId="1">');
     buffer.writeln('    <w:nsid w:val="FFFFFF88"/>');
     buffer.writeln('    <w:multiLevelType w:val="hybridMultilevel"/>');
     buffer.writeln('    <w:tmpl w:val="D0A62B40"/>');
 
-    for (int lvl = 0; lvl < 9; lvl++) {
+    for (int lvl = 0; lvl < DocxList.maxLevels; lvl++) {
       final indent = (lvl + 1) * 720;
-      final numFmt = numFormats[lvl];
-      final lvlText = lvlTextFormats[lvl];
+      final numFmt = _numFmtXml(DocxList.cascadeFormatForLevel(lvl));
+      final lvlText = '%${lvl + 1}.';
       buffer.writeln('''
     <w:lvl w:ilvl="$lvl">
       <w:start w:val="1"/>
@@ -143,6 +119,11 @@ class DocxNumberingGenerator {
       buffer.writeln(_buildCustomAbstractNum(absId, style, isOrdered));
     });
 
+    // Abstract numbering for mixed lists (per-level ordered/unordered formats)
+    state.mixedAbstractLevelStyles.forEach((absId, levelStyles) {
+      buffer.writeln(_buildMixedAbstractNum(absId, levelStyles));
+    });
+
     // Abstract Custom Image Bullets
     state.abstractNumImageBulletMap.forEach((absId, bulletIndex) {
       buffer.writeln('  <w:abstractNum w:abstractNumId="$absId">');
@@ -150,7 +131,7 @@ class DocxNumberingGenerator {
           '    <w:nsid w:val="${(100000 + absId).toRadixString(16)}"/>');
       buffer.writeln('    <w:multiLevelType w:val="hybridMultilevel"/>');
 
-      for (int lvl = 0; lvl < 9; lvl++) {
+      for (int lvl = 0; lvl < DocxList.maxLevels; lvl++) {
         final indent = 720 + (lvl * 360);
         buffer.writeln('''
       <w:lvl w:ilvl="$lvl">
@@ -207,6 +188,8 @@ class DocxNumberingGenerator {
         return 'lowerRoman';
       case DocxNumberFormat.upperRoman:
         return 'upperRoman';
+      case DocxNumberFormat.hebrew:
+        return 'hebrew1';
       case DocxNumberFormat.bullet:
         return 'bullet';
     }
@@ -219,6 +202,56 @@ class DocxNumberingGenerator {
       .replaceAll('"', '&quot;')
       .replaceAll("'", '&apos;');
 
+  /// Writes a single `<w:lvl>` definition for [lvl] using [style]. When
+  /// [isOrdered] the level uses [style]'s number format with a `%n.` pattern;
+  /// otherwise it renders the bullet glyph. Shared by the custom and mixed
+  /// abstractNum builders so their level XML cannot drift apart.
+  static void _writeLvlXml(
+      StringBuffer buf, int lvl, DocxListStyle style, bool isOrdered) {
+    final indent = style.indentPerLevel * (lvl + 1);
+
+    buf.writeln('    <w:lvl w:ilvl="$lvl">');
+    buf.writeln('      <w:start w:val="1"/>');
+
+    if (isOrdered) {
+      buf.writeln('      <w:numFmt w:val="${_numFmtXml(style.numberFormat)}"/>');
+      buf.writeln('      <w:lvlText w:val="%${lvl + 1}."/>');
+    } else {
+      buf.writeln('      <w:numFmt w:val="bullet"/>');
+      buf.writeln('      <w:lvlText w:val="${_escapeXml(style.bullet)}"/>');
+    }
+
+    buf.writeln('      <w:lvlJc w:val="left"/>');
+    buf.writeln('      <w:pPr>');
+    buf.writeln('        <w:tabs><w:tab w:val="num" w:pos="$indent"/></w:tabs>');
+    buf.writeln(
+        '        <w:ind w:left="$indent" w:hanging="${style.hangingIndent}"/>');
+    buf.writeln('      </w:pPr>');
+
+    // rPr: font family (default to Symbol/Wingdings for bullet glyphs,
+    // otherwise inherit the body font).
+    final fontName =
+        style.fontFamily ?? (isOrdered ? null : _bulletFont(style.bullet));
+    buf.writeln('      <w:rPr>');
+    if (fontName != null) {
+      buf.writeln(
+          '        <w:rFonts w:ascii="${_escapeXml(fontName)}" w:hAnsi="${_escapeXml(fontName)}" w:hint="default"/>');
+    }
+    if (style.fontWeight == DocxFontWeight.bold) {
+      buf.writeln('        <w:b/>');
+    }
+    if (style.color != DocxColor.black) {
+      buf.writeln('        <w:color w:val="${style.color.hex}"/>');
+    }
+    if (style.fontSize != null) {
+      final halfPt = (style.fontSize! * 2).toInt();
+      buf.writeln('        <w:sz w:val="$halfPt"/>');
+      buf.writeln('        <w:szCs w:val="$halfPt"/>');
+    }
+    buf.writeln('      </w:rPr>');
+    buf.writeln('    </w:lvl>');
+  }
+
   static String _buildCustomAbstractNum(
       int absId, DocxListStyle style, bool isOrdered) {
     final buf = StringBuffer();
@@ -227,51 +260,35 @@ class DocxNumberingGenerator {
         '    <w:nsid w:val="${(0xFFFF00 + absId).toRadixString(16).padLeft(8, '0').toUpperCase()}"/>');
     buf.writeln('    <w:multiLevelType w:val="hybridMultilevel"/>');
 
-    for (int lvl = 0; lvl < 9; lvl++) {
-      final indent = style.indentPerLevel * (lvl + 1);
-      final hanging = style.hangingIndent;
+    for (int lvl = 0; lvl < DocxList.maxLevels; lvl++) {
+      _writeLvlXml(buf, lvl, style, isOrdered);
+    }
 
-      buf.writeln('    <w:lvl w:ilvl="$lvl">');
-      buf.writeln('      <w:start w:val="1"/>');
+    buf.writeln('  </w:abstractNum>');
+    return buf.toString();
+  }
 
-      if (isOrdered) {
-        final fmt = _numFmtXml(style.numberFormat);
-        final lvlText = '%${lvl + 1}.';
-        buf.writeln('      <w:numFmt w:val="$fmt"/>');
-        buf.writeln('      <w:lvlText w:val="$lvlText"/>');
-      } else {
-        buf.writeln('      <w:numFmt w:val="bullet"/>');
-        buf.writeln('      <w:lvlText w:val="${_escapeXml(style.bullet)}"/>');
-      }
+  /// Builds an abstractNum whose levels can each be ordered or unordered,
+  /// used for lists that mix numbered and bulleted nesting. [levelStyles] holds
+  /// one fully resolved style per level (index = ilvl); a level whose
+  /// `numberFormat` is bullet renders as a bullet, otherwise as that format.
+  static String _buildMixedAbstractNum(
+      int absId, List<DocxListStyle> levelStyles) {
+    final buf = StringBuffer();
+    buf.writeln('  <w:abstractNum w:abstractNumId="$absId">');
+    // nsid only needs to be a unique 8-hex-digit id within this document; the
+    // 0xFFFE00 base assumes [absId] stays small (well under 0x1FF), which holds
+    // since one id is allocated per list in a single document.
+    buf.writeln(
+        '    <w:nsid w:val="${(0xFFFE00 + absId).toRadixString(16).padLeft(8, '0').toUpperCase()}"/>');
+    buf.writeln('    <w:multiLevelType w:val="hybridMultilevel"/>');
 
-      buf.writeln('      <w:lvlJc w:val="left"/>');
-      buf.writeln('      <w:pPr>');
-      buf.writeln(
-          '        <w:tabs><w:tab w:val="num" w:pos="$indent"/></w:tabs>');
-      buf.writeln('        <w:ind w:left="$indent" w:hanging="$hanging"/>');
-      buf.writeln('      </w:pPr>');
-
-      // rPr: font family (default to Symbol for bullet chars, Arial otherwise)
-      final fontName = style.fontFamily ??
-          (isOrdered ? null : _bulletFont(style.bullet));
-      buf.writeln('      <w:rPr>');
-      if (fontName != null) {
-        buf.writeln(
-            '        <w:rFonts w:ascii="${_escapeXml(fontName)}" w:hAnsi="${_escapeXml(fontName)}" w:hint="default"/>');
-      }
-      if (style.fontWeight == DocxFontWeight.bold) {
-        buf.writeln('        <w:b/>');
-      }
-      if (style.color != DocxColor.black) {
-        buf.writeln('        <w:color w:val="${style.color.hex}"/>');
-      }
-      if (style.fontSize != null) {
-        final halfPt = (style.fontSize! * 2).toInt();
-        buf.writeln('        <w:sz w:val="$halfPt"/>');
-        buf.writeln('        <w:szCs w:val="$halfPt"/>');
-      }
-      buf.writeln('      </w:rPr>');
-      buf.writeln('    </w:lvl>');
+    for (int lvl = 0;
+        lvl < DocxList.maxLevels && lvl < levelStyles.length;
+        lvl++) {
+      final style = levelStyles[lvl];
+      _writeLvlXml(
+          buf, lvl, style, style.numberFormat != DocxNumberFormat.bullet);
     }
 
     buf.writeln('  </w:abstractNum>');

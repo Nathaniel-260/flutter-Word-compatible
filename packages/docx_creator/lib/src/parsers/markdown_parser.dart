@@ -239,9 +239,16 @@ class MarkdownParser {
           if (node is md.Element && (node.tag == 'ul' || node.tag == 'ol')) {
             flushInlines();
             // Found nested list
-            final nested = await _parseList(node,
-                ordered: node.tag == 'ol', level: level + 1);
-            items.addAll(nested.items);
+            final nestedOrdered = node.tag == 'ol';
+            final nested =
+                await _parseList(node, ordered: nestedOrdered, level: level + 1);
+            // Flattening discards the nested list's own [isOrdered]. When the
+            // nested kind differs from this list (e.g. an <ol> inside a <ul>),
+            // tag each item with an [overrideStyle] so the renderer/exporter
+            // keep the correct markers instead of inheriting the parent's.
+            items.addAll(DocxList.withOrderingOverride(
+                nested.items, nestedOrdered,
+                differs: nestedOrdered != ordered));
           } else if (node is md.Element && node.tag == 'p') {
             flushInlines();
             // Explicit paragraph in list item

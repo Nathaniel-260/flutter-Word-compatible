@@ -1,6 +1,7 @@
 import 'package:docx_creator/docx_creator.dart';
 import 'package:docx_file_viewer/src/search/docx_search_controller.dart';
 import 'package:docx_file_viewer/src/utils/block_index_counter.dart';
+import 'package:docx_file_viewer/src/utils/text_direction_detector.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -81,26 +82,8 @@ class ParagraphBuilder {
   /// אלגוריתם "first strong" (התו החזק הראשון): עברית/ערבית → RTL, לטינית → LTR.
   /// עוטפים את הפסקה ב-[Directionality] עם הכיוון הזה כך ש-RichText, Column
   /// ו-`TextAlign.start` מתפרשים נכון ל-RTL (קריטי למסמכי קודש עבריים).
-  static TextDirection _detectDirection(DocxParagraph paragraph) {
-    for (final child in paragraph.children) {
-      if (child is DocxText) {
-        for (final rune in child.content.runes) {
-          // Hebrew, Arabic and related RTL Unicode blocks.
-          if ((rune >= 0x0590 && rune <= 0x08FF) ||
-              (rune >= 0xFB1D && rune <= 0xFDFF) ||
-              (rune >= 0xFE70 && rune <= 0xFEFF)) {
-            return TextDirection.rtl;
-          }
-          // Latin letters → strong LTR.
-          if ((rune >= 0x0041 && rune <= 0x005A) ||
-              (rune >= 0x0061 && rune <= 0x007A)) {
-            return TextDirection.ltr;
-          }
-        }
-      }
-    }
-    return TextDirection.ltr;
-  }
+  static TextDirection _detectDirection(DocxParagraph paragraph) =>
+      TextDirectionDetector.fromInlines(paragraph.children);
 
   /// Native Flutter builder for standard paragraphs.
   Widget _buildNativeParagraph(DocxParagraph paragraph,

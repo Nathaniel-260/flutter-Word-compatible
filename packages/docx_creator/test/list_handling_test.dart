@@ -112,6 +112,89 @@ void main() {
       expect(hasNestedItems, true);
     });
 
+    test('Numbered list nested in a bullet list exports a mixed abstractNum',
+        () async {
+      const html = '''
+        <ul>
+          <li>Bullet parent
+            <ol>
+              <li>Numbered child A</li>
+              <li>Numbered child B</li>
+            </ol>
+          </li>
+          <li>Bullet sibling</li>
+        </ul>
+      ''';
+
+      final nodes = await DocxParser.fromHtml(html);
+      final builder = DocxDocumentBuilder();
+      for (final node in nodes) {
+        builder.add(node);
+      }
+      final doc = builder.build();
+
+      final bytes = await DocxExporter().exportToBytes(doc);
+      final archive = ZipDecoder().decodeBytes(bytes);
+      final numberingXml = String.fromCharCodes(
+        archive.files.firstWhere((f) => f.name == 'word/numbering.xml').content,
+      );
+      final documentXml = String.fromCharCodes(
+        archive.files.firstWhere((f) => f.name == 'word/document.xml').content,
+      );
+
+      // Returns the part of the <w:p> preceding [text] (where w:numPr lives).
+      String paraBefore(String xml, String text) =>
+          xml.substring(xml.lastIndexOf('<w:p>', xml.indexOf(text)),
+              xml.indexOf(text));
+
+      // 1) The document.xml items must carry the correct ilvl: a correct
+      //    abstractNum is worthless if items point at the wrong level.
+      final parentPara = paraBefore(documentXml, 'Bullet parent');
+      expect(parentPara, contains('<w:ilvl w:val="0"/>'));
+
+      final childPara = paraBefore(documentXml, 'Numbered child A');
+      expect(childPara, contains('<w:ilvl w:val="1"/>'));
+      final childNumId =
+          RegExp(r'<w:numId w:val="(\d+)"/>').firstMatch(childPara)!.group(1);
+
+      // 2) Resolve the abstractNum that *this item's* numId points to (robust to
+      //    multiple lists / changing internal ids), then assert per-level format.
+      final absId = RegExp(
+              '<w:num w:numId="$childNumId"><w:abstractNumId w:val="(\\d+)"/>')
+          .firstMatch(numberingXml)!
+          .group(1);
+      final start =
+          numberingXml.indexOf('<w:abstractNum w:abstractNumId="$absId">');
+      expect(start, greaterThanOrEqualTo(0));
+      final block = numberingXml.substring(
+        start,
+        numberingXml.indexOf('</w:abstractNum>', start),
+      );
+
+      // Level 0 stays a bullet; level 1 becomes an ordered (lowerLetter) format.
+      final lvl0 = block.substring(block.indexOf('w:ilvl="0"'));
+      expect(lvl0, contains('<w:numFmt w:val="bullet"/>'));
+      final lvl1 = block.substring(block.indexOf('w:ilvl="1"'));
+      expect(lvl1, contains('<w:numFmt w:val="lowerLetter"/>'));
+    });
+
+    test('Hebrew (gematria) numbered list exports numFmt hebrew1', () async {
+      final doc = DocxDocumentBuilder()
+          .addList(DocxList.numbered(
+            ['סעיף ראשון', 'סעיף שני'],
+            style: DocxListStyle.hebrew,
+          ))
+          .build();
+
+      final bytes = await DocxExporter().exportToBytes(doc);
+      final archive = ZipDecoder().decodeBytes(bytes);
+      final numberingXml = String.fromCharCodes(
+        archive.files.firstWhere((f) => f.name == 'word/numbering.xml').content,
+      );
+
+      expect(numberingXml, contains('<w:numFmt w:val="hebrew1"/>'));
+    });
+
     test('Document.xml contains correct numPr for list items', () async {
       final doc = docx().bullet(['Item 1', 'Item 2']).build();
 

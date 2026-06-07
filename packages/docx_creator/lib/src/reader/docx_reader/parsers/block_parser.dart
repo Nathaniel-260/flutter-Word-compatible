@@ -236,6 +236,10 @@ class BlockParser {
             case 'upperRoman':
               format = DocxNumberFormat.upperRoman;
               break;
+            case 'hebrew1':
+            case 'hebrew2':
+              format = DocxNumberFormat.hebrew;
+              break;
             default:
               format = DocxNumberFormat.decimal;
           }

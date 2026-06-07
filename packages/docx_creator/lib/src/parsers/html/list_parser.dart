@@ -39,7 +39,9 @@ class HtmlListParser {
             if (result is DocxParagraph) {
               items.add(DocxListItem(result.children, level: currentLevel));
             } else if (result is DocxList) {
-              items.addAll(result.items);
+              items.addAll(DocxList.withOrderingOverride(
+                  result.items, result.isOrdered,
+                  differs: result.isOrdered != ordered));
             }
           }
           continue;
@@ -75,9 +77,12 @@ class HtmlListParser {
           items.add(DocxListItem(inlines, level: currentLevel));
         }
 
-        // Flatten nested items into this list
+        // Flatten nested items into this list, preserving each nested list's
+        // own ordering when it differs from this one.
         for (var nested in nestedLists) {
-          items.addAll(nested.items);
+          items.addAll(DocxList.withOrderingOverride(
+              nested.items, nested.isOrdered,
+              differs: nested.isOrdered != ordered));
         }
       }
     }

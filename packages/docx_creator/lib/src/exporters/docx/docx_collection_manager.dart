@@ -147,6 +147,16 @@ class DocxCollectionManager {
           final absId = abstractNumIdCounter++;
           state.abstractNumImageBulletMap[absId] = bulletIndex;
           state.listAbstractNumMap[exportedNumId] = absId;
+        } else if (list.items.any((it) => it.overrideStyle != null)) {
+          // Mixed list: ordered and unordered levels coexist (e.g. a numbered
+          // sub-list nested in a bulleted one). Each level needs its own format,
+          // so build a dedicated per-level abstractNum.
+          final absId = abstractNumIdCounter++;
+          state.mixedAbstractLevelStyles[absId] = _buildMixedLevelStyles(list);
+          state.listAbstractNumMap[exportedNumId] = absId;
+          if (list.isOrdered && list.startIndex > 1) {
+            state.listStartOverrides[exportedNumId] = list.startIndex;
+          }
         } else if (_isCustomListStyle(list.style, list.isOrdered)) {
           // Custom bullet char or number format: needs its own abstractNum
           final absId = abstractNumIdCounter++;
@@ -254,6 +264,66 @@ class DocxCollectionManager {
     } else {
       return hasCustomFormatting || style.bullet != ref.bullet;
     }
+  }
+
+  /// Resolves the format for each of levels 0..8 of a mixed list, honoring a
+  /// per-item [DocxListItem.overrideStyle] when present and otherwise falling
+  /// back to the list's own ordering. Ordered levels using the default decimal
+  /// format cascade by depth (decimal → lowerAlpha → lowerRoman), matching the
+  /// viewer and the standard numbering definition.
+  ///
+  /// Known limitation: an OOXML `abstractNum` defines exactly one format per
+  /// `ilvl`, so this collapses a level to a single format. If two sibling
+  /// sub-lists of *different* kinds occupy the *same* nesting level under one
+  /// parent (e.g. both a numbered and a bulleted sub-list at level 1), the
+  /// first-seen override wins for that level in the exported DOCX. The viewer
+  /// renders each item correctly (it is per-item), so the two can diverge in
+  /// that rare case. Fully fixing it would require splitting such sub-lists into
+  /// separate `numId`s instead of flattening into one list.
+  static List<DocxListStyle> _buildMixedLevelStyles(DocxList list) {
+    final overrideByLevel = <int, DocxListStyle>{};
+    for (final item in list.items) {
+      if (item.overrideStyle != null) {
+        overrideByLevel.putIfAbsent(item.level, () => item.overrideStyle!);
+      }
+    }
+
+    return List.generate(DocxList.maxLevels, (lvl) {
+      final override = overrideByLevel[lvl];
+      final base = override ?? list.style;
+      final ordered = override != null
+          ? override.numberFormat != DocxNumberFormat.bullet
+          : list.isOrdered;
+
+      if (ordered) {
+        final fmt = base.numberFormat == DocxNumberFormat.decimal
+            ? DocxList.cascadeFormatForLevel(lvl)
+            : base.numberFormat;
+        return DocxListStyle(
+          numberFormat: fmt,
+          indentPerLevel: base.indentPerLevel,
+          hangingIndent: base.hangingIndent,
+          fontFamily: base.fontFamily,
+          fontWeight: base.fontWeight,
+          color: base.color,
+          fontSize: base.fontSize,
+        );
+      }
+
+      final bullet = base.bullet != _defaultListStyle.bullet
+          ? base.bullet
+          : DocxList.bulletForLevel(lvl);
+      return DocxListStyle(
+        numberFormat: DocxNumberFormat.bullet,
+        bullet: bullet,
+        indentPerLevel: base.indentPerLevel,
+        hangingIndent: base.hangingIndent,
+        fontFamily: base.fontFamily,
+        fontWeight: base.fontWeight,
+        color: base.color,
+        fontSize: base.fontSize,
+      );
+    });
   }
 
   static void _collectListsFromNode(DocxNode node, List<DocxList> lists) {

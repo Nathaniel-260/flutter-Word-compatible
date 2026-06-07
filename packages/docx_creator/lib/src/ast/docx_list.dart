@@ -98,6 +98,11 @@ class DocxListStyle {
   static const upperRoman = DocxListStyle(
     numberFormat: DocxNumberFormat.upperRoman,
   );
+
+  /// Hebrew letter numbering / gematria (א, ב, ג … יא, יב …)
+  static const hebrew = DocxListStyle(
+    numberFormat: DocxNumberFormat.hebrew,
+  );
 }
 
 /// Number format for ordered lists.
@@ -107,6 +112,7 @@ enum DocxNumberFormat {
   upperAlpha, // A, B, C
   lowerRoman, // i, ii, iii
   upperRoman, // I, II, III
+  hebrew, // א, ב, ג (gematria; OOXML "hebrew1")
   bullet, // Unordered
 }
 
@@ -149,6 +155,62 @@ class DocxList extends DocxBlock {
     this.numId,
     super.id,
   });
+
+  /// Maximum number of nesting levels a list supports (levels 0..8), matching
+  /// Word's multilevel lists. Single source of truth for every per-level loop
+  /// and clamp in the exporter and viewer.
+  static const maxLevels = 9;
+
+  /// Default bullet glyphs by nesting depth, cycled every 3 levels. Single
+  /// source of truth shared by the DOCX exporter and the Flutter viewer so
+  /// nested bullets look identical in both.
+  static const defaultBulletChars = ['•', '◦', '▪'];
+
+  /// The default bullet glyph for [level].
+  static String bulletForLevel(int level) =>
+      defaultBulletChars[level % defaultBulletChars.length];
+
+  /// The numbering format for a default decimal multilevel list at [level]:
+  /// decimal → lowerAlpha → lowerRoman, repeating every 3 levels. Single source
+  /// of truth shared by the viewer renderer and the DOCX numbering generator.
+  static DocxNumberFormat cascadeFormatForLevel(int level) {
+    switch (level % 3) {
+      case 0:
+        return DocxNumberFormat.decimal;
+      case 1:
+        return DocxNumberFormat.lowerAlpha;
+      default:
+        return DocxNumberFormat.lowerRoman;
+    }
+  }
+
+  /// Tags flattened nested-list [items] with an [DocxListItem.overrideStyle]
+  /// carrying their own ordering, so a numbered list nested in a bulleted one
+  /// (or vice-versa) keeps its markers after flattening. Items that already
+  /// carry an override are left untouched; when the nested kind matches the
+  /// parent ([differs] is false) nothing is tagged, keeping homogeneous lists
+  /// unchanged. Shared by the HTML and Markdown list parsers.
+  ///
+  /// The override only records ordering (decimal vs bullet); a nested list's
+  /// own custom bullet glyph or indentation is not preserved through this path.
+  /// In practice the parsers do not emit such per-sublist styling, so this is a
+  /// non-issue today, but a future custom-styled nested list would fall back to
+  /// the default marker for the overridden levels.
+  static List<DocxListItem> withOrderingOverride(
+    List<DocxListItem> items,
+    bool ordered, {
+    required bool differs,
+  }) {
+    if (!differs) return items;
+    final style = DocxListStyle(
+      numberFormat:
+          ordered ? DocxNumberFormat.decimal : DocxNumberFormat.bullet,
+    );
+    return [
+      for (final it in items)
+        it.overrideStyle != null ? it : it.copyWith(overrideStyle: style),
+    ];
+  }
 
   /// Creates a bulleted list.
   factory DocxList.bullet(

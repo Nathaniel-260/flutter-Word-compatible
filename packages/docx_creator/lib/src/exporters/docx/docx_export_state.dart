@@ -77,5 +77,14 @@ class DocxExportState {
   /// Whether the custom abstract num is for an ordered list.
   final Map<int, bool> customAbstractIsOrdered = {};
 
+  /// Per-level styles for "mixed" lists (abstractNumId -> 9 level styles).
+  ///
+  /// Used when a single [DocxList] mixes ordered and unordered nesting (e.g. a
+  /// numbered list inside a bulleted one). Each entry holds the fully resolved
+  /// style for levels 0..8; a level whose `numberFormat` is
+  /// [DocxNumberFormat.bullet] is rendered as a bullet, otherwise as that
+  /// ordered format.
+  final Map<int, List<DocxListStyle>> mixedAbstractLevelStyles = {};
+
   DocxExportState(this.doc, this.fontManager, this.idGenerator);
 }
