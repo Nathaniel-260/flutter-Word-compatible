@@ -51,6 +51,11 @@ export 'src/reader/docx_reader/models/docx_style.dart';
 // Reader Models
 export 'src/reader/docx_reader/models/docx_theme.dart';
 export 'src/reader/docx_reader/models/resolved_style.dart';
+// NOTE: style_engine.dart (DocxStyleResolver/ThemeColorResolver) is deliberately
+// NOT exported yet. It is an internal, not-yet-wired component (Part B): exposing
+// it as public API before it drives the pipeline — and before its toggle-XOR
+// semantics are verified against a real Word document — would be a premature
+// commitment. Re-export it once it is wired in and golden-verified.
 export 'src/reader/docx_reader/parsers/block_parser.dart';
 export 'src/reader/docx_reader/parsers/inline_parser.dart';
 export 'src/reader/docx_reader/parsers/numbering_parser.dart';

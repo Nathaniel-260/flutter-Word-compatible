@@ -7,6 +7,15 @@ import '../../../../docx_creator.dart';
 /// Combines both paragraph (pPr) and run (rPr) properties into a single
 /// object for easier merging and application.
 class DocxStyle {
+  /// Sentinel id for a sparse "overlay" style — one whose set fields should be
+  /// merged onto a base without replacing the base's identity. [merge] keeps the
+  /// base id when the overlay carries this id (or [emptyId]). Centralised here so
+  /// callers that build overlays (e.g. the style engine) don't hard-code it.
+  static const overlayId = 'temp';
+
+  /// Sentinel id used by [DocxStyle.empty]; treated like [overlayId] by [merge].
+  static const emptyId = 'empty';
+
   final String id;
   final String? type;
   final String? basedOn;
@@ -116,7 +125,7 @@ class DocxStyle {
   });
 
   /// Creates an empty style with no properties set.
-  factory DocxStyle.empty() => const DocxStyle(id: 'empty');
+  factory DocxStyle.empty() => const DocxStyle(id: emptyId);
 
   /// Parse a style element from styles.xml.
   factory DocxStyle.fromXml(
@@ -186,7 +195,7 @@ class DocxStyle {
   /// Merge this style (as base) with override properties from another style.
   DocxStyle merge(DocxStyle other) {
     return DocxStyle(
-      id: other.id == 'temp' || other.id == 'empty' ? id : other.id,
+      id: other.id == overlayId || other.id == emptyId ? id : other.id,
       type: type,
       basedOn: basedOn,
       // P props
@@ -387,9 +396,8 @@ class DocxStyle {
   // ============================================================
 
   static DocxStyle _parseRunProperties(XmlElement? rPr, XmlElement? tcPr) {
-    // if (rPr == null) return const DocxStyle(id: 'temp'); // This line was removed by the instruction.
-    // The instruction implies that rPr can be null, but tcPr might be present.
-    // So, we should not return early if rPr is null.
+    // rPr may be null while tcPr (cell properties, for table styles) is present,
+    // so we must not return early on a null rPr.
 
     DocxFontWeight? fontWeight;
     DocxFontStyle? fontStyle;
@@ -423,8 +431,21 @@ class DocxStyle {
     double? characterSpacing;
 
     if (rPr != null) {
-      if (rPr.getElement('w:b') != null) fontWeight = DocxFontWeight.bold;
-      if (rPr.getElement('w:i') != null) fontStyle = DocxFontStyle.italic;
+      // Toggles honour w:val: a bare element is on, but w:val="0"/"false"/"off"
+      // is an explicit *off* (used by a child style/direct run to switch a
+      // toggle back off). Reading val — not mere presence — is required for the
+      // style engine's XOR and for direct formatting to disable an inherited
+      // toggle. (ISO 29500 §17.3.2; see [readOnOff].)
+      final bEl = rPr.getElement('w:b');
+      if (bEl != null) {
+        fontWeight =
+            readOnOff(bEl) ? DocxFontWeight.bold : DocxFontWeight.normal;
+      }
+      final iEl = rPr.getElement('w:i');
+      if (iEl != null) {
+        fontStyle =
+            readOnOff(iEl) ? DocxFontStyle.italic : DocxFontStyle.normal;
+      }
       final uElem = rPr.getElement('w:u');
       if (uElem != null) {
         final val = uElem.getAttribute('w:val');
@@ -445,7 +466,8 @@ class DocxStyle {
           }
         }
       }
-      if (rPr.getElement('w:strike') != null) {
+      final strikeEl = rPr.getElement('w:strike');
+      if (strikeEl != null && readOnOff(strikeEl)) {
         decorations.add(DocxTextDecoration.strikethrough);
       }
 
@@ -516,13 +538,13 @@ class DocxStyle {
         }
       }
 
-      if (rPr.getElement('w:caps') != null) isAllCaps = true;
-      if (rPr.getElement('w:smallCaps') != null) isSmallCaps = true;
-      if (rPr.getElement('w:dstrike') != null) isDoubleStrike = true;
-      if (rPr.getElement('w:outline') != null) isOutline = true;
-      if (rPr.getElement('w:shadow') != null) isShadow = true;
-      if (rPr.getElement('w:emboss') != null) isEmboss = true;
-      if (rPr.getElement('w:imprint') != null) isImprint = true;
+      isAllCaps = _onOff(rPr, 'w:caps');
+      isSmallCaps = _onOff(rPr, 'w:smallCaps');
+      isDoubleStrike = _onOff(rPr, 'w:dstrike');
+      isOutline = _onOff(rPr, 'w:outline');
+      isShadow = _onOff(rPr, 'w:shadow');
+      isEmboss = _onOff(rPr, 'w:emboss');
+      isImprint = _onOff(rPr, 'w:imprint');
 
       final vertAlignElem = rPr.getElement('w:vertAlign');
       if (vertAlignElem != null) {
@@ -609,6 +631,15 @@ class DocxStyle {
   // ============================================================
   // BORDER PARSER HELPER
   // ============================================================
+
+  /// Reads an OOXML on/off toggle child of [rPr] (`w:caps`, `w:dstrike`, …) as
+  /// a tri-state: `null` when the element is absent, otherwise true/false
+  /// honouring `w:val`. Keeping "absent" distinct from "explicit off" is what
+  /// lets the style engine XOR toggles and lets a child style turn one back off.
+  static bool? _onOff(XmlElement rPr, String name) {
+    final el = rPr.getElement(name);
+    return el == null ? null : readOnOff(el);
+  }
 
   static DocxBorderSide? _parseBorderSide(XmlElement? el) {
     if (el == null) return null;

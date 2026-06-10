@@ -76,7 +76,11 @@ class ReaderContext {
   DocxStyle? defaultRunStyle;
 
   /// Resolve a style by ID, handling inheritance and defaults.
-  DocxStyle resolveStyle(String? styleId) {
+  DocxStyle resolveStyle(String? styleId) => _resolveStyle(styleId, <String>{});
+
+  /// Internal resolver carrying a [visited] set so a malformed `basedOn` cycle
+  /// (e.g. A→B→A) terminates instead of recursing forever.
+  DocxStyle _resolveStyle(String? styleId, Set<String> visited) {
     if (styleId == null || !styles.containsKey(styleId)) {
       // Fallback to Normal if available, otherwise defaults
       if (styleId != 'Normal' && styles.containsKey('Normal')) {
@@ -86,8 +90,11 @@ class ReaderContext {
     }
 
     final style = styles[styleId]!;
-    if (style.basedOn != null && style.basedOn != styleId) {
-      final parent = resolveStyle(style.basedOn);
+    if (style.basedOn != null &&
+        style.basedOn != styleId &&
+        !visited.contains(style.basedOn)) {
+      visited.add(styleId);
+      final parent = _resolveStyle(style.basedOn, visited);
       return parent.merge(style);
     } else {
       // Root style - merge with defaults

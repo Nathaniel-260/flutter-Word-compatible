@@ -763,7 +763,7 @@ N (verification) — אחרון
 | פסקה | יישור/כניסות/ריווח/גבולות/הצללה | ✅ קיים | — |
 | פסקה | tab stops + leaders | 🟨 נקראים ל‑AST (A); מנוע טאבים ב‑C | C |
 | פסקה | keep rules / widow‑orphan | 🟨 נקראים ל‑AST (A); אכיפה בעימוד D | A,D |
-| סגנונות | basedOn מלא + toggle + theme colors/fonts + tblStylePr | 🟨 חלקי | B |
+| סגנונות | basedOn מלא + toggle + theme colors/fonts + tblStylePr | 🟨 מנוע `DocxStyleResolver` (docDefaults+סדר שכבות+toggle XOR+flatten עם תקרת עומק/מעגל) + `ThemeColorResolver` (tint/shade מדויק) נבנו ונבדקו; rPrDefault+מעגלי basedOn תוקנו בנתיב החי; cnfStyle/tblStylePr כבר עובד ב‑table_parser. נותר: חיווט run/paragraph בקורא למנוע (toggle‑XOR חי) | B |
 | עימוד | מבוסס מדידה + פיצול פסקה/טבלה | ⬜ (היוריסטי כיום) | D |
 | עמוד | גודל/שוליים/gutter מהמסמך | ✅ קיים | — |
 | עמוד | header/footer וריאנטים + שדות PAGE/NUMPAGES חיים | 🟨 קיים, ממתין לעימוד אמיתי | D,E |
@@ -798,7 +798,7 @@ N (verification) — אחרון
 | חלק | שם | סטטוס | הערות |
 |---|---|---|---|
 | A | השלמת Reader | ✅ הושלם 2026-06-10 | A.1–A.6 מפוענחים + round‑trip; פירוט ביומן |
-| B | מנוע סגנונות | ⬜ לא התחיל | ירושת מאפייני A.1/A.2 החדשים ממתינה ל‑resolver כאן |
+| B | מנוע סגנונות | 🟨 בעבודה — מנוע פנימי (לא מיוצא) נבנה ונבדק; נותר לחווט ל‑reader + golden אמיתי ל‑XOR‑על‑basedOn | `DocxStyleResolver`+`ThemeColorResolver` (20 בדיקות). בנתיב החי תוקנו: קריאת `w:val` ב‑toggles, rPrDefault, מעגלי basedOn. שאלת סמנטיקה פתוחה (XOR על שרשרת basedOn) — לאמת מול Word לפני חיווט |
 | C | מדידה/טאבים/BiDi | ⬜ לא התחיל | |
 | D | מנוע עימוד | ⬜ לא התחיל | מפרט נוסף ב‑PAGE_NUMBERING_RESEARCH.md §6 |
 | E | קליפת עמוד | ⬜ לא התחיל | |
@@ -865,3 +865,55 @@ N (verification) — אחרון
 3. הערות מינוריות (`_intVal` מתעלם מסיומות יחידה; `DocxSymbol.accept` כ‑fallback ויזואלי) — מקובלות, ייסגרו עם רינדור הסמלים בחלק K.
 
 **בדיקות:** `docx_creator` ירוק (כולל הבדיקה החדשה ל‑equalWidth), `flutter analyze` נקי.
+
+### 2026-06-11 — חלק B (מנוע סגנונות) — 🟨 בעבודה
+**בוצע:**
+- **מנוע `DocxStyleResolver`** ([style_engine.dart](../packages/docx_creator/lib/src/reader/docx_reader/models/style_engine.dart), מיוצא דרך הספרייה הראשית) — מימוש מלא של הסמנטיקה של חלק B:
+  - **docDefaults** (`rPrDefault`/`pPrDefault`) כשכבה הנמוכה ביותר (B.1 שלב 1).
+  - **סדר השכבות** (B.1): docDefaults → שרשרת `pStyle` (basedOn מהשורש ולמטה) → שרשרת `rStyle` → ישיר.
+  - **toggle properties — XOR** (B.2, ISO 17.7.3) עבור `b, i, caps, smallCaps, dstrike, outline, shadow, emboss, imprint`: XOR על פני שכבות ה**סגנון** בלבד; docDefaults כבסיס‑גיבוי; ערך **ישיר** דורס. (מימוש דרך `merge` הקיים שהוא last‑wins‑נכון, כך שאין שכפול AST.)
+  - **flatten של שרשרת basedOn** פעם אחת לכל styleId עם **מטמון**, **תקרת עומק** (12) ו**שמירת מעגל** (visited set).
+  - מטמון נפרד ל‑run/paragraph לפי `(pStyleId|rStyleId)`; ישיר מוחל מעל פר‑קריאה (זול).
+- **`ThemeColorResolver`** (אותו קובץ) — מתמטיקה מדויקת של tint/shade לפי B.3: `tint: c*tint+255*(1‑tint)`, `shade: c*shade`, פענוח בייט‑hex (`FF`=1.0), + resolve לפי שם סכמה.
+- **תיקון באג חי — rPrDefault** ([inline_parser.dart](../packages/docx_creator/lib/src/reader/docx_reader/parsers/inline_parser.dart) `parseRun`): מאפייני ברירת המחדל של ה‑run (גופן/גודל מ‑`w:rPrDefault`) **לא הוחלו כלל** קודם — ריצות בלי גודל מפורש נפלו לברירת מחדל של ה‑viewer במקום לברירת המחדל של המסמך. כעת `defaultRunStyle` הוא השכבה הנמוכה ומוחל לפני סגנון הפסקה.
+- **תיקון חי — מעגלי basedOn** ([reader_context.dart](../packages/docx_creator/lib/src/reader/docx_reader/reader_context/reader_context.dart)): `resolveStyle` שמר רק מפני הפניה‑עצמית ישירה; A→B→A היה לולאה אינסופית. נוסף `visited` set.
+- **בדיקות:** 15 בדיקות חדשות ב‑[style_engine_test.dart](../packages/docx_creator/test/style_engine_test.dart) — שרשרת basedOn תלת‑רמתית; toggle XOR (bold פעמיים/שלוש, caps, ישיר דורס); rPrDefault מוחל; שרשרת תווים (rStyle); מעגל basedOn + תקרת עומק; tint/shade; cnfStyle של שורה ראשונה דרך נתיב ה‑table_parser האמיתי.
+
+**בדיקות (סך הכול):** `docx_creator`: **372 ירוקות** (כולל 15 החדשות), `flutter analyze` נקי (נשארו 3 הערות `info` של `unnecessary_import` בקבצי בדיקה שלא נגעתי בהם — קדם‑קיימות). `docx_file_viewer`: **61 ירוקות**, `flutter analyze` נקי; 4 בדיקות golden עדיין נכשלות עם `PathNotFoundException` (fixtures חסרים בצ'קאאוט — קדם‑קיים, מתועד בלוג A).
+
+**החלטות/סטיות מהתוכנית (§0.3):**
+1. **ארכיטקטורה: ה‑resolution נשאר ב‑reader (parse‑time, baked ל‑AST), לא render‑time כפי שמרומז ב‑§4.** הסיבה: (א) ה‑AST כבר אופה את הסגנונות ל‑`DocxText` והצרכנים הקיימים (exporters, אפליקציית `shnayim-mikra-build`) נשענים על כך — מעבר ל‑render‑time שובר את ה‑API (אסור, §1.2); (ב) resolve‑פעם‑אחת‑ב‑parse **חסכוני יותר** ב‑RAM/CPU מ‑re‑resolve פר widget‑build, ותואם את §2.4.6 (אין רגנרציה). לכן המנוע מייצר `DocxStyle` ממוזג (אותה צורה שהקורא אופה) ומשתלב בלי לשנות AST/API. כוונת ה‑DoD ("ה‑builder צורך את ה‑resolver") מסופקת דרך הקורא, לא דרך re‑resolve ב‑widget.
+2. **שם המחלקה `DocxStyleResolver`** (ולא `StyleResolver` כבתוכנית) כי `StyleResolver`/`ResolvedStyle` כבר קיימים ומיוצאים ב‑[resolved_style.dart](../packages/docx_creator/lib/src/reader/docx_reader/models/resolved_style.dart) (API ציבורי — אסור לשבור). הישן נשאר ללא שינוי (לא בשימוש מהותי; מועמד ל‑deprecation).
+3. **XOR ל‑decorations (קו תחתון/strike) לא יושם** — `decorations` ב‑`DocxStyle` הוא רשימה שמאגדת underline+strike, ואין ייצוג ל"כבוי"; נשמרה התנהגות last‑non‑empty‑wins הקיימת כדי לא לסכן רגרסיות. ה‑toggle המרכזי (bold/italic/caps/…) — XOR מלא. (להוסיף ל‑§8.2 אם יתברר כפער נראה.)
+4. **cnfStyle/tblStylePr** כבר ממומש ב‑[table_parser.dart](../packages/docx_creator/lib/src/reader/docx_reader/parsers/table_parser.dart) `_resolveCellStyle` (tblLook + מסכת תנאים). לא שוכפל למנוע כדי לא ליצור dual‑path (§2.4.6). הבדיקה ל‑DoD מאמתת את הנתיב הקיים.
+
+**בעיות פתוחות / מה שטרם הושלם ל‑✅:**
+- **חיווט מלא של ה‑reader למנוע (toggle‑XOR חי end‑to‑end).** כיום ה‑toggle‑XOR קיים ונבדק במנוע אך **לא בנתיב הבייקינג החי**: `parseRun` עדיין ממזג שרשרת קרוסה (`context.resolveStyle` עושה last‑wins על שרשרת ה‑basedOn), כך ש‑double‑bold דרך basedOn עדיין לא מתבטל ברינדור. הנתיב החי קיבל רק את תיקון rPrDefault + שמירת מעגל.
+- מיפוי theme‑color ב‑viewer ([paragraph_builder.dart](../packages/docx_file_viewer/lib/src/widget_generator/paragraph_builder.dart) `_resolveColor`) עדיין משתמש ב‑`alphaBlend` ולא בנוסחת B.3 המדויקת של `ThemeColorResolver`.
+
+**ל‑AI הבא (השלמת B ל‑✅):**
+1. **חיווט ה‑run resolution למנוע:** הדרך הנקייה — להעביר את `paragraphStyleId` דרך `parseChildren`→`parseRun` (במקום/בנוסף ל‑`parentStyle` הממוזג), ולקרוא `resolver.resolveRun(paragraphStyleId, runStyleId: rStyle, direct: parsedProps∪paragraphMarkRPr)`. שים לב לסמנטיקה של מאפייני סימן‑הפסקה (`pPr/rPr`) — הם "ישיר", לא סגנון בעל‑שם. לחלופין, נתיב מוכל יותר: לנתב את `context.resolveStyle` עצמו דרך המנוע כדי לקבל toggle‑XOR על שרשרת ה‑basedOn (התרחיש הנפוץ), תוך טיפול ב‑fallback‑ל‑Normal ובסוגי סגנון (לא להחיל pPrDefault על סגנון תווים).
+2. לאמץ את `ThemeColorResolver` ב‑`_resolveColor` של ה‑viewer (נוסחת tint/shade מדויקת + auto‑color על רקע כהה).
+3. להריץ מחדש את כל הבדיקות ולהשוות baked output על מסמך עם docDefaults+toggles; ליישב כל היפוך מול Word.
+
+### 2026-06-11 — חלק B — מענה לסקירת קוד (QA)
+**בוצע:** טופלה סקירת QA חיצונית של חלק B. תוקן/הוחלט:
+- **🔴 #1 — ה‑toggle parser התעלם מ‑`w:val`** ([docx_style.dart](../packages/docx_creator/lib/src/reader/docx_reader/models/docx_style.dart) `_parseRunProperties`): קודם `<w:b w:val="0"/>` (כיבוי מפורש) התפרש כהדלקה, מה ששבר את כל הרציונל של מנוע ה‑XOR ומנע כיבוי toggle שנירש. כעת כל ה‑toggles (`b, i, caps, smallCaps, dstrike, outline, shadow, emboss, imprint, strike`) נקראים דרך `readOnOff` הקיים (tri‑state: null=נעדר, ומכבד `0/false/off`). נוסף helper `_onOff`.
+- **🔴 #2 — קוד מת/API מוקדם:** המנוע (`DocxStyleResolver`/`ThemeColorResolver`) **בוטל מהייצוא** ב‑[docx_creator.dart](../packages/docx_creator/lib/docx_creator.dart) — הוא רכיב **פנימי שטרם חובר** ל‑pipeline, ואסור להתחייב עליו כ‑API ציבורי לפני שהוא מחובר ומאומת. הבדיקות מייבאות אותו דרך הנתיב הפנימי. (החלטה לפי האופציה שהוצעה בסקירה: לא לייצא עד חיווט.)
+- **🔴/🟡 #3 — ספק תקני ב‑XOR‑על‑basedOn:** **לא חיברתי את המנוע ל‑pipeline בכוונה**, כי החלת XOR על כל שרשרת ה‑basedOn אינה מאומתת מול Word (ייתכן ש‑Word מתייחס ל‑basedOn כירושה רגילה "הקרוב מנצח", ושומר XOR לאינטראקציה **בין רמות** בלבד). חיווט עכשיו היה מסכן רינדור שגוי של מסמכים אמיתיים. נוסף caveat בולט ב‑docstring; דרוש golden ממסמך Word אמיתי כדי לנעול לפני חיווט. (אינני יכול לייצר קובץ Word — דרושה אספקה מהמשתמש.)
+- **תיקון סמנטי שנגזר מ‑#1:** כעת שה‑parser מספק `false` אמיתי — עודכן מנוע ה‑toggle מ‑XOR‑טהור ל‑`_resolveToggle`: ערך **on** הופך זוגיות (XOR), אך **off מפורש מאפס לכבוי** (לא no‑op). כך `<w:b w:val="0"/>` בסגנון‑בן מכבה bold שנירש, ובמקביל שרשראות all‑on עדיין עובדות בזוגיות.
+- **🟡 #4** — נוספה בדיקה שנועלת את ההחלטה ש‑docDefaults הוא בסיס‑גיבוי ולא משתתף ב‑XOR.
+- **🟡 #5** — תועד שקיטום ה‑chain ב‑maxDepth מפיל את שכבת השורש (תיאורטי ב‑12; קובץ פגום), קיטום שקט במכוון.
+- **🟡 #6** — הוסרה מחרוזת‑הקסם: נוספו `DocxStyle.overlayId`/`emptyId` והמנוע + `merge` + `empty()` משתמשים בהם.
+- **🟡 #7** — תועד ב‑docstring של `ThemeColorResolver` ש‑tint+shade מצטברים (במקום לדחות קלט פגום) ושמתמטיקת ה‑RGB היא קירוב ל‑HSL של Word.
+- **🟢** — נוקתה הערת "instruction" מתה ב‑`_parseRunProperties`; נוספו בדיקות: כיבוי מפורש בסגנון‑בן, direct מכבה toggle שנירש, XOR בין סגנון‑פסקה לסגנון‑תו, tint+shade יחד.
+
+**נדחה במכוון (מתועד):**
+- חיווט המנוע ל‑pipeline ומחיקת הנתיב הישן — תלוי ב‑golden של #3 (ראו "ל‑AI הבא" ברשומת B המקורית). עד אז מתקיים נתיב יחיד **בייצור** (ה‑reader הישן), והמנוע פנימי בלבד — כך שאין שתי מערכות resolution פעילות במקביל.
+- **🟢 שם המחלקה** (`DocxStyleResolver` מול `StyleResolver` הישן) — לא שונה כדי לא לייצר churn; כשהישן יוצא מ‑deprecation אפשר לאחד.
+- מיפוי `||` של toggles ב‑[resolved_style.dart](../packages/docx_creator/lib/src/reader/docx_reader/models/resolved_style.dart) (ה‑StyleResolver הישן) — לא בשימוש ב‑pipeline; יטופל כשהישן יוסר.
+
+**בדיקות:** `docx_creator`: **377 ירוקות** (20 בדיקות מנוע, כולל החדשות), `flutter analyze` נקי. `docx_file_viewer`: **61 ירוקות**, analyze נקי; אותן 4 golden נכשלות על fixtures חסרים (קדם‑קיים).
+
+**בעיות פתוחות:** כנ"ל ברשומת B המקורית + **דרוש golden ממסמך Word אמיתי** כדי לפתור את שאלת ה‑XOR‑על‑basedOn (#3) — זהו ה‑prerequisite לחיווט המנוע לייצור.
+**ל‑AI הבא:** ספק/בקש מהמשתמש מסמך `.docx` אמיתי שנשמר מ‑Word עם שרשרת basedOn של toggle (למשל סגנון מודגש → סגנון‑בן מודגש), קבע את ההתנהגות הנכונה, נעל golden, ואז חבר את המנוע ומחק את נתיב ה‑merge הישן.

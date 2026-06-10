@@ -274,8 +274,17 @@ class InlineParser {
       }
     }
 
-    // 1. Base style = Parent Paragraph Style (if any) or Default
+    // 1. Base style = docDefaults rPrDefault (lowest layer) < Parent Paragraph
+    //    Style. rPrDefault carries the document's base run font/size (Part B,
+    //    B.1 step 1); it was previously skipped, so runs with no explicit size
+    //    fell back to the viewer default instead of Word's document default.
+    //    `merge` is last-wins, so the paragraph style overrides the defaults and
+    //    the defaults only fill gaps the paragraph style leaves open.
     var baseStyle = parentStyle ?? context.resolveStyle('DefaultParagraphFont');
+    final runDefaults = context.defaultRunStyle;
+    if (runDefaults != null) {
+      baseStyle = runDefaults.merge(baseStyle);
+    }
 
     // 2. Run Style (Character Style) - Overrides paragraph style properties
     if (rStyle != null) {
