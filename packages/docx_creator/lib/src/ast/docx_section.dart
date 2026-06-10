@@ -112,8 +112,37 @@ class DocxSectionDef extends DocxSection {
   final int gutter;
 
   final DocxSectionBreak breakType;
+
+  /// The primary (`default`) header/footer — used on every page unless a
+  /// first-page or even-page variant applies.
   final DocxHeader? header;
   final DocxFooter? footer;
+
+  /// First-page variant (`w:type="first"`), active when [titlePage] is set.
+  final DocxHeader? firstHeader;
+  final DocxFooter? firstFooter;
+
+  /// Even-page variant (`w:type="even"`), active when the document's
+  /// `evenAndOddHeaders` setting is on.
+  final DocxHeader? evenHeader;
+  final DocxFooter? evenFooter;
+
+  /// Page-number display format for this section (`w:pgNumType w:fmt`).
+  final DocxPageNumberFormat pageNumberFormat;
+
+  /// Starting page number for this section (`w:pgNumType w:start`); null means
+  /// the numbering continues from the previous section.
+  final int? pageNumberStart;
+
+  /// Heading level whose number prefixes the page number (`w:chapStyle`), or
+  /// null for no chapter prefix.
+  final int? chapterStyleLevel;
+
+  /// Separator between chapter number and page number (`w:chapSep`).
+  final DocxChapterSeparator chapterSeparator;
+
+  /// Whether the first page uses the [firstHeader]/[firstFooter] (`w:titlePg`).
+  final bool titlePage;
 
   /// Background color for all pages in this section.
   final DocxColor? backgroundColor;
@@ -139,10 +168,34 @@ class DocxSectionDef extends DocxSection {
     this.breakType = DocxSectionBreak.nextPage,
     this.header,
     this.footer,
+    this.firstHeader,
+    this.firstFooter,
+    this.evenHeader,
+    this.evenFooter,
+    this.pageNumberFormat = DocxPageNumberFormat.decimal,
+    this.pageNumberStart,
+    this.chapterStyleLevel,
+    this.chapterSeparator = DocxChapterSeparator.hyphen,
+    this.titlePage = false,
     this.backgroundColor,
     this.backgroundImage,
     super.id,
   });
+
+  /// The header that applies to a page, given its position. [isFirstPage] is
+  /// relative to the section; [isEvenPage] uses the document's even/odd setting.
+  DocxHeader? headerFor({bool isFirstPage = false, bool isEvenPage = false}) {
+    if (isFirstPage && titlePage && firstHeader != null) return firstHeader;
+    if (isEvenPage && evenHeader != null) return evenHeader;
+    return header;
+  }
+
+  /// The footer that applies to a page — see [headerFor].
+  DocxFooter? footerFor({bool isFirstPage = false, bool isEvenPage = false}) {
+    if (isFirstPage && titlePage && firstFooter != null) return firstFooter;
+    if (isEvenPage && evenFooter != null) return evenFooter;
+    return footer;
+  }
 
   /// Returns a copy with specified modifications.
   DocxSectionDef copyWith({
@@ -160,6 +213,15 @@ class DocxSectionDef extends DocxSection {
     DocxSectionBreak? breakType,
     DocxHeader? header,
     DocxFooter? footer,
+    DocxHeader? firstHeader,
+    DocxFooter? firstFooter,
+    DocxHeader? evenHeader,
+    DocxFooter? evenFooter,
+    DocxPageNumberFormat? pageNumberFormat,
+    int? pageNumberStart,
+    int? chapterStyleLevel,
+    DocxChapterSeparator? chapterSeparator,
+    bool? titlePage,
     DocxColor? backgroundColor,
     DocxBackgroundImage? backgroundImage,
   }) {
@@ -178,6 +240,15 @@ class DocxSectionDef extends DocxSection {
       breakType: breakType ?? this.breakType,
       header: header ?? this.header,
       footer: footer ?? this.footer,
+      firstHeader: firstHeader ?? this.firstHeader,
+      firstFooter: firstFooter ?? this.firstFooter,
+      evenHeader: evenHeader ?? this.evenHeader,
+      evenFooter: evenFooter ?? this.evenFooter,
+      pageNumberFormat: pageNumberFormat ?? this.pageNumberFormat,
+      pageNumberStart: pageNumberStart ?? this.pageNumberStart,
+      chapterStyleLevel: chapterStyleLevel ?? this.chapterStyleLevel,
+      chapterSeparator: chapterSeparator ?? this.chapterSeparator,
+      titlePage: titlePage ?? this.titlePage,
       backgroundColor: backgroundColor ?? this.backgroundColor,
       backgroundImage: backgroundImage ?? this.backgroundImage,
       id: id,
@@ -488,92 +559,144 @@ class DocxFooter extends DocxSection {
   }
 }
 
-/// Page number field.
-class DocxPageNumber extends DocxInline {
-  const DocxPageNumber({super.id});
+/// Emits a minimal complex field: `begin → instrText(instr) → end`.
+/// The cached result run is intentionally omitted; the viewer computes the
+/// live value. Shared by the field inline nodes below.
+void _buildFieldXml(XmlBuilder builder, String instr) {
+  builder.element('w:r',
+      nest: () => builder.element('w:fldChar',
+          nest: () => builder.attribute('w:fldCharType', 'begin')));
+  builder.element('w:r',
+      nest: () => builder.element('w:instrText', nest: () {
+            builder.attribute('xml:space', 'preserve');
+            builder.text(instr);
+          }));
+  builder.element('w:r',
+      nest: () => builder.element('w:fldChar',
+          nest: () => builder.attribute('w:fldCharType', 'end')));
+}
 
-  @override
-  void accept(DocxVisitor visitor) => visitor.visitText(this);
-
-  @override
-  void buildXml(XmlBuilder builder) {
-    builder.element(
-      'w:r',
-      nest: () {
-        builder.element(
-          'w:fldChar',
-          nest: () {
-            builder.attribute('w:fldCharType', 'begin');
-          },
-        );
-      },
-    );
-    builder.element(
-      'w:r',
-      nest: () {
-        builder.element(
-          'w:instrText',
-          nest: () {
-            builder.text(' PAGE ');
-          },
-        );
-      },
-    );
-    builder.element(
-      'w:r',
-      nest: () {
-        builder.element(
-          'w:fldChar',
-          nest: () {
-            builder.attribute('w:fldCharType', 'end');
-          },
-        );
-      },
-    );
+/// The `\*` field switch for a page-number [format], or '' for the default.
+String _formatSwitch(DocxPageNumberFormat? format) {
+  switch (format) {
+    case DocxPageNumberFormat.upperRoman:
+      return r' \* ROMAN';
+    case DocxPageNumberFormat.lowerRoman:
+      return r' \* roman';
+    case DocxPageNumberFormat.upperLetter:
+      return r' \* ALPHABETIC';
+    case DocxPageNumberFormat.lowerLetter:
+      return r' \* alphabetic';
+    case DocxPageNumberFormat.decimal:
+      return r' \* Arabic';
+    case null:
+      return '';
   }
 }
 
-/// Total page count field.
+/// `PAGE` field — the current page number. [format] is an explicit `\*` switch;
+/// when null the rendering section's `w:pgNumType` format applies.
+///
+/// [cachedText] is Word's last-computed value (from the field's result run); the
+/// viewer shows it until pagination supplies the live per-page number.
+class DocxPageNumber extends DocxInline {
+  final DocxPageNumberFormat? format;
+  final String? cachedText;
+  const DocxPageNumber({this.format, this.cachedText, super.id});
+
+  @override
+  void accept(DocxVisitor visitor) => visitor.visitText(this);
+
+  @override
+  void buildXml(XmlBuilder builder) =>
+      _buildFieldXml(builder, ' PAGE${_formatSwitch(format)} ');
+}
+
+/// `NUMPAGES` (whole document) or `SECTIONPAGES` ([sectionScope] = true) field.
 class DocxPageCount extends DocxInline {
-  const DocxPageCount({super.id});
+  final bool sectionScope;
+  final DocxPageNumberFormat? format;
+  final String? cachedText;
+  const DocxPageCount(
+      {this.sectionScope = false, this.format, this.cachedText, super.id});
+
+  @override
+  void accept(DocxVisitor visitor) => visitor.visitText(this);
+
+  @override
+  void buildXml(XmlBuilder builder) => _buildFieldXml(builder,
+      ' ${sectionScope ? 'SECTIONPAGES' : 'NUMPAGES'}${_formatSwitch(format)} ');
+}
+
+/// `PAGEREF` field — the page number on which [bookmark] resides.
+class DocxPageRef extends DocxInline {
+  final String bookmark;
+
+  /// `\h` switch — render as a hyperlink to the bookmark.
+  final bool hyperlink;
+  final DocxPageNumberFormat? format;
+  final String? cachedText;
+  const DocxPageRef(this.bookmark,
+      {this.hyperlink = false, this.format, this.cachedText, super.id});
+
+  @override
+  void accept(DocxVisitor visitor) => visitor.visitText(this);
+
+  @override
+  void buildXml(XmlBuilder builder) => _buildFieldXml(
+      builder,
+      ' PAGEREF $bookmark${hyperlink ? r' \h' : ''}'
+      '${_formatSwitch(format)} ');
+}
+
+/// A field the viewer does not compute (TOC, REF, DATE, …). The [cachedResult]
+/// inlines (Word's last-computed value) are shown verbatim so the text is not
+/// lost, while [instruction] preserves the original field code.
+class DocxUnknownField extends DocxInline {
+  final String instruction;
+  final List<DocxInline> cachedResult;
+  const DocxUnknownField(this.instruction,
+      {this.cachedResult = const [], super.id});
 
   @override
   void accept(DocxVisitor visitor) => visitor.visitText(this);
 
   @override
   void buildXml(XmlBuilder builder) {
-    builder.element(
-      'w:r',
-      nest: () {
-        builder.element(
-          'w:fldChar',
-          nest: () {
-            builder.attribute('w:fldCharType', 'begin');
-          },
-        );
-      },
-    );
-    builder.element(
-      'w:r',
-      nest: () {
-        builder.element(
-          'w:instrText',
-          nest: () {
-            builder.text(' NUMPAGES ');
-          },
-        );
-      },
-    );
-    builder.element(
-      'w:r',
-      nest: () {
-        builder.element(
-          'w:fldChar',
-          nest: () {
-            builder.attribute('w:fldCharType', 'end');
-          },
-        );
-      },
-    );
+    builder.element('w:r',
+        nest: () => builder.element('w:fldChar',
+            nest: () => builder.attribute('w:fldCharType', 'begin')));
+    builder.element('w:r',
+        nest: () => builder.element('w:instrText', nest: () {
+              builder.attribute('xml:space', 'preserve');
+              builder.text(instruction);
+            }));
+    builder.element('w:r',
+        nest: () => builder.element('w:fldChar',
+            nest: () => builder.attribute('w:fldCharType', 'separate')));
+    for (final inline in cachedResult) {
+      inline.buildXml(builder);
+    }
+    builder.element('w:r',
+        nest: () => builder.element('w:fldChar',
+            nest: () => builder.attribute('w:fldCharType', 'end')));
+  }
+}
+
+/// A bookmark anchor (`w:bookmarkStart`). Zero-width marker used to resolve
+/// [DocxPageRef] targets to a page during pagination.
+class DocxBookmark extends DocxInline {
+  final String name;
+  const DocxBookmark(this.name, {super.id});
+
+  @override
+  void accept(DocxVisitor visitor) => visitor.visitText(this);
+
+  @override
+  void buildXml(XmlBuilder builder) {
+    builder.element('w:bookmarkStart', nest: () {
+      builder.attribute('w:id', '0');
+      builder.attribute('w:name', name);
+    });
   }
 }

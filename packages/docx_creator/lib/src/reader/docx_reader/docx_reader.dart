@@ -173,6 +173,12 @@ class _DocxReaderOrchestrator {
 
     // 9. Gather raw XML strings for preservation
     final settingsXml = context.readContent('word/settings.xml');
+    // Even/odd headers flag — drives the section's "even" header/footer variant.
+    // Honors an explicit w:val="false" (CT_OnOff), not just presence.
+    final settingsDoc =
+        settingsXml == null ? null : XmlDocument.parse(settingsXml);
+    final evenAndOddHeaders = readOnOff(
+        settingsDoc?.rootElement.getElement('w:evenAndOddHeaders'));
     final contentTypesXml = context.readContent('[Content_Types].xml');
     final rootRelsXml = context.readContent('_rels/.rels');
     final headerBgXml = context.readContent('word/header_bg.xml');
@@ -220,6 +226,7 @@ class _DocxReaderOrchestrator {
       endnotes: endnotes,
       theme: theme,
       themeXml: themeXml,
+      evenAndOddHeaders: evenAndOddHeaders,
     );
   }
 

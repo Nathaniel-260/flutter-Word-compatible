@@ -1,5 +1,19 @@
 import 'package:xml/xml.dart';
 
+/// Reads an OOXML `CT_OnOff` toggle (e.g. `w:titlePg`, `w:evenAndOddHeaders`,
+/// `w:b`).
+///
+/// Per the spec a present element is *on* unless its `w:val` is one of
+/// `0`/`false`/`off`. Word omits the element to turn a toggle off, but other
+/// producers (LibreOffice, python-docx, docx4j) write `w:val="false"`
+/// explicitly — so presence alone is not enough. A `null` element returns
+/// [orElse].
+bool readOnOff(XmlElement? element, {bool orElse = false}) {
+  if (element == null) return orElse;
+  final v = element.getAttribute('w:val')?.toLowerCase();
+  return v != '0' && v != 'false' && v != 'off';
+}
+
 /// Stores unknown XML attributes and child elements for round-trip preservation.
 ///
 /// This "Shadow Model" ensures that when reading a DOCX file, any XML

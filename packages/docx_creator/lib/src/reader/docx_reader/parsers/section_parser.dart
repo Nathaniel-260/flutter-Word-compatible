@@ -26,6 +26,15 @@ class SectionParser {
     int gutter = 0;
     DocxHeader? header;
     DocxFooter? footer;
+    DocxHeader? firstHeader;
+    DocxFooter? firstFooter;
+    DocxHeader? evenHeader;
+    DocxFooter? evenFooter;
+    DocxPageNumberFormat pageNumberFormat = DocxPageNumberFormat.decimal;
+    int? pageNumberStart;
+    int? chapterStyleLevel;
+    DocxChapterSeparator chapterSeparator = DocxChapterSeparator.hyphen;
+    bool titlePage = false;
     DocxBackgroundImage? backgroundImage;
 
     if (sectPr != null) {
@@ -71,31 +80,66 @@ class SectionParser {
         gutter = int.tryParse(pgMar.getAttribute('w:gutter') ?? '') ?? gutter;
       }
 
-      // Headers
+      // Headers — keep each variant (default/first/even) so the viewer can pick
+      // the right one per page.
       for (var headerRef in sectPr.findAllElements('w:headerReference')) {
         final rId = headerRef.getAttribute('r:id');
         final type = headerRef.getAttribute('w:type') ?? 'default';
-        if (rId != null) {
-          final rel = context.getRelationship(rId);
-          if (rel != null) {
-            if (_isBackgroundHeader(rId)) {
-              backgroundImage = _readBackgroundImage(rId);
-            } else if (type == 'default' || header == null) {
-              header = _readHeader(rel);
-            }
-          }
+        if (rId == null) continue;
+        if (_isBackgroundHeader(rId)) {
+          backgroundImage = _readBackgroundImage(rId);
+          continue;
+        }
+        final rel = context.getRelationship(rId);
+        if (rel == null) continue;
+        final parsed = _readHeader(rel);
+        switch (type) {
+          case 'first':
+            firstHeader = parsed;
+            break;
+          case 'even':
+            evenHeader = parsed;
+            break;
+          default:
+            header = parsed;
         }
       }
 
       // Footers
       for (var footerRef in sectPr.findAllElements('w:footerReference')) {
         final rId = footerRef.getAttribute('r:id');
-        if (rId != null) {
-          final rel = context.getRelationship(rId);
-          if (rel != null) {
-            footer = _readFooter(rel);
-          }
+        final type = footerRef.getAttribute('w:type') ?? 'default';
+        if (rId == null) continue;
+        final rel = context.getRelationship(rId);
+        if (rel == null) continue;
+        final parsed = _readFooter(rel);
+        switch (type) {
+          case 'first':
+            firstFooter = parsed;
+            break;
+          case 'even':
+            evenFooter = parsed;
+            break;
+          default:
+            footer = parsed;
         }
+      }
+
+      // Different-first-page flag (honors an explicit w:val="false").
+      titlePage = readOnOff(sectPr.getElement('w:titlePg'));
+
+      // Page numbering type/format/start/chapter.
+      final pgNumType = sectPr.getElement('w:pgNumType');
+      if (pgNumType != null) {
+        pageNumberFormat =
+            mapPageNumberFormat(pgNumType.getAttribute('w:fmt')) ??
+                pageNumberFormat;
+        pageNumberStart = int.tryParse(pgNumType.getAttribute('w:start') ?? '');
+        chapterStyleLevel =
+            int.tryParse(pgNumType.getAttribute('w:chapStyle') ?? '');
+        chapterSeparator =
+            mapChapterSeparator(pgNumType.getAttribute('w:chapSep')) ??
+                chapterSeparator;
       }
     }
 
@@ -113,9 +157,56 @@ class SectionParser {
       gutter: gutter,
       header: header,
       footer: footer,
+      firstHeader: firstHeader,
+      firstFooter: firstFooter,
+      evenHeader: evenHeader,
+      evenFooter: evenFooter,
+      pageNumberFormat: pageNumberFormat,
+      pageNumberStart: pageNumberStart,
+      chapterStyleLevel: chapterStyleLevel,
+      chapterSeparator: chapterSeparator,
+      titlePage: titlePage,
       backgroundColor: backgroundColor,
       backgroundImage: backgroundImage,
     );
+  }
+
+  /// Maps a `w:pgNumType w:fmt` value to [DocxPageNumberFormat], or null when
+  /// absent/unrecognized (caller keeps the default). Exposed for testing.
+  static DocxPageNumberFormat? mapPageNumberFormat(String? fmt) {
+    switch (fmt) {
+      case 'decimal':
+        return DocxPageNumberFormat.decimal;
+      case 'upperRoman':
+        return DocxPageNumberFormat.upperRoman;
+      case 'lowerRoman':
+        return DocxPageNumberFormat.lowerRoman;
+      case 'upperLetter':
+        return DocxPageNumberFormat.upperLetter;
+      case 'lowerLetter':
+        return DocxPageNumberFormat.lowerLetter;
+      default:
+        return null;
+    }
+  }
+
+  /// Maps a `w:pgNumType w:chapSep` value to [DocxChapterSeparator], or null
+  /// when absent/unrecognized. Exposed for testing.
+  static DocxChapterSeparator? mapChapterSeparator(String? sep) {
+    switch (sep) {
+      case 'hyphen':
+        return DocxChapterSeparator.hyphen;
+      case 'period':
+        return DocxChapterSeparator.period;
+      case 'colon':
+        return DocxChapterSeparator.colon;
+      case 'emDash':
+        return DocxChapterSeparator.emDash;
+      case 'enDash':
+        return DocxChapterSeparator.enDash;
+      default:
+        return null;
+    }
   }
 
   bool _isBackgroundHeader(String rId) {

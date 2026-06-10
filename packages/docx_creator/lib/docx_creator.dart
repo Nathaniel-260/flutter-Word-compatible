@@ -33,6 +33,7 @@ export 'src/core/defaults.dart';
 export 'src/core/enums.dart';
 export 'src/core/exceptions.dart';
 export 'src/core/measurements.dart';
+export 'src/core/number_formatter.dart';
 export 'src/core/xml_extension.dart';
 // Exporters
 export 'src/exporters/docx_exporter.dart';

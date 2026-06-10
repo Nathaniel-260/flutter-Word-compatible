@@ -322,6 +322,23 @@ enum DocxPageSize { letter, a4, legal, tabloid, custom }
 
 enum DocxSectionBreak { continuous, nextPage, evenPage, oddPage }
 
+/// Display format for automatic page numbers — sourced from a `w:pgNumType`
+/// `w:fmt` on a section or from a `\*` switch on a `PAGE`/`NUMPAGES`/`PAGEREF`
+/// field. Maps onto `NumberFormatter`.
+enum DocxPageNumberFormat {
+  decimal,
+  upperRoman,
+  lowerRoman,
+  upperLetter,
+  lowerLetter,
+}
+
+/// Chapter/page separator for `w:pgNumType w:chapSep` (e.g. "1-1", "2.5").
+enum DocxChapterSeparator { hyphen, period, colon, emDash, enDash }
+
+/// Which header/footer variant applies to a page.
+enum DocxHeaderFooterType { primary, first, even }
+
 // ============================================================
 // TABLE-SPECIFIC
 // ============================================================

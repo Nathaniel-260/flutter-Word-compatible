@@ -2,6 +2,8 @@ import 'package:docx_creator/docx_creator.dart';
 import 'package:flutter/material.dart';
 
 import '../docx_view_config.dart';
+import '../pagination/field_substitution.dart';
+import '../pagination/page_context.dart';
 import '../search/docx_search_controller.dart';
 import '../theme/docx_view_theme.dart';
 import '../utils/block_index_counter.dart';
@@ -208,11 +210,13 @@ class DocxWidgetGenerator {
       }
     }
 
-    // Pre-calculate Header widgets for the first page
+    // Pre-calculate Header widgets for the first page (title-page variant when
+    // w:titlePg is set), sharing the block counter for search keys.
     List<Widget>? firstPageHeaderWidgets;
-    if (doc.section?.header != null) {
+    final firstHeader = doc.section?.headerFor(isFirstPage: true);
+    if (firstHeader != null) {
       firstPageHeaderWidgets = _generateBlockWidgets(
-        doc.section!.header!.children,
+        firstHeader.children,
         counter: counter,
       );
     }
@@ -298,12 +302,28 @@ class DocxWidgetGenerator {
       pageBgs.add([]);
     }
 
+    // Page-number context: total = page count, start offset from the section's
+    // w:pgNumType w:start. Single section for now (multi-section is milestone M6).
+    final totalPages = pages.length;
+    final startAt = doc.section?.pageNumberStart ?? 1;
+    final sectionFormat =
+        doc.section?.pageNumberFormat ?? DocxPageNumberFormat.decimal;
+
     return pages.asMap().entries.map((entry) {
       final index = entry.key;
       final content = entry.value;
-      final headerWidgets = (index == 0) ? firstPageHeaderWidgets : null;
+      final isFirstPage = index == 0;
+      final headerWidgets = isFirstPage ? firstPageHeaderWidgets : null;
+      final pageContext = PageContext(
+        pageNumber: startAt + index,
+        totalPages: totalPages,
+        sectionFormat: sectionFormat,
+      );
       return _buildPageContainer(content, doc,
-          headerWidgets: headerWidgets, backgroundImages: pageBgs[index]);
+          headerWidgets: headerWidgets,
+          isFirstPage: isFirstPage,
+          pageContext: pageContext,
+          backgroundImages: pageBgs[index]);
     }).toList();
   }
 
@@ -384,22 +404,39 @@ class DocxWidgetGenerator {
 
   Widget _buildPageContainer(List<Widget> content, DocxBuiltDocument doc,
       {List<Widget>? headerWidgets,
+      bool isFirstPage = false,
+      PageContext? pageContext,
+      bool isEvenPage = false,
       List<DocxInlineImage> backgroundImages = const []}) {
     final section = doc.section;
+    // Variant selection: the first page of the document uses the title-page
+    // header/footer when w:titlePg is set; even-page variant is wired by the
+    // paginator (M6) once real numbering exists.
+    final activeHeader =
+        section?.headerFor(isFirstPage: isFirstPage, isEvenPage: isEvenPage);
+    final activeFooter =
+        section?.footerFor(isFirstPage: isFirstPage, isEvenPage: isEvenPage);
+
+    // Resolve PAGE/NUMPAGES/PAGEREF fields to this page's concrete values.
+    List<DocxBlock> resolve(List<DocxBlock> blocks) => pageContext == null
+        ? blocks
+        : FieldSubstitution.apply(blocks, pageContext);
 
     // כותרת עליונה — נאספת בנפרד כדי למקם אותה *באזור השוליים העליונים*
     // (במרחק w:header מהקצה), ולא בתוך הגוף שדוחף את הטקסט מטה.
+    // הערה: בעמוד הראשון משתמשים ב-headerWidgets שנבנו מראש (ערך-מטמון); החלפת
+    // שדה חיה בכותרת עליונה של עמוד 1 תיכנס עם רפקטור העימוד (M4).
     final List<Widget> headerCol = [];
-    if (section?.header != null) {
-      headerCol.addAll(
-          headerWidgets ?? _generateBlockWidgets(section!.header!.children));
+    if (activeHeader != null) {
+      headerCol.addAll(headerWidgets ??
+          _generateBlockWidgets(resolve(activeHeader.children)));
     }
 
     // כותרת תחתונה — באזור השוליים התחתונים (במרחק w:footer מהקצה).
     final List<Widget> footerCol = [];
-    if (section?.footer != null) {
+    if (activeFooter != null) {
       footerCol.add(const Divider());
-      footerCol.addAll(_generateBlockWidgets(section!.footer!.children));
+      footerCol.addAll(_generateBlockWidgets(resolve(activeFooter.children)));
     }
 
     // מידות העמוד מהמסמך (w:pgSz / w:pgMar), לא A4 קבוע.

@@ -314,6 +314,11 @@ class DocxBuiltDocument {
   /// It provides access to theme colors, fonts, and named styles.
   final DocxTheme? theme;
 
+  /// Whether even and odd pages use different headers/footers
+  /// (`w:evenAndOddHeaders` in settings.xml). When true the viewer renders the
+  /// section's `even` header/footer variant on even-numbered pages.
+  final bool evenAndOddHeaders;
+
   const DocxBuiltDocument({
     required this.elements,
     this.section,
@@ -335,6 +340,7 @@ class DocxBuiltDocument {
     this.footnotes,
     this.endnotes,
     this.theme,
+    this.evenAndOddHeaders = false,
   });
 }
 

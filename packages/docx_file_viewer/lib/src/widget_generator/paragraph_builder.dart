@@ -635,10 +635,52 @@ class ParagraphBuilder {
         spans.add(_buildFootnoteRef(inline));
       } else if (inline is DocxEndnoteRef) {
         spans.add(_buildEndnoteRef(inline));
+      } else if (inline is DocxPageNumber) {
+        // Pagination substitutes the live per-page value later (milestone C);
+        // until then show Word's cached value so headers/footers aren't blank.
+        final text = inline.cachedText ?? '1';
+        spans.add(_buildFieldSpan(text, lineHeight));
+        currentOffset += text.length;
+      } else if (inline is DocxPageCount) {
+        final text = inline.cachedText ?? '1';
+        spans.add(_buildFieldSpan(text, lineHeight));
+        currentOffset += text.length;
+      } else if (inline is DocxPageRef) {
+        final text = inline.cachedText ?? '';
+        if (text.isNotEmpty) {
+          spans.add(_buildFieldSpan(text, lineHeight));
+          currentOffset += text.length;
+        }
+      } else if (inline is DocxUnknownField) {
+        // A field the viewer doesn't compute (TOC, REF, …): show its cached
+        // result so no text is lost.
+        spans.addAll(buildInlineSpans(
+          inline.cachedResult,
+          lineHeight: lineHeight,
+          matches: matches,
+          startOffset: currentOffset,
+        ));
+        for (final c in inline.cachedResult) {
+          if (c is DocxText) currentOffset += c.content.length;
+        }
+      } else if (inline is DocxBookmark) {
+        // Zero-width anchor; nothing to render.
       }
     }
 
     return spans;
+  }
+
+  /// A span for an automatic field value (page number etc.) in the default
+  /// body style. Styling fidelity to the field's own run is deferred.
+  InlineSpan _buildFieldSpan(String text, double? lineHeight) {
+    if (text.isEmpty) return const TextSpan(text: '');
+    return TextSpan(
+      text: text,
+      style: lineHeight != null
+          ? theme.defaultTextStyle.copyWith(height: lineHeight)
+          : theme.defaultTextStyle,
+    );
   }
 
   // ... (keep checkbox span same) ...

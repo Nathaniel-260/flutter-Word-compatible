@@ -1,8 +1,9 @@
 import 'package:xml/xml.dart';
 
 import '../../../../docx_creator.dart';
+import 'field_instruction.dart';
 
-/// Parses inline content (runs, text, hyperlinks).
+/// Parses inline content (runs, text, hyperlinks, fields, bookmarks).
 class InlineParser {
   /// The context for the current reader session.
   final ReaderContext context;
@@ -11,29 +12,167 @@ class InlineParser {
   InlineParser(this.context);
 
   /// Parse inline children from a container element.
+  ///
+  /// Handles Word complex fields, which span several sibling `w:r` elements
+  /// (`fldChar begin → instrText… → separate → result… → end`) as well as the
+  /// simple `w:fldSimple` form, collapsing each into a single field node.
   List<DocxInline> parseChildren(Iterable<XmlNode> nodes,
       {DocxStyle? parentStyle}) {
     final children = <DocxInline>[];
+
+    // Complex-field accumulator. Non-null instruction = currently inside a
+    // field. `depth` tracks nested fields (e.g. a field inside another field's
+    // result) so only the outermost begin/end drive finalization.
+    StringBuffer? fieldInstr;
+    var inResult = false;
+    var depth = 0;
+    final cached = <DocxInline>[];
+
+    void finalizeField() {
+      final instr = fieldInstr!.toString();
+      final node =
+          FieldInstruction.parse(instr, cachedText: _cachedText(cached));
+      children
+          .add(node ?? DocxUnknownField(instr, cachedResult: List.of(cached)));
+      fieldInstr = null;
+      inResult = false;
+      cached.clear();
+    }
+
     for (var child in nodes) {
-      if (child is XmlElement) {
-        if (child.name.local == 'r') {
-          children.add(parseRun(child, parentStyle: parentStyle));
-        } else if (child.name.local == 'hyperlink') {
-          children.addAll(_parseHyperlink(child, parentStyle: parentStyle));
-        } else if (['ins', 'del', 'smartTag', 'sdt']
-            .contains(child.name.local)) {
-          // Handle inline containers (Track Changes, Smart Tags, etc.)
-          var contentNodes = child.children;
-          if (child.name.local == 'sdt') {
-            final content = child.findAllElements('w:sdtContent').firstOrNull;
-            if (content != null) contentNodes = content.children;
-          }
-          children
-              .addAll(parseChildren(contentNodes, parentStyle: parentStyle));
+      if (child is! XmlElement) continue;
+      final local = child.name.local;
+
+      if (local == 'bookmarkStart') {
+        final name = child.getAttribute('w:name');
+        // _GoBack is Word's invisible "return to last edit" bookmark — skip it.
+        if (name != null && name.isNotEmpty && name != '_GoBack') {
+          children.add(DocxBookmark(name));
         }
+        continue;
+      }
+      if (local == 'bookmarkEnd') continue;
+
+      if (local == 'r') {
+        // Word may pack a whole field (begin/instrText/separate/end) into a
+        // single run, or split it across runs. Walk the run's children in
+        // document order so both forms work. A run with no field-control
+        // children is handled as a single unit (its content parsed once).
+        final hasFieldControl = child.getElement('w:fldChar') != null ||
+            child.getElement('w:instrText') != null;
+
+        if (!hasFieldControl) {
+          final run = parseRun(child, parentStyle: parentStyle);
+          if (fieldInstr == null) {
+            children.add(run);
+          } else if (inResult || depth > 0) {
+            cached.add(run); // cached result content (in its own run)
+          }
+          // else: a content run inside the instruction region — ignored.
+          continue;
+        }
+
+        // Field-control run: the run's textual content (if any) is parsed once
+        // (parseRun already merges a run's w:t children) and attached at the
+        // point it first appears in the child order.
+        DocxInline? content;
+        var contentAttached = false;
+        DocxInline runContent() =>
+            content ??= parseRun(child, parentStyle: parentStyle);
+
+        for (final rc in child.children.whereType<XmlElement>()) {
+          switch (rc.name.local) {
+            case 'fldChar':
+              final t = rc.getAttribute('w:fldCharType');
+              if (t == 'begin') {
+                if (fieldInstr != null) {
+                  depth++; // nested field — swallowed into the outer result
+                } else {
+                  fieldInstr = StringBuffer();
+                  inResult = false;
+                  cached.clear();
+                }
+              } else if (t == 'separate') {
+                if (fieldInstr != null && depth == 0) inResult = true;
+              } else if (t == 'end') {
+                if (fieldInstr != null) {
+                  if (depth > 0) {
+                    depth--;
+                  } else {
+                    finalizeField();
+                  }
+                }
+              }
+              break;
+            case 'instrText':
+              if (fieldInstr != null && depth == 0 && !inResult) {
+                fieldInstr!.write(rc.innerText);
+              }
+              break;
+            case 'rPr':
+              break; // run properties — not content
+            default:
+              // Content (w:t / w:br / w:tab / w:drawing / …); parseRun already
+              // merged the run's content, so attach it at most once.
+              if (contentAttached) break;
+              contentAttached = true;
+              if (fieldInstr == null) {
+                children.add(runContent());
+              } else if (inResult || depth > 0) {
+                cached.add(runContent());
+              }
+              // else: instruction region — ignored.
+              break;
+          }
+        }
+        continue;
+      }
+
+      if (local == 'fldSimple') {
+        final instr = child.getAttribute('w:instr') ?? '';
+        final inner = parseChildren(child.children, parentStyle: parentStyle);
+        final node =
+            FieldInstruction.parse(instr, cachedText: _cachedText(inner));
+        final field = node ?? DocxUnknownField(instr, cachedResult: inner);
+        (fieldInstr != null ? cached : children).add(field);
+        continue;
+      }
+
+      if (local == 'hyperlink') {
+        final parsed = _parseHyperlink(child, parentStyle: parentStyle);
+        (fieldInstr != null ? cached : children).addAll(parsed);
+        continue;
+      }
+
+      if (['ins', 'del', 'smartTag', 'sdt'].contains(local)) {
+        // Handle inline containers (Track Changes, Smart Tags, etc.)
+        var contentNodes = child.children;
+        if (local == 'sdt') {
+          final content = child.findAllElements('w:sdtContent').firstOrNull;
+          if (content != null) contentNodes = content.children;
+        }
+        final parsed = parseChildren(contentNodes, parentStyle: parentStyle);
+        (fieldInstr != null ? cached : children).addAll(parsed);
+        continue;
       }
     }
+
+    // Unterminated field (malformed XML): don't lose its result text.
+    if (fieldInstr != null) children.addAll(cached);
+
     return children;
+  }
+
+  /// Concatenated visible text of [inlines], used as a field's cached value.
+  /// Only [DocxText] contributes — line breaks/tabs in a cached result are not
+  /// meaningful for a page-number value, which is the only thing we display.
+  static String? _cachedText(List<DocxInline> inlines) {
+    final buf = StringBuffer();
+    for (final inline in inlines) {
+      if (inline is DocxText) buf.write(inline.content);
+    }
+    final text = buf.toString().trim();
+    return text.isEmpty ? null : text;
   }
 
   /// Parse a single run (w:r) element.

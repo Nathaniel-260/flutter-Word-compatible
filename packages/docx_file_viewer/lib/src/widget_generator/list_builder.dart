@@ -139,17 +139,17 @@ class ListBuilder {
   String _formatComponent(int n, int level, DocxNumberFormat format) {
     switch (format) {
       case DocxNumberFormat.decimal:
-        return '$n';
+        return NumberFormatter.decimal(n);
       case DocxNumberFormat.lowerAlpha:
-        return _toLowerAlpha(n);
+        return NumberFormatter.lowerAlpha(n);
       case DocxNumberFormat.upperAlpha:
-        return _toUpperAlpha(n);
+        return NumberFormatter.upperAlpha(n);
       case DocxNumberFormat.lowerRoman:
-        return _toRoman(n).toLowerCase();
+        return NumberFormatter.lowerRoman(n);
       case DocxNumberFormat.upperRoman:
-        return _toRoman(n);
+        return NumberFormatter.upperRoman(n);
       case DocxNumberFormat.hebrew:
-        return _toHebrewNumber(n);
+        return NumberFormatter.hebrew(n);
       case DocxNumberFormat.bullet:
         return DocxList.bulletForLevel(level);
     }
@@ -354,102 +354,10 @@ class ListBuilder {
     final effectiveFormat = format == DocxNumberFormat.decimal
         ? DocxList.cascadeFormatForLevel(level)
         : format;
-    switch (effectiveFormat) {
-      case DocxNumberFormat.decimal:
-        return '$number.';
-      case DocxNumberFormat.lowerAlpha:
-        return '${_toLowerAlpha(number)}.';
-      case DocxNumberFormat.upperAlpha:
-        return '${_toUpperAlpha(number)}.';
-      case DocxNumberFormat.lowerRoman:
-        return '${_toRoman(number).toLowerCase()}.';
-      case DocxNumberFormat.upperRoman:
-        return '${_toRoman(number)}.';
-      case DocxNumberFormat.hebrew:
-        return '${_toHebrewNumber(number)}.';
-      case DocxNumberFormat.bullet:
-        return DocxList.bulletForLevel(level);
+    if (effectiveFormat == DocxNumberFormat.bullet) {
+      return DocxList.bulletForLevel(level);
     }
-  }
-
-  /// Converts [n] to a Hebrew gematria numeral (א, ב … י, יא … ק, קא …).
-  /// Uses the conventional טו/טז spellings for 15/16 to avoid forming part of
-  /// the divine name. Matches Word's "hebrew1" numbering format.
-  ///
-  /// Gematria here covers 1..999. Hebrew thousands require a separator (׳) that
-  /// this additive scheme does not produce, so values ≥ 1000 fall back to plain
-  /// decimal rather than emitting an unconventional letter run. List indices
-  /// realistically never reach that range.
-  String _toHebrewNumber(int n) {
-    if (n <= 0 || n >= 1000) return '$n';
-    const units = <(int, String)>[
-      (400, 'ת'), (300, 'ש'), (200, 'ר'), (100, 'ק'),
-      (90, 'צ'), (80, 'פ'), (70, 'ע'), (60, 'ס'), (50, 'נ'),
-      (40, 'מ'), (30, 'ל'), (20, 'כ'), (10, 'י'),
-      (9, 'ט'), (8, 'ח'), (7, 'ז'), (6, 'ו'), (5, 'ה'),
-      (4, 'ד'), (3, 'ג'), (2, 'ב'), (1, 'א'),
-    ];
-    final buffer = StringBuffer();
-    var remaining = n;
-    for (final (value, letter) in units) {
-      while (remaining >= value) {
-        buffer.write(letter);
-        remaining -= value;
-      }
-    }
-    return buffer
-        .toString()
-        .replaceAll('יה', 'טו') // 15 → טו (not יה)
-        .replaceAll('יו', 'טז'); // 16 → טז (not יו)
-  }
-
-  String _toLowerAlpha(int n) => _toAlpha(n, 97); // 'a'
-
-  String _toUpperAlpha(int n) => _toAlpha(n, 65); // 'A'
-
-  /// Bijective base-26 alphabetical numbering, matching Word: a..z, then aa, ab
-  /// … az, ba … (there is no "zero" digit, so it is not plain base-26).
-  String _toAlpha(int n, int base) {
-    if (n <= 0) return '';
-    final buffer = StringBuffer();
-    var remaining = n;
-    while (remaining > 0) {
-      final rem = (remaining - 1) % 26;
-      buffer.writeCharCode(base + rem);
-      remaining = (remaining - 1) ~/ 26;
-    }
-    // Digits were produced least-significant first; reverse to read left→right.
-    return String.fromCharCodes(buffer.toString().codeUnits.reversed);
-  }
-
-  String _toRoman(int n) {
-    if (n <= 0 || n > 3999) return n.toString();
-    const romanNumerals = [
-      ['M', 1000],
-      ['CM', 900],
-      ['D', 500],
-      ['CD', 400],
-      ['C', 100],
-      ['XC', 90],
-      ['L', 50],
-      ['XL', 40],
-      ['X', 10],
-      ['IX', 9],
-      ['V', 5],
-      ['IV', 4],
-      ['I', 1],
-    ];
-    final buffer = StringBuffer();
-    int remaining = n;
-    for (final entry in romanNumerals) {
-      final numeral = entry[0] as String;
-      final value = entry[1] as int;
-      while (remaining >= value) {
-        buffer.write(numeral);
-        remaining -= value;
-      }
-    }
-    return buffer.toString();
+    return '${_formatComponent(number, level, effectiveFormat)}.';
   }
 
   Color? _resolveColor(
