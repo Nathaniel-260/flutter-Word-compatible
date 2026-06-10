@@ -333,10 +333,15 @@ class DocxListItem extends DocxNode {
   final int level;
   final DocxListStyle? overrideStyle;
 
+  /// Right-to-left direction for this item (`w:bidi`), carried from the source
+  /// paragraph so the renderer mirrors marker/indent without guessing.
+  final bool isRtl;
+
   const DocxListItem(
     this.children, {
     this.level = 0,
     this.overrideStyle,
+    this.isRtl = false,
     super.id,
   });
 
@@ -356,11 +361,13 @@ class DocxListItem extends DocxNode {
     List<DocxInline>? children,
     int? level,
     DocxListStyle? overrideStyle,
+    bool? isRtl,
   }) {
     return DocxListItem(
       children ?? this.children,
       level: level ?? this.level,
       overrideStyle: overrideStyle ?? this.overrideStyle,
+      isRtl: isRtl ?? this.isRtl,
       id: id,
     );
   }
@@ -405,6 +412,7 @@ class DocxListItem extends DocxNode {
                 );
               },
             );
+            if (isRtl) builder.element('w:bidi');
             // Apply indentation from the effective style
             builder.element(
               'w:ind',

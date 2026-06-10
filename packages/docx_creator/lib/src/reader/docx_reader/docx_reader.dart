@@ -33,6 +33,44 @@ class DocxReader {
   static Future<DocxBuiltDocument> loadFromBytes(Uint8List bytes) async {
     return _DocxReaderOrchestrator(bytes).read();
   }
+
+  /// Parses the document-wide settings from `settings.xml` content. Returns
+  /// defaults when [settingsXml] is null or has no relevant elements.
+  static DocxDocumentSettings parseSettings(String? settingsXml) {
+    if (settingsXml == null) return const DocxDocumentSettings();
+    final XmlElement root;
+    try {
+      root = XmlDocument.parse(settingsXml).rootElement;
+    } catch (_) {
+      return const DocxDocumentSettings();
+    }
+    return DocxDocumentSettings(
+      evenAndOddHeaders: readOnOff(root.getElement('w:evenAndOddHeaders')),
+      defaultTabStop: int.tryParse(
+              root.getElement('w:defaultTabStop')?.getAttribute('w:val') ??
+                  '') ??
+          720,
+      footnoteProperties:
+          SectionParser.parseNoteProperties(root.getElement('w:footnotePr')),
+      endnoteProperties:
+          SectionParser.parseNoteProperties(root.getElement('w:endnotePr')),
+    );
+  }
+}
+
+/// Document-wide settings parsed from `settings.xml` (A.6).
+class DocxDocumentSettings {
+  final bool evenAndOddHeaders;
+  final int defaultTabStop;
+  final DocxNoteProperties? footnoteProperties;
+  final DocxNoteProperties? endnoteProperties;
+
+  const DocxDocumentSettings({
+    this.evenAndOddHeaders = false,
+    this.defaultTabStop = 720,
+    this.footnoteProperties,
+    this.endnoteProperties,
+  });
 }
 
 /// Internal orchestrator that coordinates all parser modules.
@@ -173,12 +211,14 @@ class _DocxReaderOrchestrator {
 
     // 9. Gather raw XML strings for preservation
     final settingsXml = context.readContent('word/settings.xml');
-    // Even/odd headers flag — drives the section's "even" header/footer variant.
-    // Honors an explicit w:val="false" (CT_OnOff), not just presence.
-    final settingsDoc =
-        settingsXml == null ? null : XmlDocument.parse(settingsXml);
-    final evenAndOddHeaders = readOnOff(
-        settingsDoc?.rootElement.getElement('w:evenAndOddHeaders'));
+    // Document-wide settings: even/odd headers (drives the "even" header/footer
+    // variant), default tab stop, and global footnote/endnote properties.
+    // CT_OnOff toggles honor an explicit w:val="false", not just presence.
+    final settings = DocxReader.parseSettings(settingsXml);
+    final evenAndOddHeaders = settings.evenAndOddHeaders;
+    final defaultTabStop = settings.defaultTabStop;
+    final globalFootnoteProperties = settings.footnoteProperties;
+    final globalEndnoteProperties = settings.endnoteProperties;
     final contentTypesXml = context.readContent('[Content_Types].xml');
     final rootRelsXml = context.readContent('_rels/.rels');
     final headerBgXml = context.readContent('word/header_bg.xml');
@@ -227,6 +267,9 @@ class _DocxReaderOrchestrator {
       theme: theme,
       themeXml: themeXml,
       evenAndOddHeaders: evenAndOddHeaders,
+      defaultTabStop: defaultTabStop,
+      footnoteProperties: globalFootnoteProperties,
+      endnoteProperties: globalEndnoteProperties,
     );
   }
 

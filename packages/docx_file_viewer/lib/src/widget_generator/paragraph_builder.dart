@@ -78,12 +78,14 @@ class ParagraphBuilder {
 
   /// מזהה את כיוון הפסקה (RTL/LTR).
   ///
-  /// docx_creator אינו חושף `w:bidi`/`w:rtl`, ולכן הכיוון נגזר מהתוכן לפי
-  /// אלגוריתם "first strong" (התו החזק הראשון): עברית/ערבית → RTL, לטינית → LTR.
-  /// עוטפים את הפסקה ב-[Directionality] עם הכיוון הזה כך ש-RichText, Column
-  /// ו-`TextAlign.start` מתפרשים נכון ל-RTL (קריטי למסמכי קודש עבריים).
+  /// מקור האמת הוא `w:bidi` מהמסמך ([DocxParagraph.isRtl], חלק A). רק כשהוא לא
+  /// מסומן נופלים לזיהוי לפי תוכן (אלגוריתם "first strong": עברית/ערבית → RTL,
+  /// לטינית → LTR). עוטפים את הפסקה ב-[Directionality] עם הכיוון הזה כך ש-RichText,
+  /// Column ו-`TextAlign.start` מתפרשים נכון ל-RTL (קריטי למסמכי קודש עבריים).
   static TextDirection _detectDirection(DocxParagraph paragraph) =>
-      TextDirectionDetector.fromInlines(paragraph.children);
+      paragraph.isRtl
+          ? TextDirection.rtl
+          : TextDirectionDetector.fromInlines(paragraph.children);
 
   /// Native Flutter builder for standard paragraphs.
   Widget _buildNativeParagraph(DocxParagraph paragraph,

@@ -144,7 +144,13 @@ class InlineParser {
         continue;
       }
 
-      if (['ins', 'del', 'smartTag', 'sdt'].contains(local)) {
+      // Track changes: show the final document state. Deleted/moved-from
+      // content is dropped; inserted/moved-to content is shown.
+      if (local == 'del' || local == 'moveFrom') {
+        continue;
+      }
+
+      if (['ins', 'moveTo', 'smartTag', 'sdt'].contains(local)) {
         // Handle inline containers (Track Changes, Smart Tags, etc.)
         var contentNodes = child.children;
         if (local == 'sdt') {
@@ -153,6 +159,21 @@ class InlineParser {
         }
         final parsed = parseChildren(contentNodes, parentStyle: parentStyle);
         (fieldInstr != null ? cached : children).addAll(parsed);
+        continue;
+      }
+
+      // mc:AlternateContent — prefer the modern mc:Choice content, falling back
+      // to mc:Fallback so nothing is lost. Match by local name so a non-`mc`
+      // namespace prefix still resolves.
+      if (local == 'AlternateContent') {
+        XmlElement? byLocal(String name) =>
+            child.childElements.where((e) => e.name.local == name).firstOrNull;
+        final container = byLocal('Choice') ?? byLocal('Fallback');
+        if (container != null) {
+          final parsed =
+              parseChildren(container.children, parentStyle: parentStyle);
+          (fieldInstr != null ? cached : children).addAll(parsed);
+        }
         continue;
       }
     }
@@ -182,6 +203,37 @@ class InlineParser {
     if (br != null) {
       final isPage = br.getAttribute('w:type') == 'page';
       return DocxLineBreak(isPageBreak: isPage);
+    }
+    // w:cr is a hard line break, like a plain w:br.
+    if (run.getElement('w:cr') != null) {
+      return const DocxLineBreak();
+    }
+    // Non-breaking / soft hyphen → their Unicode equivalents.
+    if (run.getElement('w:noBreakHyphen') != null) {
+      return const DocxText('‑');
+    }
+    if (run.getElement('w:softHyphen') != null) {
+      return const DocxText('­');
+    }
+    // Symbol from a symbol font.
+    final sym = run.getElement('w:sym');
+    if (sym != null) {
+      final charHex = sym.getAttribute('w:char');
+      final code = charHex == null ? null : int.tryParse(charHex, radix: 16);
+      if (code != null) {
+        return DocxSymbol(charCode: code, font: sym.getAttribute('w:font'));
+      }
+    }
+    // Positional tab.
+    final ptab = run.getElement('w:ptab');
+    if (ptab != null) {
+      return DocxPositionalTab(
+        alignment:
+            DocxTabAlignmentExtension.fromXml(ptab.getAttribute('w:alignment')),
+        relativeTo:
+            DocxPtabRelativeToExtension.fromXml(ptab.getAttribute('w:relativeTo')),
+        leader: DocxTabLeaderExtension.fromXml(ptab.getAttribute('w:leader')),
+      );
     }
     // Check for tab
     if (run.findAllElements('w:tab').isNotEmpty) {
@@ -254,6 +306,8 @@ class InlineParser {
 
       final effectiveColor = directColor ?? finalProps.color;
 
+      // Advanced run properties (A.2), parsed directly from this run's rPr.
+      // Full style inheritance of these is Part B's StyleResolver.
       return DocxText(
         textElem.innerText,
         fontWeight: finalProps.fontWeight ?? DocxFontWeight.normal,
@@ -285,10 +339,42 @@ class InlineParser {
         themeFillTint: parsedProps.themeFillTint,
         themeFillShade: parsedProps.themeFillShade,
         characterSpacing: finalProps.characterSpacing,
+        rtl: _toggle(rPr, 'w:rtl'),
+        boldCs: _toggle(rPr, 'w:bCs'),
+        italicCs: _toggle(rPr, 'w:iCs'),
+        hidden: readOnOff(rPr?.getElement('w:vanish')),
+        fontSizeCs: _halfPointSize(rPr, 'w:szCs'),
+        kernMinHalfPoints: _intVal(rPr, 'w:kern'),
+        raiseLowerHalfPoints: _intVal(rPr, 'w:position'),
+        charScalePercent: _intVal(rPr, 'w:w'),
+        fitTextTwips: _intVal(rPr, 'w:fitText'),
+        emphasisMark:
+            DocxEmphasisMarkExtension.fromXml(rPr?.getElement('w:em')?.getAttribute('w:val')),
       );
     }
 
     return DocxRawInline(run.toXmlString());
+  }
+
+  /// Reads a `CT_OnOff` toggle child of [rPr], or null when the element is
+  /// absent (so it can be distinguished from an explicit off).
+  static bool? _toggle(XmlElement? rPr, String name) {
+    final el = rPr?.getElement(name);
+    return el == null ? null : readOnOff(el);
+  }
+
+  /// Reads an integer `w:val` from a child element of [rPr] (the `%` suffix on
+  /// `w:w` is tolerated).
+  static int? _intVal(XmlElement? rPr, String name) {
+    final raw = rPr?.getElement(name)?.getAttribute('w:val');
+    if (raw == null) return null;
+    return int.tryParse(raw.replaceAll('%', '').trim());
+  }
+
+  /// Reads a half-point size `w:val` (e.g. `w:szCs`) as points.
+  static double? _halfPointSize(XmlElement? rPr, String name) {
+    final hp = _intVal(rPr, name);
+    return hp == null ? null : hp / 2.0;
   }
 
   List<DocxInline> _parseHyperlink(XmlElement hyperlink,

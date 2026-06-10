@@ -36,6 +36,14 @@ class SectionParser {
     DocxChapterSeparator chapterSeparator = DocxChapterSeparator.hyphen;
     bool titlePage = false;
     DocxBackgroundImage? backgroundImage;
+    DocxColumns? columns;
+    DocxSectionVAlign vAlign = DocxSectionVAlign.top;
+    DocxPageBorders? pageBorders;
+    DocxLineNumbering? lineNumbering;
+    bool isRtlSection = false;
+    bool rtlGutter = false;
+    DocxNoteProperties? footnoteProperties;
+    DocxNoteProperties? endnoteProperties;
 
     if (sectPr != null) {
       // Page Size
@@ -141,6 +149,76 @@ class SectionParser {
             mapChapterSeparator(pgNumType.getAttribute('w:chapSep')) ??
                 chapterSeparator;
       }
+
+      // Multi-column layout
+      final colsElem = sectPr.getElement('w:cols');
+      if (colsElem != null) {
+        final equalAttr = colsElem.getAttribute('w:equalWidth');
+        final sepAttr = colsElem.getAttribute('w:sep');
+        final colDefs = colsElem
+            .findElements('w:col')
+            .map((c) => DocxColumn(
+                  widthTwips: int.tryParse(c.getAttribute('w:w') ?? ''),
+                  spaceTwips: int.tryParse(c.getAttribute('w:space') ?? ''),
+                ))
+            .toList();
+        final hasExplicitCols = colDefs.isNotEmpty;
+        columns = DocxColumns(
+          count: int.tryParse(colsElem.getAttribute('w:num') ?? '') ??
+              (hasExplicitCols ? colDefs.length : 1),
+          spaceTwips: int.tryParse(colsElem.getAttribute('w:space') ?? '') ?? 720,
+          // Absent attribute + explicit columns ⇒ not equal-width (Word's
+          // behavior), so the explicit per-column widths survive round-trip.
+          equalWidth: equalAttr != null
+              ? (equalAttr != '0' && equalAttr != 'false')
+              : !hasExplicitCols,
+          separator: sepAttr == '1' || sepAttr == 'true',
+          explicit: hasExplicitCols ? colDefs : null,
+        );
+      }
+
+      // Vertical alignment of body content
+      final vAlignElem = sectPr.getElement('w:vAlign');
+      if (vAlignElem != null) {
+        vAlign = DocxSectionVAlignExtension.fromXml(vAlignElem.getAttribute('w:val'));
+      }
+
+      // Page borders
+      final pgBorders = sectPr.getElement('w:pgBorders');
+      if (pgBorders != null) {
+        pageBorders = DocxPageBorders(
+          display:
+              DocxPageBorderDisplayExtension.fromXml(pgBorders.getAttribute('w:display')),
+          offsetFrom: DocxPageBorderOffsetFromExtension.fromXml(
+              pgBorders.getAttribute('w:offsetFrom')),
+          zOrderBack: pgBorders.getAttribute('w:zOrder') == 'back',
+          top: _parseSectionBorder(pgBorders.getElement('w:top')),
+          bottom: _parseSectionBorder(pgBorders.getElement('w:bottom')),
+          left: _parseSectionBorder(pgBorders.getElement('w:left')),
+          right: _parseSectionBorder(pgBorders.getElement('w:right')),
+        );
+      }
+
+      // Line numbering
+      final lnNumType = sectPr.getElement('w:lnNumType');
+      if (lnNumType != null) {
+        lineNumbering = DocxLineNumbering(
+          countBy: int.tryParse(lnNumType.getAttribute('w:countBy') ?? ''),
+          start: int.tryParse(lnNumType.getAttribute('w:start') ?? ''),
+          distance: int.tryParse(lnNumType.getAttribute('w:distance') ?? ''),
+          restart:
+              DocxLineNumberRestartExtension.fromXml(lnNumType.getAttribute('w:restart')),
+        );
+      }
+
+      // RTL section + gutter
+      isRtlSection = readOnOff(sectPr.getElement('w:bidi'));
+      rtlGutter = readOnOff(sectPr.getElement('w:rtlGutter'));
+
+      // Footnote / endnote properties (used by Part J)
+      footnoteProperties =
+          parseNoteProperties(sectPr.getElement('w:footnotePr'));
+      endnoteProperties = parseNoteProperties(sectPr.getElement('w:endnotePr'));
     }
 
     return DocxSectionDef(
@@ -168,7 +246,56 @@ class SectionParser {
       titlePage: titlePage,
       backgroundColor: backgroundColor,
       backgroundImage: backgroundImage,
+      columns: columns,
+      vAlign: vAlign,
+      pageBorders: pageBorders,
+      lineNumbering: lineNumbering,
+      isRtlSection: isRtlSection,
+      rtlGutter: rtlGutter,
+      footnoteProperties: footnoteProperties,
+      endnoteProperties: endnoteProperties,
     );
+  }
+
+  /// Parse a `w:pgBorders` side into a [DocxBorderSide], or null when absent or
+  /// explicitly `none`/`nil`.
+  DocxBorderSide? _parseSectionBorder(XmlElement? el) {
+    if (el == null) return null;
+    final val = el.getAttribute('w:val');
+    if (val == null || val == 'none' || val == 'nil') return null;
+    final size = int.tryParse(el.getAttribute('w:sz') ?? '') ?? 4;
+    final space = int.tryParse(el.getAttribute('w:space') ?? '') ?? 0;
+    final colorAttr = el.getAttribute('w:color');
+    final color = (colorAttr != null && colorAttr != 'auto')
+        ? DocxColor(colorAttr)
+        : DocxColor.auto;
+    DocxBorder style = DocxBorder.single;
+    String? rawVal;
+    var found = false;
+    for (final b in DocxBorder.values) {
+      if (b.xmlValue == val) {
+        style = b;
+        found = true;
+        break;
+      }
+    }
+    if (!found) rawVal = val;
+    return DocxBorderSide(
+        style: style, size: size, space: space, color: color, rawVal: rawVal);
+  }
+
+  /// Parse `w:footnotePr`/`w:endnotePr` into [DocxNoteProperties], or null when
+  /// nothing usable is present. Shared by section parsing and settings.xml.
+  static DocxNoteProperties? parseNoteProperties(XmlElement? el) {
+    if (el == null) return null;
+    final fmt =
+        mapPageNumberFormat(el.getElement('w:numFmt')?.getAttribute('w:val'));
+    final restart = DocxNoteNumberRestartExtension.fromXml(
+        el.getElement('w:numRestart')?.getAttribute('w:val'));
+    final pos = DocxNotePositionExtension.fromXml(
+        el.getElement('w:pos')?.getAttribute('w:val'));
+    if (fmt == null && restart == null && pos == null) return null;
+    return DocxNoteProperties(format: fmt, numRestart: restart, position: pos);
   }
 
   /// Maps a `w:pgNumType w:fmt` value to [DocxPageNumberFormat], or null when

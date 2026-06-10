@@ -24,6 +24,11 @@ class TableParser {
     DocxTablePosition? position;
     String? styleId;
     String? tblOverlap;
+    bool bidiVisual = false;
+    DocxTableLayout layout = DocxTableLayout.autofit;
+    int? tableIndent;
+    DocxCellMargins? defaultCellMargins;
+    int? cellSpacing;
 
     if (tblPr != null) {
       final tblBorders = tblPr.getElement('w:tblBorders');
@@ -109,6 +114,30 @@ class TableParser {
       if (tblOverlapElem != null) {
         tblOverlap = tblOverlapElem.getAttribute('w:val');
       }
+
+      // Visual RTL table (mirror column order)
+      bidiVisual = readOnOff(tblPr.getElement('w:bidiVisual'));
+
+      // Layout algorithm
+      final tblLayout = tblPr.getElement('w:tblLayout');
+      if (tblLayout != null) {
+        layout = DocxTableLayoutExtension.fromXml(tblLayout.getAttribute('w:type'));
+      }
+
+      // Table indent
+      final tblInd = tblPr.getElement('w:tblInd');
+      if (tblInd != null) {
+        tableIndent = int.tryParse(tblInd.getAttribute('w:w') ?? '');
+      }
+
+      // Default cell margins
+      defaultCellMargins = _parseCellMargins(tblPr.getElement('w:tblCellMar'));
+
+      // Cell spacing
+      final tblCellSpacing = tblPr.getElement('w:tblCellSpacing');
+      if (tblCellSpacing != null) {
+        cellSpacing = int.tryParse(tblCellSpacing.getAttribute('w:w') ?? '');
+      }
     }
 
     // Parse table look (conditional formatting)
@@ -176,6 +205,11 @@ class TableParser {
         bool isHeader = false;
         String? cnfStyle;
         int? height;
+        bool cantSplit = false;
+        int gridBefore = 0;
+        int gridAfter = 0;
+        int? wBefore;
+        int? wAfter;
 
         // Check for header row property, cnfStyle, and row height
         final trPr = child.getElement('w:trPr');
@@ -192,6 +226,18 @@ class TableParser {
           if (trHeight != null) {
             height = int.tryParse(trHeight.getAttribute('w:val') ?? '');
           }
+          cantSplit = readOnOff(trPr.getElement('w:cantSplit'));
+          gridBefore = int.tryParse(
+                  trPr.getElement('w:gridBefore')?.getAttribute('w:val') ??
+                      '') ??
+              0;
+          gridAfter = int.tryParse(
+                  trPr.getElement('w:gridAfter')?.getAttribute('w:val') ?? '') ??
+              0;
+          wBefore =
+              int.tryParse(trPr.getElement('w:wBefore')?.getAttribute('w:w') ?? '');
+          wAfter =
+              int.tryParse(trPr.getElement('w:wAfter')?.getAttribute('w:w') ?? '');
         }
 
         for (var cellNode in child.children) {
@@ -205,6 +251,11 @@ class TableParser {
             isHeader: isHeader,
             cnfStyle: cnfStyle,
             height: height,
+            cantSplit: cantSplit,
+            gridBefore: gridBefore,
+            gridAfter: gridAfter,
+            wBefore: wBefore,
+            wAfter: wAfter,
           ));
         }
       }
@@ -258,15 +309,25 @@ class TableParser {
               effectiveStyle.verticalAlign ??
               DocxVerticalAlign.top,
           cnfStyle: c.cnfStyle,
+          margins: c.margins,
+          textDirection: c.textDirection,
+          noWrap: c.noWrap,
+          tcFitText: c.tcFitText,
+          hideMark: c.hideMark,
         ));
         colIndex += c.gridSpan;
       }
-      final rowHeight = i < rawRows.length ? rawRows[i].height : null;
+      final rawRow = i < rawRows.length ? rawRows[i] : null;
       finalRows.add(DocxTableRow(
         cells: cells,
         isHeader: isHeaderRow,
         cnfStyle: rowCnfStyle,
-        height: rowHeight,
+        height: rawRow?.height,
+        cantSplit: rawRow?.cantSplit ?? false,
+        gridBefore: rawRow?.gridBefore ?? 0,
+        gridAfter: rawRow?.gridAfter ?? 0,
+        wBefore: rawRow?.wBefore,
+        wAfter: rawRow?.wAfter,
       ));
     }
 
@@ -283,6 +344,11 @@ class TableParser {
       position: position,
       styleId: styleId,
       tblOverlap: tblOverlap,
+      bidiVisual: bidiVisual,
+      layout: layout,
+      indentTwips: tableIndent,
+      defaultCellMargins: defaultCellMargins,
+      cellSpacingTwips: cellSpacing,
       look: look,
       gridColumns: gridColumns,
     );
@@ -303,6 +369,11 @@ class TableParser {
     DocxBorderSide? borderRight;
     DocxVerticalAlign? verticalAlign;
     String? cnfStyle;
+    DocxCellMargins? margins;
+    DocxCellTextDirection? textDirection;
+    bool noWrap = false;
+    bool tcFitText = false;
+    bool hideMark = false;
 
     if (tcPr != null) {
       final gs = tcPr.getElement('w:gridSpan');
@@ -359,6 +430,13 @@ class TableParser {
       if (cs != null) {
         cnfStyle = cs.getAttribute('w:val');
       }
+
+      margins = _parseCellMargins(tcPr.getElement('w:tcMar'));
+      textDirection = DocxCellTextDirectionExtension.fromXml(
+          tcPr.getElement('w:textDirection')?.getAttribute('w:val'));
+      noWrap = readOnOff(tcPr.getElement('w:noWrap'));
+      tcFitText = readOnOff(tcPr.getElement('w:tcFitText'));
+      hideMark = readOnOff(tcPr.getElement('w:hideMark'));
     }
 
     // Parse cell children (paragraphs, nested tables)
@@ -401,6 +479,11 @@ class TableParser {
       borderRight: borderRight,
       verticalAlign: verticalAlign,
       cnfStyle: cnfStyle,
+      margins: margins,
+      textDirection: textDirection,
+      noWrap: noWrap,
+      tcFitText: tcFitText,
+      hideMark: hideMark,
     );
   }
 
@@ -468,6 +551,27 @@ class TableParser {
       themeFillShade: effectiveStyle.themeFillShade,
       cnfStyle: cnfStyle,
     );
+  }
+
+  /// Parse a `w:tblCellMar`/`w:tcMar` element into [DocxCellMargins]. A side
+  /// with `w:type="nil"` parses to 0; `dxa` reads `w:w`; other types are
+  /// dropped. Returns null when nothing usable is present.
+  DocxCellMargins? _parseCellMargins(XmlElement? el) {
+    if (el == null) return null;
+    int? side(String name) {
+      final s = el.getElement(name);
+      if (s == null) return null;
+      if (s.getAttribute('w:type') == 'nil') return 0;
+      return int.tryParse(s.getAttribute('w:w') ?? '');
+    }
+
+    final m = DocxCellMargins(
+      top: side('w:top'),
+      left: side('w:left'),
+      bottom: side('w:bottom'),
+      right: side('w:right'),
+    );
+    return m.isEmpty ? null : m;
   }
 
   DocxBorderSide? _parseBorderSide(XmlElement? borderElem) {
@@ -675,6 +779,11 @@ class _TempCell {
   final DocxVerticalAlign? verticalAlign;
   final int finalRowSpan;
   final String? cnfStyle;
+  final DocxCellMargins? margins;
+  final DocxCellTextDirection? textDirection;
+  final bool noWrap;
+  final bool tcFitText;
+  final bool hideMark;
 
   _TempCell({
     required this.children,
@@ -692,6 +801,11 @@ class _TempCell {
     this.verticalAlign,
     this.finalRowSpan = 1,
     this.cnfStyle,
+    this.margins,
+    this.textDirection,
+    this.noWrap = false,
+    this.tcFitText = false,
+    this.hideMark = false,
   });
 
   _TempCell copyWith({int? finalRowSpan}) {
@@ -711,6 +825,11 @@ class _TempCell {
       verticalAlign: verticalAlign,
       finalRowSpan: finalRowSpan ?? this.finalRowSpan,
       cnfStyle: cnfStyle,
+      margins: margins,
+      textDirection: textDirection,
+      noWrap: noWrap,
+      tcFitText: tcFitText,
+      hideMark: hideMark,
     );
   }
 }
@@ -721,11 +840,21 @@ class _TempRow {
   final bool isHeader;
   final String? cnfStyle;
   final int? height;
+  final bool cantSplit;
+  final int gridBefore;
+  final int gridAfter;
+  final int? wBefore;
+  final int? wAfter;
 
   _TempRow({
     required this.cells,
     this.isHeader = false,
     this.cnfStyle,
     this.height,
+    this.cantSplit = false,
+    this.gridBefore = 0,
+    this.gridAfter = 0,
+    this.wBefore,
+    this.wAfter,
   });
 }

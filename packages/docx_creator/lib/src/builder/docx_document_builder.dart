@@ -319,6 +319,17 @@ class DocxBuiltDocument {
   /// section's `even` header/footer variant on even-numbered pages.
   final bool evenAndOddHeaders;
 
+  /// Default tab-stop interval in twips (`w:defaultTabStop` in settings.xml).
+  /// Word's default is 720 (0.5"). Used by the viewer's tab engine.
+  final int defaultTabStop;
+
+  /// Document-wide footnote properties (`w:footnotePr` in settings.xml); a
+  /// section's own [DocxSectionDef.footnoteProperties] overrides these.
+  final DocxNoteProperties? footnoteProperties;
+
+  /// Document-wide endnote properties (`w:endnotePr` in settings.xml).
+  final DocxNoteProperties? endnoteProperties;
+
   const DocxBuiltDocument({
     required this.elements,
     this.section,
@@ -341,6 +352,9 @@ class DocxBuiltDocument {
     this.endnotes,
     this.theme,
     this.evenAndOddHeaders = false,
+    this.defaultTabStop = 720,
+    this.footnoteProperties,
+    this.endnoteProperties,
   });
 }
 

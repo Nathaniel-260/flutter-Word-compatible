@@ -81,6 +81,107 @@ class DocxHeadingStyle {
   }
 }
 
+/// A single explicit column definition within a [DocxColumns] layout
+/// (`w:col`).
+class DocxColumn {
+  /// Column width in twips.
+  final int? widthTwips;
+
+  /// Space after this column in twips.
+  final int? spaceTwips;
+
+  const DocxColumn({this.widthTwips, this.spaceTwips});
+}
+
+/// Multi-column layout for a section (`w:cols`).
+class DocxColumns {
+  /// Number of columns (`w:num`).
+  final int count;
+
+  /// Default space between columns in twips (`w:space`).
+  final int spaceTwips;
+
+  /// Whether all columns have equal width (`w:equalWidth`).
+  final bool equalWidth;
+
+  /// Explicit per-column widths/spacing (`w:col`), when not equal width.
+  final List<DocxColumn>? explicit;
+
+  /// Whether a separator line is drawn between columns (`w:sep`).
+  final bool separator;
+
+  const DocxColumns({
+    this.count = 1,
+    this.spaceTwips = 720,
+    this.equalWidth = true,
+    this.explicit,
+    this.separator = false,
+  });
+}
+
+/// Page border definition for a section (`w:pgBorders`).
+class DocxPageBorders {
+  final DocxPageBorderDisplay display;
+  final DocxPageBorderOffsetFrom offsetFrom;
+
+  /// Whether the border is drawn behind text (`w:zOrder="back"`).
+  final bool zOrderBack;
+
+  final DocxBorderSide? top;
+  final DocxBorderSide? bottom;
+  final DocxBorderSide? left;
+  final DocxBorderSide? right;
+
+  const DocxPageBorders({
+    this.display = DocxPageBorderDisplay.allPages,
+    this.offsetFrom = DocxPageBorderOffsetFrom.text,
+    this.zOrderBack = false,
+    this.top,
+    this.bottom,
+    this.left,
+    this.right,
+  });
+
+  bool get hasAnySide =>
+      top != null || bottom != null || left != null || right != null;
+}
+
+/// Line numbering settings for a section (`w:lnNumType`).
+class DocxLineNumbering {
+  /// Show every Nth line number (`w:countBy`).
+  final int? countBy;
+
+  /// Starting line number (`w:start`).
+  final int? start;
+
+  /// Distance from text to the numbers in twips (`w:distance`).
+  final int? distance;
+
+  /// When numbering restarts (`w:restart`).
+  final DocxLineNumberRestart? restart;
+
+  const DocxLineNumbering({
+    this.countBy,
+    this.start,
+    this.distance,
+    this.restart,
+  });
+}
+
+/// Footnote/endnote properties for a section (`w:footnotePr`/`w:endnotePr`).
+class DocxNoteProperties {
+  /// Number format for the notes.
+  final DocxPageNumberFormat? format;
+
+  /// When numbering restarts (`w:numRestart`).
+  final DocxNoteNumberRestart? numRestart;
+
+  /// Where the notes are placed (`w:pos`).
+  final DocxNotePosition? position;
+
+  const DocxNoteProperties({this.format, this.numRestart, this.position});
+}
+
 /// Document section with page layout and headers/footers.
 ///
 /// ```dart
@@ -153,6 +254,30 @@ class DocxSectionDef extends DocxSection {
   /// the image will be rendered on top of the color.
   final DocxBackgroundImage? backgroundImage;
 
+  /// Multi-column layout (`w:cols`); null means a single column.
+  final DocxColumns? columns;
+
+  /// Vertical alignment of body content within the page (`w:vAlign`).
+  final DocxSectionVAlign vAlign;
+
+  /// Page borders (`w:pgBorders`).
+  final DocxPageBorders? pageBorders;
+
+  /// Line numbering (`w:lnNumType`).
+  final DocxLineNumbering? lineNumbering;
+
+  /// Right-to-left section (`w:bidi`): affects column order and gutter side.
+  final bool isRtlSection;
+
+  /// Place the binding gutter on the right (`w:rtlGutter`).
+  final bool rtlGutter;
+
+  /// Section footnote properties (`w:footnotePr`).
+  final DocxNoteProperties? footnoteProperties;
+
+  /// Section endnote properties (`w:endnotePr`).
+  final DocxNoteProperties? endnoteProperties;
+
   const DocxSectionDef({
     this.orientation = DocxPageOrientation.portrait,
     this.pageSize = DocxPageSize.letter,
@@ -179,6 +304,14 @@ class DocxSectionDef extends DocxSection {
     this.titlePage = false,
     this.backgroundColor,
     this.backgroundImage,
+    this.columns,
+    this.vAlign = DocxSectionVAlign.top,
+    this.pageBorders,
+    this.lineNumbering,
+    this.isRtlSection = false,
+    this.rtlGutter = false,
+    this.footnoteProperties,
+    this.endnoteProperties,
     super.id,
   });
 
@@ -224,6 +357,14 @@ class DocxSectionDef extends DocxSection {
     bool? titlePage,
     DocxColor? backgroundColor,
     DocxBackgroundImage? backgroundImage,
+    DocxColumns? columns,
+    DocxSectionVAlign? vAlign,
+    DocxPageBorders? pageBorders,
+    DocxLineNumbering? lineNumbering,
+    bool? isRtlSection,
+    bool? rtlGutter,
+    DocxNoteProperties? footnoteProperties,
+    DocxNoteProperties? endnoteProperties,
   }) {
     return DocxSectionDef(
       orientation: orientation ?? this.orientation,
@@ -251,6 +392,14 @@ class DocxSectionDef extends DocxSection {
       titlePage: titlePage ?? this.titlePage,
       backgroundColor: backgroundColor ?? this.backgroundColor,
       backgroundImage: backgroundImage ?? this.backgroundImage,
+      columns: columns ?? this.columns,
+      vAlign: vAlign ?? this.vAlign,
+      pageBorders: pageBorders ?? this.pageBorders,
+      lineNumbering: lineNumbering ?? this.lineNumbering,
+      isRtlSection: isRtlSection ?? this.isRtlSection,
+      rtlGutter: rtlGutter ?? this.rtlGutter,
+      footnoteProperties: footnoteProperties ?? this.footnoteProperties,
+      endnoteProperties: endnoteProperties ?? this.endnoteProperties,
       id: id,
     );
   }
@@ -299,6 +448,14 @@ class DocxSectionDef extends DocxSection {
     builder.element(
       'w:sectPr',
       nest: () {
+        // footnotePr / endnotePr come first in CT_SectPr.
+        if (footnoteProperties != null) {
+          _buildNoteProperties(builder, 'w:footnotePr', footnoteProperties!);
+        }
+        if (endnoteProperties != null) {
+          _buildNoteProperties(builder, 'w:endnotePr', endnoteProperties!);
+        }
+
         final isLandscape = orientation == DocxPageOrientation.landscape;
         builder.element(
           'w:pgSz',
@@ -326,8 +483,110 @@ class DocxSectionDef extends DocxSection {
             if (gutter != 0) builder.attribute('w:gutter', gutter.toString());
           },
         );
+
+        // Page borders
+        if (pageBorders != null && pageBorders!.hasAnySide) {
+          builder.element('w:pgBorders', nest: () {
+            builder.attribute('w:offsetFrom', pageBorders!.offsetFrom.xmlValue);
+            builder.attribute('w:display', pageBorders!.display.xmlValue);
+            if (pageBorders!.zOrderBack) {
+              builder.attribute('w:zOrder', 'back');
+            }
+            _buildSectionBorder(builder, 'w:top', pageBorders!.top);
+            _buildSectionBorder(builder, 'w:left', pageBorders!.left);
+            _buildSectionBorder(builder, 'w:bottom', pageBorders!.bottom);
+            _buildSectionBorder(builder, 'w:right', pageBorders!.right);
+          });
+        }
+
+        // Line numbering
+        if (lineNumbering != null) {
+          builder.element('w:lnNumType', nest: () {
+            final ln = lineNumbering!;
+            if (ln.countBy != null) {
+              builder.attribute('w:countBy', ln.countBy.toString());
+            }
+            if (ln.start != null) {
+              builder.attribute('w:start', ln.start.toString());
+            }
+            if (ln.distance != null) {
+              builder.attribute('w:distance', ln.distance.toString());
+            }
+            if (ln.restart != null) {
+              builder.attribute('w:restart', ln.restart!.xmlValue);
+            }
+          });
+        }
+
+        // Columns
+        if (columns != null) {
+          final cols = columns!;
+          builder.element('w:cols', nest: () {
+            builder.attribute('w:num', cols.count.toString());
+            builder.attribute('w:space', cols.spaceTwips.toString());
+            builder.attribute('w:equalWidth', cols.equalWidth ? '1' : '0');
+            if (cols.separator) builder.attribute('w:sep', '1');
+            if (!cols.equalWidth && cols.explicit != null) {
+              for (final col in cols.explicit!) {
+                builder.element('w:col', nest: () {
+                  if (col.widthTwips != null) {
+                    builder.attribute('w:w', col.widthTwips.toString());
+                  }
+                  if (col.spaceTwips != null) {
+                    builder.attribute('w:space', col.spaceTwips.toString());
+                  }
+                });
+              }
+            }
+          });
+        }
+
+        // Vertical alignment (omit the top default)
+        if (vAlign != DocxSectionVAlign.top) {
+          builder.element('w:vAlign', nest: () {
+            builder.attribute('w:val', vAlign.xmlValue);
+          });
+        }
+
+        // RTL section + gutter
+        if (isRtlSection) builder.element('w:bidi');
+        if (rtlGutter) builder.element('w:rtlGutter');
       },
     );
+  }
+
+  void _buildNoteProperties(
+      XmlBuilder builder, String tag, DocxNoteProperties np) {
+    builder.element(tag, nest: () {
+      if (np.position != null) {
+        builder.element('w:pos', nest: () {
+          builder.attribute('w:val', np.position!.xmlValue);
+        });
+      }
+      if (np.format != null) {
+        // The DocxPageNumberFormat enum names match the OOXML numFmt tokens.
+        builder.element('w:numFmt', nest: () {
+          builder.attribute('w:val', np.format!.name);
+        });
+      }
+      if (np.numRestart != null) {
+        builder.element('w:numRestart', nest: () {
+          builder.attribute('w:val', np.numRestart!.xmlValue);
+        });
+      }
+    });
+  }
+
+  void _buildSectionBorder(
+      XmlBuilder builder, String tag, DocxBorderSide? side) {
+    if (side == null) return;
+    builder.element(tag, nest: () {
+      builder.attribute('w:val', side.xmlStyle);
+      builder.attribute('w:sz', side.size.toString());
+      builder.attribute('w:space', side.space.toString());
+      builder.attribute(
+          'w:color', side.color == DocxColor.auto ? 'auto' : side.color.hex);
+    });
   }
 }
 

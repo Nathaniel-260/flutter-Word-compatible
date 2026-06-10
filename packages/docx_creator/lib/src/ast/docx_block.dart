@@ -105,6 +105,31 @@ class DocxParagraph extends DocxBlock {
   /// Whether to insert a page break before this paragraph.
   final bool pageBreakBefore;
 
+  /// Right-to-left paragraph direction (`w:bidi`). The authoritative BiDi flag
+  /// for the viewer; when false the direction detector is used as a fallback.
+  final bool isRtl;
+
+  /// Keep this paragraph on the same page as the next one (`w:keepNext`).
+  final bool keepWithNext;
+
+  /// Keep all lines of this paragraph on a single page (`w:keepLines`).
+  final bool keepLines;
+
+  /// Widow/orphan control (`w:widowControl`). Word's default is true; a single
+  /// line is not left alone at the top/bottom of a page.
+  final bool widowControl;
+
+  /// Suppress automatic hyphenation for this paragraph (`w:suppressAutoHyphens`).
+  final bool suppressHyphens;
+
+  /// Collapse before/after spacing between paragraphs of the same style
+  /// (`w:contextualSpacing`).
+  final bool contextualSpacing;
+
+  /// Explicit tab stops for this paragraph (`w:tabs`). Empty when none are set
+  /// locally; inherited/default stops are resolved by the viewer's tab engine.
+  final List<DocxTabStop> tabStops;
+
   /// Numbering ID for list items.
   final int? numId;
 
@@ -143,6 +168,13 @@ class DocxParagraph extends DocxBlock {
     this.themeFillShade,
     this.outlineLevel,
     this.pageBreakBefore = false,
+    this.isRtl = false,
+    this.keepWithNext = false,
+    this.keepLines = false,
+    this.widowControl = true,
+    this.suppressHyphens = false,
+    this.contextualSpacing = false,
+    this.tabStops = const [],
     this.numId,
     this.ilvl,
     this.cnfStyle,
@@ -316,6 +348,13 @@ class DocxParagraph extends DocxBlock {
     String? themeFillShade,
     int? outlineLevel,
     bool? pageBreakBefore,
+    bool? isRtl,
+    bool? keepWithNext,
+    bool? keepLines,
+    bool? widowControl,
+    bool? suppressHyphens,
+    bool? contextualSpacing,
+    List<DocxTabStop>? tabStops,
     int? numId,
     int? ilvl,
     String? cnfStyle,
@@ -347,6 +386,13 @@ class DocxParagraph extends DocxBlock {
       themeFillShade: themeFillShade ?? this.themeFillShade,
       outlineLevel: outlineLevel ?? this.outlineLevel,
       pageBreakBefore: pageBreakBefore ?? this.pageBreakBefore,
+      isRtl: isRtl ?? this.isRtl,
+      keepWithNext: keepWithNext ?? this.keepWithNext,
+      keepLines: keepLines ?? this.keepLines,
+      widowControl: widowControl ?? this.widowControl,
+      suppressHyphens: suppressHyphens ?? this.suppressHyphens,
+      contextualSpacing: contextualSpacing ?? this.contextualSpacing,
+      tabStops: tabStops ?? this.tabStops,
       numId: numId ?? this.numId,
       ilvl: ilvl ?? this.ilvl,
       cnfStyle: cnfStyle ?? this.cnfStyle,
@@ -384,9 +430,25 @@ class DocxParagraph extends DocxBlock {
                 });
               }
 
+              // 1.5 keepNext / keepLines
+              if (keepWithNext) {
+                builder.element('w:keepNext');
+              }
+              if (keepLines) {
+                builder.element('w:keepLines');
+              }
+
               // 2. pageBreakBefore
               if (pageBreakBefore) {
                 builder.element('w:pageBreakBefore');
+              }
+
+              // 2.5 widowControl — Word's default is on, so only the explicit
+              // "off" state needs to be written back.
+              if (!widowControl) {
+                builder.element('w:widowControl', nest: () {
+                  builder.attribute('w:val', '0');
+                });
               }
 
               // 3. numPr
@@ -455,6 +517,31 @@ class DocxParagraph extends DocxBlock {
                 });
               }
 
+              // 5.5 tabs
+              if (tabStops.isNotEmpty) {
+                builder.element('w:tabs', nest: () {
+                  for (final tab in tabStops) {
+                    builder.element('w:tab', nest: () {
+                      builder.attribute('w:val', tab.alignment.xmlValue);
+                      builder.attribute('w:pos', tab.posTwips.toString());
+                      if (tab.leader != DocxTabLeader.none) {
+                        builder.attribute('w:leader', tab.leader.xmlValue);
+                      }
+                    });
+                  }
+                });
+              }
+
+              // 5.6 suppressAutoHyphens
+              if (suppressHyphens) {
+                builder.element('w:suppressAutoHyphens');
+              }
+
+              // 5.7 bidi (RTL paragraph direction)
+              if (isRtl) {
+                builder.element('w:bidi');
+              }
+
               // 6. spacing
               if (spacingAfter != null ||
                   spacingBefore != null ||
@@ -492,6 +579,11 @@ class DocxParagraph extends DocxBlock {
                         'w:firstLine', indentFirstLine.toString());
                   }
                 });
+              }
+
+              // 7.5 contextualSpacing
+              if (contextualSpacing) {
+                builder.element('w:contextualSpacing');
               }
 
               // 8. jc (Alignment)

@@ -5,6 +5,25 @@ import 'docx_block.dart';
 import 'docx_inline.dart';
 import 'docx_node.dart';
 
+/// Writes a [DocxCellMargins] as a `w:tblCellMar`/`w:tcMar` element ([tag]),
+/// emitting only the sides that are set (each as a `dxa` width).
+void _buildCellMargins(XmlBuilder builder, String tag, DocxCellMargins m) {
+  builder.element(tag, nest: () {
+    void side(String name, int? value) {
+      if (value == null) return;
+      builder.element(name, nest: () {
+        builder.attribute('w:w', value.toString());
+        builder.attribute('w:type', 'dxa');
+      });
+    }
+
+    side('w:top', m.top);
+    side('w:left', m.left);
+    side('w:bottom', m.bottom);
+    side('w:right', m.right);
+  });
+}
+
 /// Table styling options.
 ///
 /// Use these to create professional looking tables.
@@ -241,6 +260,22 @@ class DocxTable extends DocxBlock {
   /// Table overlap setting (e.g., "never" for floating tables).
   final String? tblOverlap;
 
+  /// Visual right-to-left table (`w:bidiVisual`): column order is mirrored.
+  final bool bidiVisual;
+
+  /// Sizing algorithm (`w:tblLayout`).
+  final DocxTableLayout layout;
+
+  /// Indent of the whole table from the leading margin in twips (`w:tblInd`).
+  final int? indentTwips;
+
+  /// Default cell margins for the table (`w:tblCellMar`); per-cell `w:tcMar`
+  /// overrides these. Word's built-in default is left/right 108tw, top/bottom 0.
+  final DocxCellMargins? defaultCellMargins;
+
+  /// Spacing between cells in twips (`w:tblCellSpacing`); rare.
+  final int? cellSpacingTwips;
+
   final List<int>? gridColumns;
 
   /// Returns effective grid columns.
@@ -287,6 +322,11 @@ class DocxTable extends DocxBlock {
     this.position,
     this.styleId,
     this.tblOverlap,
+    this.bidiVisual = false,
+    this.layout = DocxTableLayout.autofit,
+    this.indentTwips,
+    this.defaultCellMargins,
+    this.cellSpacingTwips,
     this.look = const DocxTableLook(),
     this.gridColumns,
     super.id,
@@ -336,6 +376,11 @@ class DocxTable extends DocxBlock {
     DocxTablePosition? position,
     String? styleId,
     String? tblOverlap,
+    bool? bidiVisual,
+    DocxTableLayout? layout,
+    int? indentTwips,
+    DocxCellMargins? defaultCellMargins,
+    int? cellSpacingTwips,
     DocxTableLook? look,
     List<int>? gridColumns,
   }) {
@@ -349,6 +394,11 @@ class DocxTable extends DocxBlock {
       position: position ?? this.position,
       styleId: styleId ?? this.styleId,
       tblOverlap: tblOverlap ?? this.tblOverlap,
+      bidiVisual: bidiVisual ?? this.bidiVisual,
+      layout: layout ?? this.layout,
+      indentTwips: indentTwips ?? this.indentTwips,
+      defaultCellMargins: defaultCellMargins ?? this.defaultCellMargins,
+      cellSpacingTwips: cellSpacingTwips ?? this.cellSpacingTwips,
       look: look ?? this.look,
       gridColumns: gridColumns ?? this.gridColumns,
       id: id,
@@ -408,6 +458,9 @@ class DocxTable extends DocxBlock {
               });
             }
 
+            // Visual RTL table
+            if (bidiVisual) builder.element('w:bidiVisual');
+
             builder.element(
               'w:tblW',
               nest: () {
@@ -424,6 +477,22 @@ class DocxTable extends DocxBlock {
                   builder.attribute('w:val', alignment!.xmlValue);
                 },
               );
+            }
+
+            // Spacing between cells
+            if (cellSpacingTwips != null) {
+              builder.element('w:tblCellSpacing', nest: () {
+                builder.attribute('w:w', cellSpacingTwips.toString());
+                builder.attribute('w:type', 'dxa');
+              });
+            }
+
+            // Table indent from the leading margin
+            if (indentTwips != null) {
+              builder.element('w:tblInd', nest: () {
+                builder.attribute('w:w', indentTwips.toString());
+                builder.attribute('w:type', 'dxa');
+              });
             }
 
             // Borders - only emit if explicitly set or no style ID
@@ -485,41 +554,26 @@ class DocxTable extends DocxBlock {
               });
             }
 
-            // Cell margins/padding - only emit if explicitly set
-            if (style.cellPadding != null) {
-              builder.element(
-                'w:tblCellMar',
-                nest: () {
-                  builder.element(
-                    'w:top',
-                    nest: () {
-                      builder.attribute('w:w', style.cellPadding.toString());
-                      builder.attribute('w:type', 'dxa');
-                    },
-                  );
-                  builder.element(
-                    'w:left',
-                    nest: () {
-                      builder.attribute('w:w', style.cellPadding.toString());
-                      builder.attribute('w:type', 'dxa');
-                    },
-                  );
-                  builder.element(
-                    'w:bottom',
-                    nest: () {
-                      builder.attribute('w:w', style.cellPadding.toString());
-                      builder.attribute('w:type', 'dxa');
-                    },
-                  );
-                  builder.element(
-                    'w:right',
-                    nest: () {
-                      builder.attribute('w:w', style.cellPadding.toString());
-                      builder.attribute('w:type', 'dxa');
-                    },
-                  );
-                },
+            // Table layout algorithm (fixed vs autofit). Word omits it for the
+            // autofit default, so only emit the explicit fixed case.
+            if (layout == DocxTableLayout.fixed) {
+              builder.element('w:tblLayout', nest: () {
+                builder.attribute('w:type', layout.xmlValue);
+              });
+            }
+
+            // Default cell margins — explicit margins take priority over the
+            // legacy uniform [DocxTableStyle.cellPadding].
+            if (defaultCellMargins != null && !defaultCellMargins!.isEmpty) {
+              _buildCellMargins(builder, 'w:tblCellMar', defaultCellMargins!);
+            } else if (style.cellPadding != null) {
+              final pad = DocxCellMargins(
+                top: style.cellPadding,
+                left: style.cellPadding,
+                bottom: style.cellPadding,
+                right: style.cellPadding,
               );
+              _buildCellMargins(builder, 'w:tblCellMar', pad);
             }
 
             // Table Look (Must be last)
@@ -587,11 +641,31 @@ class DocxTableRow extends DocxNode {
   /// Conditional formatting style flags (e.g., '100000000000' for header row).
   final String? cnfStyle;
 
+  /// Row may not break across a page boundary (`w:cantSplit`).
+  final bool cantSplit;
+
+  /// Number of grid columns skipped before the first cell (`w:gridBefore`).
+  final int gridBefore;
+
+  /// Number of grid columns skipped after the last cell (`w:gridAfter`).
+  final int gridAfter;
+
+  /// Preferred width of the skipped leading columns in twips (`w:wBefore`).
+  final int? wBefore;
+
+  /// Preferred width of the skipped trailing columns in twips (`w:wAfter`).
+  final int? wAfter;
+
   const DocxTableRow({
     required this.cells,
     this.height,
     this.isHeader = false,
     this.cnfStyle,
+    this.cantSplit = false,
+    this.gridBefore = 0,
+    this.gridAfter = 0,
+    this.wBefore,
+    this.wAfter,
     super.id,
   });
 
@@ -600,12 +674,22 @@ class DocxTableRow extends DocxNode {
     int? height,
     bool? isHeader,
     String? cnfStyle,
+    bool? cantSplit,
+    int? gridBefore,
+    int? gridAfter,
+    int? wBefore,
+    int? wAfter,
   }) {
     return DocxTableRow(
       cells: cells ?? this.cells,
       height: height ?? this.height,
       isHeader: isHeader ?? this.isHeader,
       cnfStyle: cnfStyle ?? this.cnfStyle,
+      cantSplit: cantSplit ?? this.cantSplit,
+      gridBefore: gridBefore ?? this.gridBefore,
+      gridAfter: gridAfter ?? this.gridAfter,
+      wBefore: wBefore ?? this.wBefore,
+      wAfter: wAfter ?? this.wAfter,
       id: id,
     );
   }
@@ -636,7 +720,15 @@ class DocxTableRow extends DocxNode {
       'w:tr',
       nest: () {
         // Row properties
-        if (height != null || isHeader || this.isHeader || cnfStyle != null) {
+        if (height != null ||
+            isHeader ||
+            this.isHeader ||
+            cnfStyle != null ||
+            cantSplit ||
+            gridBefore != 0 ||
+            gridAfter != 0 ||
+            wBefore != null ||
+            wAfter != null) {
           builder.element(
             'w:trPr',
             nest: () {
@@ -646,6 +738,29 @@ class DocxTableRow extends DocxNode {
                   builder.attribute('w:val', cnfStyle!);
                 });
               }
+              if (gridBefore != 0) {
+                builder.element('w:gridBefore', nest: () {
+                  builder.attribute('w:val', gridBefore.toString());
+                });
+              }
+              if (gridAfter != 0) {
+                builder.element('w:gridAfter', nest: () {
+                  builder.attribute('w:val', gridAfter.toString());
+                });
+              }
+              if (wBefore != null) {
+                builder.element('w:wBefore', nest: () {
+                  builder.attribute('w:w', wBefore.toString());
+                  builder.attribute('w:type', 'dxa');
+                });
+              }
+              if (wAfter != null) {
+                builder.element('w:wAfter', nest: () {
+                  builder.attribute('w:w', wAfter.toString());
+                  builder.attribute('w:type', 'dxa');
+                });
+              }
+              if (cantSplit) builder.element('w:cantSplit');
               if (height != null) {
                 builder.element(
                   'w:trHeight',
@@ -726,6 +841,21 @@ class DocxTableCell extends DocxNode {
   final int? marginLeft;
   final int? marginRight;
 
+  /// Per-cell margins (`w:tcMar`); overrides the table's default cell margins.
+  final DocxCellMargins? margins;
+
+  /// Text flow direction in the cell (`w:textDirection`); null = default `lrTb`.
+  final DocxCellTextDirection? textDirection;
+
+  /// Do not wrap the cell's content (`w:noWrap`).
+  final bool noWrap;
+
+  /// Shrink text to fit the cell width (`w:tcFitText`).
+  final bool tcFitText;
+
+  /// Hide the cell's end-of-cell mark (`w:hideMark`).
+  final bool hideMark;
+
   const DocxTableCell({
     this.children = const [],
     this.colSpan = 1,
@@ -742,6 +872,11 @@ class DocxTableCell extends DocxNode {
     this.borderRight,
     this.marginLeft,
     this.marginRight,
+    this.margins,
+    this.textDirection,
+    this.noWrap = false,
+    this.tcFitText = false,
+    this.hideMark = false,
     this.cnfStyle,
     super.id,
   });
@@ -789,6 +924,11 @@ class DocxTableCell extends DocxNode {
     DocxBorderSide? borderRight,
     int? marginLeft,
     int? marginRight,
+    DocxCellMargins? margins,
+    DocxCellTextDirection? textDirection,
+    bool? noWrap,
+    bool? tcFitText,
+    bool? hideMark,
   }) {
     return DocxTableCell(
       children: children ?? this.children,
@@ -803,6 +943,11 @@ class DocxTableCell extends DocxNode {
       borderRight: borderRight ?? this.borderRight,
       marginLeft: marginLeft ?? this.marginLeft,
       marginRight: marginRight ?? this.marginRight,
+      margins: margins ?? this.margins,
+      textDirection: textDirection ?? this.textDirection,
+      noWrap: noWrap ?? this.noWrap,
+      tcFitText: tcFitText ?? this.tcFitText,
+      hideMark: hideMark ?? this.hideMark,
       id: id,
     );
   }
@@ -917,12 +1062,33 @@ class DocxTableCell extends DocxNode {
                 },
               );
             }
+            // noWrap (before tcMar)
+            if (noWrap) builder.element('w:noWrap');
+
+            // Per-cell margins
+            if (margins != null && !margins!.isEmpty) {
+              _buildCellMargins(builder, 'w:tcMar', margins!);
+            }
+
+            // Text flow direction
+            if (textDirection != null) {
+              builder.element('w:textDirection', nest: () {
+                builder.attribute('w:val', textDirection!.xmlValue);
+              });
+            }
+
+            // Fit text to cell width
+            if (tcFitText) builder.element('w:tcFitText');
+
             builder.element(
               'w:vAlign',
               nest: () {
                 builder.attribute('w:val', verticalAlign.name);
               },
             );
+
+            // Hide end-of-cell mark
+            if (hideMark) builder.element('w:hideMark');
           },
         );
 

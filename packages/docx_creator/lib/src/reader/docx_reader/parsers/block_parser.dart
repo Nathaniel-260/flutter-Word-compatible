@@ -109,7 +109,10 @@ class BlockParser {
         } else if (child.name.local == 'tbl') {
           flushPendingList();
           result.add(tableParser.parse(child));
-        } else if (['ins', 'del', 'smartTag', 'sdt']
+        } else if (child.name.local == 'del' ||
+            child.name.local == 'moveFrom') {
+          // Track changes: deleted/moved-from blocks are dropped (final view).
+        } else if (['ins', 'moveTo', 'smartTag', 'sdt']
             .contains(child.name.local)) {
           // Handle block-level containers (Track Changes, etc.)
           var contentNodes = child.children;
@@ -179,10 +182,37 @@ class BlockParser {
     final children =
         inlineParser.parseChildren(xml.children, parentStyle: finalProps);
 
+    // Direct pPr display properties (full style inheritance of these is Part B).
+    final isRtl = readOnOff(pPr?.getElement('w:bidi'));
+    final keepWithNext = readOnOff(pPr?.getElement('w:keepNext'));
+    final keepLines = readOnOff(pPr?.getElement('w:keepLines'));
+    // Word's default for widowControl is on; only an explicit off disables it.
+    final widowControl =
+        readOnOff(pPr?.getElement('w:widowControl'), orElse: true);
+    final suppressHyphens = readOnOff(pPr?.getElement('w:suppressAutoHyphens'));
+    final contextualSpacing =
+        readOnOff(pPr?.getElement('w:contextualSpacing'));
+    final pageBreakBefore = readOnOff(pPr?.getElement('w:pageBreakBefore'));
+    final tabStops = _parseTabStops(pPr);
+
+    int? outlineLevel;
+    final outlineElem = pPr?.getElement('w:outlineLvl');
+    if (outlineElem != null) {
+      outlineLevel = int.tryParse(outlineElem.getAttribute('w:val') ?? '');
+    }
+
+    DocxTextAlignment? textAlignment;
+    final textAlignElem = pPr?.getElement('w:textAlignment');
+    if (textAlignElem != null) {
+      textAlignment =
+          DocxTextAlignmentExtension.fromXml(textAlignElem.getAttribute('w:val'));
+    }
+
     return DocxParagraph(
       children: children,
       styleId: pStyle,
       align: finalProps.align ?? DocxAlign.left,
+      textAlignment: textAlignment,
       shadingFill: finalProps.shadingFill,
       themeFill: finalProps.themeFill,
       themeFillTint: finalProps.themeFillTint,
@@ -201,7 +231,34 @@ class BlockParser {
       borderLeft: finalProps.borderLeft,
       borderRight: finalProps.borderRight,
       borderBetween: finalProps.borderBetween,
+      outlineLevel: outlineLevel,
+      pageBreakBefore: pageBreakBefore,
+      isRtl: isRtl,
+      keepWithNext: keepWithNext,
+      keepLines: keepLines,
+      widowControl: widowControl,
+      suppressHyphens: suppressHyphens,
+      contextualSpacing: contextualSpacing,
+      tabStops: tabStops,
     );
+  }
+
+  /// Parse a paragraph's local `w:tabs` into [DocxTabStop]s, preserving
+  /// `w:val="clear"` entries (which remove an inherited stop).
+  List<DocxTabStop> _parseTabStops(XmlElement? pPr) {
+    final tabsElem = pPr?.getElement('w:tabs');
+    if (tabsElem == null) return const [];
+    final stops = <DocxTabStop>[];
+    for (final tab in tabsElem.findElements('w:tab')) {
+      final pos = int.tryParse(tab.getAttribute('w:pos') ?? '');
+      if (pos == null) continue;
+      stops.add(DocxTabStop(
+        posTwips: pos,
+        alignment: DocxTabAlignmentExtension.fromXml(tab.getAttribute('w:val')),
+        leader: DocxTabLeaderExtension.fromXml(tab.getAttribute('w:leader')),
+      ));
+    }
+    return stops;
   }
 
   /// Create a DocxList from collected list paragraphs.
@@ -257,6 +314,7 @@ class BlockParser {
         p.children,
         level: level,
         overrideStyle: override,
+        isRtl: p.isRtl,
       );
     }).toList();
 

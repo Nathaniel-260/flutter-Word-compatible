@@ -260,10 +260,13 @@ class ListBuilder {
     }
 
     // Hebrew/Arabic content must lay out RTL: the marker sits on the right and
-    // nested levels indent from the right. We detect direction from the item's
-    // own text (docx_creator does not expose w:bidi) and wrap in Directionality
-    // so the Row, the marker [Text] and the directional padding all mirror.
-    final direction = TextDirectionDetector.fromInlines(item.children);
+    // nested levels indent from the right. `w:bidi` from the document
+    // ([DocxListItem.isRtl], חלק A) is authoritative; otherwise we fall back to
+    // detecting direction from the item's own text. We wrap in Directionality so
+    // the Row, the marker [Text] and the directional padding all mirror.
+    final direction = item.isRtl
+        ? TextDirection.rtl
+        : TextDirectionDetector.fromInlines(item.children);
 
     return Directionality(
       textDirection: direction,

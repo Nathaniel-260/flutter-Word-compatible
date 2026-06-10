@@ -32,6 +32,102 @@ enum DocxTextAlignment { auto, baseline, bottom, center, top }
 
 extension DocxTextAlignmentExtension on DocxTextAlignment {
   String get xmlValue => name;
+
+  /// Parse an OOXML `w:textAlignment w:val` token, or `null` if unknown.
+  static DocxTextAlignment? fromXml(String? val) {
+    if (val == null) return null;
+    for (final a in DocxTextAlignment.values) {
+      if (a.name == val) return a;
+    }
+    return null;
+  }
+}
+
+// ============================================================
+// TAB STOPS
+// ============================================================
+
+/// Horizontal alignment of a tab stop (`w:tab w:val`, ST_TabJc).
+///
+/// [clear] marks a tab stop inherited from a style that should be removed at
+/// [DocxTabStop.posTwips].
+enum DocxTabAlignment { left, center, right, decimal, bar, start, end, clear }
+
+extension DocxTabAlignmentExtension on DocxTabAlignment {
+  String get xmlValue => name;
+
+  /// Parse an OOXML `w:tab w:val` token. The legacy `num` value maps to
+  /// [DocxTabAlignment.decimal]; unknown tokens fall back to
+  /// [DocxTabAlignment.left].
+  static DocxTabAlignment fromXml(String? val) {
+    if (val == 'num') return DocxTabAlignment.decimal;
+    for (final a in DocxTabAlignment.values) {
+      if (a.name == val) return a;
+    }
+    return DocxTabAlignment.left;
+  }
+}
+
+/// What a positional tab's position is measured from (`w:ptab w:relativeTo`).
+enum DocxPtabRelativeTo { margin, indent }
+
+extension DocxPtabRelativeToExtension on DocxPtabRelativeTo {
+  String get xmlValue => name;
+
+  static DocxPtabRelativeTo fromXml(String? val) =>
+      val == 'indent' ? DocxPtabRelativeTo.indent : DocxPtabRelativeTo.margin;
+}
+
+/// Leader character drawn in the empty space of a tab (`w:tab w:leader`,
+/// ST_TabTlc).
+enum DocxTabLeader { none, dot, hyphen, underscore, middleDot, heavy }
+
+extension DocxTabLeaderExtension on DocxTabLeader {
+  String get xmlValue => name;
+
+  /// Parse an OOXML `w:tab w:leader` token, defaulting to [DocxTabLeader.none].
+  static DocxTabLeader fromXml(String? val) {
+    for (final l in DocxTabLeader.values) {
+      if (l.name == val) return l;
+    }
+    return DocxTabLeader.none;
+  }
+}
+
+/// A single tab stop from a paragraph's `w:tabs` (or an inherited style).
+///
+/// Rendered by the viewer's tab engine (Part C). [posTwips] is the position in
+/// twips from the start of the text area.
+class DocxTabStop {
+  /// Position in twips from the text-area start.
+  final int posTwips;
+
+  /// Horizontal alignment of content at this stop.
+  final DocxTabAlignment alignment;
+
+  /// Leader character filling the gap before this stop.
+  final DocxTabLeader leader;
+
+  const DocxTabStop({
+    required this.posTwips,
+    this.alignment = DocxTabAlignment.left,
+    this.leader = DocxTabLeader.none,
+  });
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is DocxTabStop &&
+          posTwips == other.posTwips &&
+          alignment == other.alignment &&
+          leader == other.leader;
+
+  @override
+  int get hashCode => Object.hash(posTwips, alignment, leader);
+
+  @override
+  String toString() =>
+      'DocxTabStop($posTwips, ${alignment.name}, ${leader.name})';
 }
 
 // ============================================================
@@ -198,6 +294,23 @@ enum DocxFontWeight { normal, bold }
 
 enum DocxFontStyle { normal, italic }
 
+/// East-Asian emphasis mark (`w:em`, ST_Em). Parsed for fidelity; rendering is
+/// optional (Part C).
+enum DocxEmphasisMark { none, dot, comma, circle, underDot }
+
+extension DocxEmphasisMarkExtension on DocxEmphasisMark {
+  String get xmlValue => name;
+
+  /// Parse an OOXML `w:em w:val` token, or `null` if unknown/absent.
+  static DocxEmphasisMark? fromXml(String? val) {
+    if (val == null) return null;
+    for (final e in DocxEmphasisMark.values) {
+      if (e.name == val) return e;
+    }
+    return null;
+  }
+}
+
 enum DocxTextDecoration { none, underline, strikethrough }
 
 /// Underline patterns, mirroring the OOXML `ST_Underline` simple type
@@ -339,6 +452,90 @@ enum DocxChapterSeparator { hyphen, period, colon, emDash, enDash }
 /// Which header/footer variant applies to a page.
 enum DocxHeaderFooterType { primary, first, even }
 
+/// Vertical alignment of body content within a section's page (`w:vAlign`).
+enum DocxSectionVAlign { top, center, both, bottom }
+
+extension DocxSectionVAlignExtension on DocxSectionVAlign {
+  String get xmlValue => name;
+
+  static DocxSectionVAlign fromXml(String? val) {
+    for (final v in DocxSectionVAlign.values) {
+      if (v.name == val) return v;
+    }
+    return DocxSectionVAlign.top;
+  }
+}
+
+/// On which pages a section's page border is drawn (`w:pgBorders w:display`).
+enum DocxPageBorderDisplay { allPages, firstPage, notFirstPage }
+
+extension DocxPageBorderDisplayExtension on DocxPageBorderDisplay {
+  String get xmlValue => name;
+
+  static DocxPageBorderDisplay fromXml(String? val) {
+    for (final d in DocxPageBorderDisplay.values) {
+      if (d.name == val) return d;
+    }
+    return DocxPageBorderDisplay.allPages;
+  }
+}
+
+/// What a page border's offset is measured from (`w:pgBorders w:offsetFrom`).
+enum DocxPageBorderOffsetFrom { text, page }
+
+extension DocxPageBorderOffsetFromExtension on DocxPageBorderOffsetFrom {
+  String get xmlValue => name;
+
+  static DocxPageBorderOffsetFrom fromXml(String? val) =>
+      val == 'page' ? DocxPageBorderOffsetFrom.page : DocxPageBorderOffsetFrom.text;
+}
+
+/// When line numbering restarts (`w:lnNumType w:restart`).
+enum DocxLineNumberRestart { newPage, newSection, continuous }
+
+extension DocxLineNumberRestartExtension on DocxLineNumberRestart {
+  String get xmlValue => name;
+
+  static DocxLineNumberRestart? fromXml(String? val) {
+    if (val == null) return null;
+    for (final r in DocxLineNumberRestart.values) {
+      if (r.name == val) return r;
+    }
+    return null;
+  }
+}
+
+/// When footnote/endnote numbering restarts (`w:numRestart w:val`).
+enum DocxNoteNumberRestart { continuous, eachSect, eachPage }
+
+extension DocxNoteNumberRestartExtension on DocxNoteNumberRestart {
+  String get xmlValue => name;
+
+  static DocxNoteNumberRestart? fromXml(String? val) {
+    if (val == null) return null;
+    for (final r in DocxNoteNumberRestart.values) {
+      if (r.name == val) return r;
+    }
+    return null;
+  }
+}
+
+/// Where footnotes/endnotes are placed (`w:pos w:val`): footnotes use
+/// [pageBottom]/[beneathText]; endnotes use [sectEnd]/[docEnd].
+enum DocxNotePosition { pageBottom, beneathText, sectEnd, docEnd }
+
+extension DocxNotePositionExtension on DocxNotePosition {
+  String get xmlValue => name;
+
+  static DocxNotePosition? fromXml(String? val) {
+    if (val == null) return null;
+    for (final p in DocxNotePosition.values) {
+      if (p.name == val) return p;
+    }
+    return null;
+  }
+}
+
 // ============================================================
 // TABLE-SPECIFIC
 // ============================================================
@@ -346,6 +543,65 @@ enum DocxHeaderFooterType { primary, first, even }
 enum DocxVerticalAlign { top, center, bottom }
 
 enum DocxWidthType { auto, dxa, pct }
+
+/// Table sizing algorithm (`w:tblLayout w:type`): [fixed] uses the grid/`tcW`
+/// widths verbatim; [autofit] sizes columns to content.
+enum DocxTableLayout { autofit, fixed }
+
+extension DocxTableLayoutExtension on DocxTableLayout {
+  String get xmlValue => this == DocxTableLayout.fixed ? 'fixed' : 'autofit';
+
+  static DocxTableLayout fromXml(String? val) =>
+      val == 'fixed' ? DocxTableLayout.fixed : DocxTableLayout.autofit;
+}
+
+/// Text flow direction inside a table cell (`w:textDirection`, ST_TextDirection).
+/// [tbRl]/[btLr] rotate the cell text; [lrTb] is the default horizontal flow.
+enum DocxCellTextDirection { lrTb, tbRl, btLr, lrTbV, tbRlV, tbLrV }
+
+extension DocxCellTextDirectionExtension on DocxCellTextDirection {
+  String get xmlValue => name;
+
+  /// Parse an OOXML `w:textDirection w:val` token, or `null` if unknown/absent.
+  /// Word also accepts the legacy aliases `tbRlV`→`tbRl` is *not* applied here;
+  /// only the documented tokens are matched.
+  static DocxCellTextDirection? fromXml(String? val) {
+    if (val == null) return null;
+    for (final d in DocxCellTextDirection.values) {
+      if (d.name == val) return d;
+    }
+    return null;
+  }
+}
+
+/// Cell margins / table default cell margins (`w:tcMar` / `w:tblCellMar`).
+///
+/// Each side is in twips; a null side means "not specified" (inherit). An OOXML
+/// `w:type="nil"` side parses to 0. Only the `dxa`/`nil` width types are
+/// supported (the rare `pct` form is dropped).
+class DocxCellMargins {
+  final int? top;
+  final int? left;
+  final int? bottom;
+  final int? right;
+
+  const DocxCellMargins({this.top, this.left, this.bottom, this.right});
+
+  bool get isEmpty =>
+      top == null && left == null && bottom == null && right == null;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is DocxCellMargins &&
+          top == other.top &&
+          left == other.left &&
+          bottom == other.bottom &&
+          right == other.right;
+
+  @override
+  int get hashCode => Object.hash(top, left, bottom, right);
+}
 
 // ============================================================
 // HEADING LEVELS

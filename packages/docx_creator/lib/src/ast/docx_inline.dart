@@ -71,6 +71,42 @@ class DocxText extends DocxInline {
   final bool isEmboss;
   final bool isImprint;
 
+  /// Complex-script (RTL) run direction (`w:rtl`). Selects which `*Cs`
+  /// properties apply. Null when unset.
+  final bool? rtl;
+
+  /// Complex-script font size in points (`w:szCs`) — the size for
+  /// Hebrew/Arabic characters in this run. Null falls back to [fontSize].
+  final double? fontSizeCs;
+
+  /// Complex-script bold (`w:bCs`).
+  final bool? boldCs;
+
+  /// Complex-script italic (`w:iCs`).
+  final bool? italicCs;
+
+  /// Kerning activation threshold in half-points (`w:kern w:val`); kerning is
+  /// applied at this font size and above.
+  final int? kernMinHalfPoints;
+
+  /// Vertical raise (positive) / lower (negative) from the baseline in
+  /// half-points (`w:position`). Not the same as super/subscript.
+  final int? raiseLowerHalfPoints;
+
+  /// Horizontal character scaling percent (`w:w`); 100 = normal.
+  final int? charScalePercent;
+
+  /// Compress/expand the run's text to this width in twips (`w:fitText`).
+  final int? fitTextTwips;
+
+  /// Hidden text (`w:vanish`). The render/measure layer is expected to skip
+  /// these runs (Part C's SpanFactory); the flag is preserved here for that and
+  /// for round-trip. (The current viewer does not yet suppress hidden text.)
+  final bool hidden;
+
+  /// East-Asian emphasis mark (`w:em`).
+  final DocxEmphasisMark? emphasisMark;
+
   /// Text border (box around text), from w:bdr element
   final DocxBorderSide? textBorder;
 
@@ -104,6 +140,16 @@ class DocxText extends DocxInline {
     this.isShadow = false,
     this.isEmboss = false,
     this.isImprint = false,
+    this.rtl,
+    this.fontSizeCs,
+    this.boldCs,
+    this.italicCs,
+    this.kernMinHalfPoints,
+    this.raiseLowerHalfPoints,
+    this.charScalePercent,
+    this.fitTextTwips,
+    this.hidden = false,
+    this.emphasisMark,
     this.textBorder,
     super.id,
   });
@@ -144,6 +190,16 @@ class DocxText extends DocxInline {
         isShadow = false,
         isEmboss = false,
         isImprint = false,
+        rtl = null,
+        fontSizeCs = null,
+        boldCs = null,
+        italicCs = null,
+        kernMinHalfPoints = null,
+        raiseLowerHalfPoints = null,
+        charScalePercent = null,
+        fitTextTwips = null,
+        hidden = false,
+        emphasisMark = null,
         textBorder = null;
 
   /// Italic text.
@@ -178,6 +234,16 @@ class DocxText extends DocxInline {
         isShadow = false,
         isEmboss = false,
         isImprint = false,
+        rtl = null,
+        fontSizeCs = null,
+        boldCs = null,
+        italicCs = null,
+        kernMinHalfPoints = null,
+        raiseLowerHalfPoints = null,
+        charScalePercent = null,
+        fitTextTwips = null,
+        hidden = false,
+        emphasisMark = null,
         textBorder = null;
 
   /// Bold and italic text.
@@ -212,6 +278,16 @@ class DocxText extends DocxInline {
         isShadow = false,
         isEmboss = false,
         isImprint = false,
+        rtl = null,
+        fontSizeCs = null,
+        boldCs = null,
+        italicCs = null,
+        kernMinHalfPoints = null,
+        raiseLowerHalfPoints = null,
+        charScalePercent = null,
+        fitTextTwips = null,
+        hidden = false,
+        emphasisMark = null,
         textBorder = null;
 
   /// Underlined text.
@@ -250,6 +326,16 @@ class DocxText extends DocxInline {
         isShadow = false,
         isEmboss = false,
         isImprint = false,
+        rtl = null,
+        fontSizeCs = null,
+        boldCs = null,
+        italicCs = null,
+        kernMinHalfPoints = null,
+        raiseLowerHalfPoints = null,
+        charScalePercent = null,
+        fitTextTwips = null,
+        hidden = false,
+        emphasisMark = null,
         textBorder = null;
 
   /// Strikethrough text.
@@ -284,6 +370,16 @@ class DocxText extends DocxInline {
         isShadow = false,
         isEmboss = false,
         isImprint = false,
+        rtl = null,
+        fontSizeCs = null,
+        boldCs = null,
+        italicCs = null,
+        kernMinHalfPoints = null,
+        raiseLowerHalfPoints = null,
+        charScalePercent = null,
+        fitTextTwips = null,
+        hidden = false,
+        emphasisMark = null,
         textBorder = null;
 
   /// Hyperlink text.
@@ -318,6 +414,16 @@ class DocxText extends DocxInline {
         isShadow = false,
         isEmboss = false,
         isImprint = false,
+        rtl = null,
+        fontSizeCs = null,
+        boldCs = null,
+        italicCs = null,
+        kernMinHalfPoints = null,
+        raiseLowerHalfPoints = null,
+        charScalePercent = null,
+        fitTextTwips = null,
+        hidden = false,
+        emphasisMark = null,
         textBorder = null;
 
   /// Inline code text.
@@ -351,6 +457,16 @@ class DocxText extends DocxInline {
         isShadow = false,
         isEmboss = false,
         isImprint = false,
+        rtl = null,
+        fontSizeCs = null,
+        boldCs = null,
+        italicCs = null,
+        kernMinHalfPoints = null,
+        raiseLowerHalfPoints = null,
+        charScalePercent = null,
+        fitTextTwips = null,
+        hidden = false,
+        emphasisMark = null,
         textBorder = null;
 
   /// Highlighted text.
@@ -385,6 +501,16 @@ class DocxText extends DocxInline {
         isShadow = false,
         isEmboss = false,
         isImprint = false,
+        rtl = null,
+        fontSizeCs = null,
+        boldCs = null,
+        italicCs = null,
+        kernMinHalfPoints = null,
+        raiseLowerHalfPoints = null,
+        charScalePercent = null,
+        fitTextTwips = null,
+        hidden = false,
+        emphasisMark = null,
         textBorder = null;
 
   /// Superscript text (e.g., x²).
@@ -418,6 +544,16 @@ class DocxText extends DocxInline {
         isShadow = false,
         isEmboss = false,
         isImprint = false,
+        rtl = null,
+        fontSizeCs = null,
+        boldCs = null,
+        italicCs = null,
+        kernMinHalfPoints = null,
+        raiseLowerHalfPoints = null,
+        charScalePercent = null,
+        fitTextTwips = null,
+        hidden = false,
+        emphasisMark = null,
         textBorder = null;
 
   /// Subscript text (e.g., H₂O).
@@ -451,6 +587,16 @@ class DocxText extends DocxInline {
         isShadow = false,
         isEmboss = false,
         isImprint = false,
+        rtl = null,
+        fontSizeCs = null,
+        boldCs = null,
+        italicCs = null,
+        kernMinHalfPoints = null,
+        raiseLowerHalfPoints = null,
+        charScalePercent = null,
+        fitTextTwips = null,
+        hidden = false,
+        emphasisMark = null,
         textBorder = null;
 
   /// ALL CAPS text.
@@ -485,6 +631,16 @@ class DocxText extends DocxInline {
         isShadow = false,
         isEmboss = false,
         isImprint = false,
+        rtl = null,
+        fontSizeCs = null,
+        boldCs = null,
+        italicCs = null,
+        kernMinHalfPoints = null,
+        raiseLowerHalfPoints = null,
+        charScalePercent = null,
+        fitTextTwips = null,
+        hidden = false,
+        emphasisMark = null,
         textBorder = null;
 
   /// Small Caps text.
@@ -519,6 +675,16 @@ class DocxText extends DocxInline {
         isShadow = false,
         isEmboss = false,
         isImprint = false,
+        rtl = null,
+        fontSizeCs = null,
+        boldCs = null,
+        italicCs = null,
+        kernMinHalfPoints = null,
+        raiseLowerHalfPoints = null,
+        charScalePercent = null,
+        fitTextTwips = null,
+        hidden = false,
+        emphasisMark = null,
         textBorder = null;
 
   // ============================================================
@@ -555,6 +721,16 @@ class DocxText extends DocxInline {
     bool? isShadow,
     bool? isEmboss,
     bool? isImprint,
+    bool? rtl,
+    double? fontSizeCs,
+    bool? boldCs,
+    bool? italicCs,
+    int? kernMinHalfPoints,
+    int? raiseLowerHalfPoints,
+    int? charScalePercent,
+    int? fitTextTwips,
+    bool? hidden,
+    DocxEmphasisMark? emphasisMark,
     DocxBorderSide? textBorder,
   }) {
     return DocxText(
@@ -587,6 +763,16 @@ class DocxText extends DocxInline {
       isShadow: isShadow ?? this.isShadow,
       isEmboss: isEmboss ?? this.isEmboss,
       isImprint: isImprint ?? this.isImprint,
+      rtl: rtl ?? this.rtl,
+      fontSizeCs: fontSizeCs ?? this.fontSizeCs,
+      boldCs: boldCs ?? this.boldCs,
+      italicCs: italicCs ?? this.italicCs,
+      kernMinHalfPoints: kernMinHalfPoints ?? this.kernMinHalfPoints,
+      raiseLowerHalfPoints: raiseLowerHalfPoints ?? this.raiseLowerHalfPoints,
+      charScalePercent: charScalePercent ?? this.charScalePercent,
+      fitTextTwips: fitTextTwips ?? this.fitTextTwips,
+      hidden: hidden ?? this.hidden,
+      emphasisMark: emphasisMark ?? this.emphasisMark,
       textBorder: textBorder ?? this.textBorder,
       id: id,
     );
@@ -688,8 +874,22 @@ class DocxText extends DocxInline {
               // 2. b (Bold)
               if (isBold) builder.element('w:b');
 
+              // 2.5 bCs (complex-script bold)
+              if (boldCs != null) {
+                builder.element('w:bCs', nest: () {
+                  if (!boldCs!) builder.attribute('w:val', '0');
+                });
+              }
+
               // 3. i (Italic)
               if (isItalic) builder.element('w:i');
+
+              // 3.5 iCs (complex-script italic)
+              if (italicCs != null) {
+                builder.element('w:iCs', nest: () {
+                  if (!italicCs!) builder.attribute('w:val', '0');
+                });
+              }
 
               // 4. caps (All Caps)
               if (isAllCaps) builder.element('w:caps');
@@ -715,6 +915,9 @@ class DocxText extends DocxInline {
               // 11. imprint
               if (isImprint) builder.element('w:imprint');
 
+              // 11.5 vanish (hidden text)
+              if (hidden) builder.element('w:vanish');
+
               // 12. color
               if (effectiveColorHex != null) {
                 builder.element(
@@ -738,6 +941,27 @@ class DocxText extends DocxInline {
                 );
               }
 
+              // 13.5 w (horizontal character scaling, percent)
+              if (charScalePercent != null) {
+                builder.element('w:w', nest: () {
+                  builder.attribute('w:val', charScalePercent.toString());
+                });
+              }
+
+              // 13.6 kern (kerning threshold, half-points)
+              if (kernMinHalfPoints != null) {
+                builder.element('w:kern', nest: () {
+                  builder.attribute('w:val', kernMinHalfPoints.toString());
+                });
+              }
+
+              // 13.7 position (raise/lower from baseline, half-points)
+              if (raiseLowerHalfPoints != null) {
+                builder.element('w:position', nest: () {
+                  builder.attribute('w:val', raiseLowerHalfPoints.toString());
+                });
+              }
+
               // 14. sz (Font Size)
               if (fontSize != null) {
                 builder.element(
@@ -749,13 +973,16 @@ class DocxText extends DocxInline {
                     );
                   },
                 );
+              }
+
+              // 14.5 szCs (complex-script size) — uses fontSizeCs when set,
+              // otherwise mirrors the ASCII size, matching Word's output.
+              final csSize = fontSizeCs ?? fontSize;
+              if (csSize != null) {
                 builder.element(
                   'w:szCs',
                   nest: () {
-                    builder.attribute(
-                      'w:val',
-                      (fontSize! * 2).toInt().toString(),
-                    );
+                    builder.attribute('w:val', (csSize * 2).toInt().toString());
                   },
                 );
               }
@@ -830,6 +1057,13 @@ class DocxText extends DocxInline {
                 );
               }
 
+              // 18.5 fitText (compress/expand to a fixed width, twips)
+              if (fitTextTwips != null) {
+                builder.element('w:fitText', nest: () {
+                  builder.attribute('w:val', fitTextTwips.toString());
+                });
+              }
+
               // 19. vertAlign
               if (isSuperscript || isSubscript) {
                 builder.element(
@@ -841,6 +1075,20 @@ class DocxText extends DocxInline {
                     );
                   },
                 );
+              }
+
+              // 20. rtl (complex-script run direction)
+              if (rtl != null) {
+                builder.element('w:rtl', nest: () {
+                  if (!rtl!) builder.attribute('w:val', '0');
+                });
+              }
+
+              // 21. em (emphasis mark)
+              if (emphasisMark != null) {
+                builder.element('w:em', nest: () {
+                  builder.attribute('w:val', emphasisMark!.xmlValue);
+                });
               }
             },
           );
@@ -890,7 +1138,17 @@ class DocxText extends DocxInline {
       textBorder != null ||
       themeFill != null ||
       themeFillTint != null ||
-      themeFillShade != null;
+      themeFillShade != null ||
+      rtl != null ||
+      fontSizeCs != null ||
+      boldCs != null ||
+      italicCs != null ||
+      kernMinHalfPoints != null ||
+      raiseLowerHalfPoints != null ||
+      charScalePercent != null ||
+      fitTextTwips != null ||
+      hidden ||
+      emphasisMark != null;
 }
 
 /// A line break.
@@ -932,6 +1190,75 @@ class DocxTab extends DocxInline {
         builder.element('w:tab');
       },
     );
+  }
+}
+
+/// A symbol character from a symbol font (`w:sym`), e.g. Wingdings/Symbol.
+///
+/// [charCode] is the raw `w:char` value (Word stores these in the F000–F0FF
+/// private-use area); [glyphIndex] strips that offset to the font's own slot,
+/// which the renderer (Part K) maps to a glyph or an equivalent Unicode char.
+class DocxSymbol extends DocxInline {
+  /// Raw code point from `w:char` (typically 0xF000–0xF0FF).
+  final int charCode;
+
+  /// Symbol font name from `w:font` (e.g. "Wingdings").
+  final String? font;
+
+  const DocxSymbol({required this.charCode, this.font, super.id});
+
+  /// The glyph slot within [font], with the F000 private-use offset removed.
+  int get glyphIndex =>
+      (charCode >= 0xF000 && charCode <= 0xF0FF) ? charCode - 0xF000 : charCode;
+
+  @override
+  void accept(DocxVisitor visitor) => visitor.visitText(
+        DocxText(String.fromCharCode(glyphIndex), fontFamily: font),
+      );
+
+  @override
+  void buildXml(XmlBuilder builder) {
+    builder.element('w:r', nest: () {
+      builder.element('w:sym', nest: () {
+        if (font != null) builder.attribute('w:font', font!);
+        builder.attribute(
+            'w:char', charCode.toRadixString(16).toUpperCase().padLeft(4, '0'));
+      });
+    });
+  }
+}
+
+/// A positional tab (`w:ptab`) — a tab whose stop is computed relative to the
+/// margin/indent rather than a fixed tab-stop list. Rendered by Part C.
+class DocxPositionalTab extends DocxInline {
+  /// Alignment of content at the positional tab (left/center/right).
+  final DocxTabAlignment alignment;
+
+  /// What the tab position is measured from.
+  final DocxPtabRelativeTo relativeTo;
+
+  /// Leader character filling the gap.
+  final DocxTabLeader leader;
+
+  const DocxPositionalTab({
+    this.alignment = DocxTabAlignment.left,
+    this.relativeTo = DocxPtabRelativeTo.margin,
+    this.leader = DocxTabLeader.none,
+    super.id,
+  });
+
+  @override
+  void accept(DocxVisitor visitor) => visitor.visitText(const DocxTab());
+
+  @override
+  void buildXml(XmlBuilder builder) {
+    builder.element('w:r', nest: () {
+      builder.element('w:ptab', nest: () {
+        builder.attribute('w:alignment', alignment.xmlValue);
+        builder.attribute('w:relativeTo', relativeTo.xmlValue);
+        builder.attribute('w:leader', leader.xmlValue);
+      });
+    });
   }
 }
 
