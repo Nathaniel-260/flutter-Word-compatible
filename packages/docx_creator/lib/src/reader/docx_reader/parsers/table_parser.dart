@@ -121,7 +121,8 @@ class TableParser {
       // Layout algorithm
       final tblLayout = tblPr.getElement('w:tblLayout');
       if (tblLayout != null) {
-        layout = DocxTableLayoutExtension.fromXml(tblLayout.getAttribute('w:type'));
+        layout =
+            DocxTableLayoutExtension.fromXml(tblLayout.getAttribute('w:type'));
       }
 
       // Table indent
@@ -232,12 +233,13 @@ class TableParser {
                       '') ??
               0;
           gridAfter = int.tryParse(
-                  trPr.getElement('w:gridAfter')?.getAttribute('w:val') ?? '') ??
+                  trPr.getElement('w:gridAfter')?.getAttribute('w:val') ??
+                      '') ??
               0;
-          wBefore =
-              int.tryParse(trPr.getElement('w:wBefore')?.getAttribute('w:w') ?? '');
-          wAfter =
-              int.tryParse(trPr.getElement('w:wAfter')?.getAttribute('w:w') ?? '');
+          wBefore = int.tryParse(
+              trPr.getElement('w:wBefore')?.getAttribute('w:w') ?? '');
+          wAfter = int.tryParse(
+              trPr.getElement('w:wAfter')?.getAttribute('w:w') ?? '');
         }
 
         for (var cellNode in child.children) {

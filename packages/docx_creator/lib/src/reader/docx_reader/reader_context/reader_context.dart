@@ -79,9 +79,14 @@ class ReaderContext {
   DocxStyleResolver? _styleResolver;
 
   /// The shared style-resolution engine (Part B). Built lazily from the parsed
-  /// styles + docDefaults (which are populated before body parsing), so the
-  /// expensive `basedOn` flattening and toggle resolution happen once per style
-  /// combo across the whole document. See [DocxStyleResolver].
+  /// styles + docDefaults, so the expensive `basedOn` flattening and toggle
+  /// resolution happen once per style combo across the whole document.
+  ///
+  /// INVARIANT: styles.xml/docDefaults must be fully parsed before the first
+  /// access (they are — styles are read before the document body). The engine
+  /// snapshots [styles]/[defaultParagraphStyle]/[defaultRunStyle] on first use
+  /// and is never reset, so a [ReaderContext] is single-document: do not reuse
+  /// one across documents. See [DocxStyleResolver].
   DocxStyleResolver get styleResolver => _styleResolver ??= DocxStyleResolver(
         styles: styles,
         docDefaultsParagraph: defaultParagraphStyle,

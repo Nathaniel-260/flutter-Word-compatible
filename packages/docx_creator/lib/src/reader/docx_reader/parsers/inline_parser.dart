@@ -62,7 +62,8 @@ class InlineParser {
             child.getElement('w:instrText') != null;
 
         if (!hasFieldControl) {
-          final run = parseRun(child, parentStyle: parentStyle, paragraphStyleId: paragraphStyleId);
+          final run = parseRun(child,
+              parentStyle: parentStyle, paragraphStyleId: paragraphStyleId);
           if (fieldInstr == null) {
             children.add(run);
           } else if (inResult || depth > 0) {
@@ -77,8 +78,8 @@ class InlineParser {
         // point it first appears in the child order.
         DocxInline? content;
         var contentAttached = false;
-        DocxInline runContent() =>
-            content ??= parseRun(child, parentStyle: parentStyle, paragraphStyleId: paragraphStyleId);
+        DocxInline runContent() => content ??= parseRun(child,
+            parentStyle: parentStyle, paragraphStyleId: paragraphStyleId);
 
         for (final rc in child.children.whereType<XmlElement>()) {
           switch (rc.name.local) {
@@ -130,7 +131,8 @@ class InlineParser {
 
       if (local == 'fldSimple') {
         final instr = child.getAttribute('w:instr') ?? '';
-        final inner = parseChildren(child.children, parentStyle: parentStyle, paragraphStyleId: paragraphStyleId);
+        final inner = parseChildren(child.children,
+            parentStyle: parentStyle, paragraphStyleId: paragraphStyleId);
         final node =
             FieldInstruction.parse(instr, cachedText: _cachedText(inner));
         final field = node ?? DocxUnknownField(instr, cachedResult: inner);
@@ -139,7 +141,8 @@ class InlineParser {
       }
 
       if (local == 'hyperlink') {
-        final parsed = _parseHyperlink(child, parentStyle: parentStyle, paragraphStyleId: paragraphStyleId);
+        final parsed = _parseHyperlink(child,
+            parentStyle: parentStyle, paragraphStyleId: paragraphStyleId);
         (fieldInstr != null ? cached : children).addAll(parsed);
         continue;
       }
@@ -157,7 +160,8 @@ class InlineParser {
           final content = child.findAllElements('w:sdtContent').firstOrNull;
           if (content != null) contentNodes = content.children;
         }
-        final parsed = parseChildren(contentNodes, parentStyle: parentStyle, paragraphStyleId: paragraphStyleId);
+        final parsed = parseChildren(contentNodes,
+            parentStyle: parentStyle, paragraphStyleId: paragraphStyleId);
         (fieldInstr != null ? cached : children).addAll(parsed);
         continue;
       }
@@ -170,8 +174,8 @@ class InlineParser {
             child.childElements.where((e) => e.name.local == name).firstOrNull;
         final container = byLocal('Choice') ?? byLocal('Fallback');
         if (container != null) {
-          final parsed =
-              parseChildren(container.children, parentStyle: parentStyle, paragraphStyleId: paragraphStyleId);
+          final parsed = parseChildren(container.children,
+              parentStyle: parentStyle, paragraphStyleId: paragraphStyleId);
           (fieldInstr != null ? cached : children).addAll(parsed);
         }
         continue;
@@ -231,8 +235,8 @@ class InlineParser {
       return DocxPositionalTab(
         alignment:
             DocxTabAlignmentExtension.fromXml(ptab.getAttribute('w:alignment')),
-        relativeTo:
-            DocxPtabRelativeToExtension.fromXml(ptab.getAttribute('w:relativeTo')),
+        relativeTo: DocxPtabRelativeToExtension.fromXml(
+            ptab.getAttribute('w:relativeTo')),
         leader: DocxTabLeaderExtension.fromXml(ptab.getAttribute('w:leader')),
       );
     }
@@ -284,7 +288,9 @@ class InlineParser {
     // non-toggle results are unchanged; the engine adds correct toggle
     // resolution and the rPrDefault base. When only a pre-resolved [parentStyle]
     // is supplied (a legacy/external caller without a styleId) it is folded in
-    // as a direct base so such callers keep working.
+    // as a direct base so such callers keep working. NOTE: in that fallback a
+    // run's own character style sits below this direct base rather than above it
+    // (the old merge order) — a minor difference affecting external callers only.
     final direct = (paragraphStyleId == null && parentStyle != null)
         ? parentStyle.merge(parsedProps)
         : parsedProps;
@@ -353,8 +359,8 @@ class InlineParser {
         raiseLowerHalfPoints: _intVal(rPr, 'w:position'),
         charScalePercent: _intVal(rPr, 'w:w'),
         fitTextTwips: _intVal(rPr, 'w:fitText'),
-        emphasisMark:
-            DocxEmphasisMarkExtension.fromXml(rPr?.getElement('w:em')?.getAttribute('w:val')),
+        emphasisMark: DocxEmphasisMarkExtension.fromXml(
+            rPr?.getElement('w:em')?.getAttribute('w:val')),
       );
     }
 
@@ -393,7 +399,8 @@ class InlineParser {
     }
 
     for (var grandChild in hyperlink.findAllElements('w:r')) {
-      final run = parseRun(grandChild, parentStyle: parentStyle, paragraphStyleId: paragraphStyleId);
+      final run = parseRun(grandChild,
+          parentStyle: parentStyle, paragraphStyleId: paragraphStyleId);
       if (run is DocxText && href != null) {
         final newDecorations = List<DocxTextDecoration>.from(run.decorations);
         if (!newDecorations.contains(DocxTextDecoration.underline)) {

@@ -170,8 +170,10 @@ class BlockParser {
     // Resolve Style Properties
     final effectiveStyle = context.resolveStyle(pStyle ?? 'Normal');
 
-    // Parse direct properties (override styles)
-    // Extract rPr from pPr if present (paragraph mark properties which act as run defaults)
+    // Direct pPr props for the paragraph-level fields below (align/spacing/
+    // indent/borders/numId). NOTE: the paragraph-mark rPr is the pilcrow's own
+    // formatting and is NOT forwarded to runs — runs resolve via the styleId
+    // through the engine (see the parseChildren call below).
     final rPr = pPr?.getElement('w:rPr');
     final parsedProps = DocxStyle.fromXml('temp', pPr: pPr, rPr: rPr);
 
@@ -192,8 +194,7 @@ class BlockParser {
     final widowControl =
         readOnOff(pPr?.getElement('w:widowControl'), orElse: true);
     final suppressHyphens = readOnOff(pPr?.getElement('w:suppressAutoHyphens'));
-    final contextualSpacing =
-        readOnOff(pPr?.getElement('w:contextualSpacing'));
+    final contextualSpacing = readOnOff(pPr?.getElement('w:contextualSpacing'));
     final pageBreakBefore = readOnOff(pPr?.getElement('w:pageBreakBefore'));
     final tabStops = _parseTabStops(pPr);
 
@@ -206,8 +207,8 @@ class BlockParser {
     DocxTextAlignment? textAlignment;
     final textAlignElem = pPr?.getElement('w:textAlignment');
     if (textAlignElem != null) {
-      textAlignment =
-          DocxTextAlignmentExtension.fromXml(textAlignElem.getAttribute('w:val'));
+      textAlignment = DocxTextAlignmentExtension.fromXml(
+          textAlignElem.getAttribute('w:val'));
     }
 
     return DocxParagraph(
@@ -556,8 +557,8 @@ class BlockParser {
       nodesToParse.add(child);
     }
 
-    restOfChildren.addAll(inlineParser.parseChildren(nodesToParse,
-        paragraphStyleId: 'Normal'));
+    restOfChildren.addAll(
+        inlineParser.parseChildren(nodesToParse, paragraphStyleId: 'Normal'));
 
     // If we have a next paragraph, parse its content as the "rest of paragraph"
     // This handles the common Word case where the drop cap letter and rest of text

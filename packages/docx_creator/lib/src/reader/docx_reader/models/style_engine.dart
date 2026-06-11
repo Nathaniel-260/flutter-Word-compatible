@@ -24,10 +24,12 @@ import '../../../../docx_creator.dart';
 /// resolution without changing the public AST/API. See the delivery log entry
 /// for 2026-06-10 (Part B) for the architectural rationale.
 ///
-/// **INTERNAL / not yet wired.** This class is *not* exported from the package
-/// and does not yet drive the parse pipeline — the reader still resolves styles
-/// via `ReaderContext.resolveStyle` + last-wins merge. Do not treat it as public
-/// API until it is wired in.
+/// **Internal, wired into production (2026-06-11).** Not exported from the
+/// package, but it now drives **run-style** resolution in the reader via
+/// [ReaderContext.styleResolver] (`parseRun` → [resolveRun]). Paragraph-level
+/// props are still resolved by the legacy `ReaderContext.resolveStyle`
+/// ([resolveParagraph] exists but is not yet wired). Kept un-exported until the
+/// public surface is settled.
 ///
 /// **`basedOn` semantics (conservative model).** A style's `basedOn` chain is
 /// collapsed with ordinary **nearest-wins inheritance** (the same behaviour as
@@ -45,10 +47,12 @@ import '../../../../docx_creator.dart';
 /// on a run whose paragraph style is already bold → the result is *not* bold —
 /// i.e. the spec demonstrates the toggle XOR at the *direct* level, which would
 /// contradict the override used here. This is the single semantic this engine is
-/// most likely to have wrong; lock it with a real-Word golden before wiring and,
-/// if confirmed, make direct toggles XOR with the style result instead of
-/// overriding. (An explicit direct `w:val="0"` correctly forces *off* either
-/// way, which is what Word's Bold button actually stores.)
+/// most likely to have wrong. It is now live in production with the *override*
+/// behaviour; lock it with a real-Word golden and, if XOR is confirmed, make
+/// direct toggles XOR with the style result instead of overriding (see the
+/// `TODO(golden)` at the final `merge` in [resolveRun]). (An explicit direct
+/// `w:val="0"` correctly forces *off* either way, which is what Word's Bold
+/// button actually stores — so the practical impact is minimal.)
 class DocxStyleResolver {
   /// styleId -> parsed style definition (each carries *only its own* props).
   final Map<String, DocxStyle> styles;
@@ -149,6 +153,9 @@ class DocxStyleResolver {
     if (direct == null) return styleMerged;
     // Direct rPr overrides outright (including toggles, which are non-null when
     // explicitly set on the run).
+    // TODO(golden): ISO §17.7.3's canonical example suggests a direct toggle
+    // should XOR with the style result rather than override (see class doc).
+    // Confirm against a real-Word golden; if so, XOR toggles here instead.
     return styleMerged.merge(direct);
   }
 
@@ -204,7 +211,8 @@ class DocxStyleResolver {
   /// style chains). Non-toggle props are last-wins; the nine toggle props are
   /// XOR-combined across [namedLayers] only, falling back to [docDefaults] when
   /// no named layer sets them.
-  DocxStyle _mergeStyleLayers(DocxStyle? docDefaults, List<DocxStyle> namedLayers) {
+  DocxStyle _mergeStyleLayers(
+      DocxStyle? docDefaults, List<DocxStyle> namedLayers) {
     var acc = docDefaults ?? DocxStyle.empty();
     for (final layer in namedLayers) {
       acc = acc.merge(layer);
@@ -251,16 +259,20 @@ class DocxStyleResolver {
 
   /// Resolves `w:b` (a toggle) across [layers]; null if untouched.
   static DocxFontWeight? _xorWeight(List<DocxStyle> layers) {
-    final on = _resolveToggle(layers,
-        (s) => s.fontWeight == null ? null : s.fontWeight == DocxFontWeight.bold);
+    final on = _resolveToggle(
+        layers,
+        (s) =>
+            s.fontWeight == null ? null : s.fontWeight == DocxFontWeight.bold);
     if (on == null) return null;
     return on ? DocxFontWeight.bold : DocxFontWeight.normal;
   }
 
   /// Resolves `w:i` (a toggle) across [layers]; null if untouched.
   static DocxFontStyle? _xorStyle(List<DocxStyle> layers) {
-    final on = _resolveToggle(layers,
-        (s) => s.fontStyle == null ? null : s.fontStyle == DocxFontStyle.italic);
+    final on = _resolveToggle(
+        layers,
+        (s) =>
+            s.fontStyle == null ? null : s.fontStyle == DocxFontStyle.italic);
     if (on == null) return null;
     return on ? DocxFontStyle.italic : DocxFontStyle.normal;
   }
@@ -295,7 +307,8 @@ class ThemeColorResolver {
   }
 
   /// Applies [tintHex]/[shadeHex] to a 6-digit [hex] color (no `#`).
-  static String applyTintShade(String hex, {String? tintHex, String? shadeHex}) {
+  static String applyTintShade(String hex,
+      {String? tintHex, String? shadeHex}) {
     final normalized = hex.replaceFirst('#', '');
     if (normalized.length != 6) return hex;
     var r = int.parse(normalized.substring(0, 2), radix: 16);
