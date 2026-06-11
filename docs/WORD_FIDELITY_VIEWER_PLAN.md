@@ -798,7 +798,7 @@ N (verification) — אחרון
 | חלק | שם | סטטוס | הערות |
 |---|---|---|---|
 | A | השלמת Reader | ✅ הושלם 2026-06-10 | A.1–A.6 מפוענחים + round‑trip; פירוט ביומן |
-| B | מנוע סגנונות | 🟨 בעבודה — מנוע פנימי (לא מיוצא) נבנה ונבדק; נותר לחווט ל‑reader + golden אמיתי ל‑XOR‑על‑basedOn | `DocxStyleResolver`+`ThemeColorResolver` (20 בדיקות). בנתיב החי תוקנו: קריאת `w:val` ב‑toggles, rPrDefault, מעגלי basedOn. שאלת סמנטיקה פתוחה (XOR על שרשרת basedOn) — לאמת מול Word לפני חיווט |
+| B | מנוע סגנונות | 🟨 בעבודה — מנוע פנימי מוכן וניתן‑לחיווט; נותר חיווט ה‑reader למנוע | `DocxStyleResolver`+`ThemeColorResolver` (21 בדיקות). בנתיב החי תוקנו: קריאת `w:val` ב‑toggles, rPrDefault, מעגלי basedOn. סמנטיקת basedOn=ירושה רגילה (כמו הייצור); toggle‑XOR רק בין רמות (פסקה×תו) |
 | C | מדידה/טאבים/BiDi | ⬜ לא התחיל | |
 | D | מנוע עימוד | ⬜ לא התחיל | מפרט נוסף ב‑PAGE_NUMBERING_RESEARCH.md §6 |
 | E | קליפת עמוד | ⬜ לא התחיל | |
@@ -917,3 +917,18 @@ N (verification) — אחרון
 
 **בעיות פתוחות:** כנ"ל ברשומת B המקורית + **דרוש golden ממסמך Word אמיתי** כדי לפתור את שאלת ה‑XOR‑על‑basedOn (#3) — זהו ה‑prerequisite לחיווט המנוע לייצור.
 **ל‑AI הבא:** ספק/בקש מהמשתמש מסמך `.docx` אמיתי שנשמר מ‑Word עם שרשרת basedOn של toggle (למשל סגנון מודגש → סגנון‑בן מודגש), קבע את ההתנהגות הנכונה, נעל golden, ואז חבר את המנוע ומחק את נתיב ה‑merge הישן.
+
+### 2026-06-11 — חלק B — הכרעת סמנטיקת basedOn (פתירת #3 בלי golden)
+**בוצע:** הוכרעה שאלת ה‑XOR‑על‑basedOn (#3 מהסקירה) לטובת הפרשנות השמרנית והבטוחה: **שרשרת basedOn = ירושה רגילה "הקרוב מנצח"** (זהה ל‑`ReaderContext.resolveStyle` שכבר רץ בייצור), ו‑**toggle‑XOR מוחל רק בין הרמות** (סגנון‑פסקה מול סגנון‑תו) — המקרה הקנוני והמתועד של Word (סגנון הדגשה על טקסט שכבר מודגש → מתבטל). שינוי במנוע ([style_engine.dart](../packages/docx_creator/lib/src/reader/docx_reader/models/style_engine.dart)): נוסף `_collapseChain` (ממזג כל שרשרת בירושה רגילה, ממוטמן), ו‑`resolveRun`/`resolveParagraph` מזינים ל‑XOR את הרמות הממוזגות (≤2) במקום כל חוליות השרשרת. הוסר ה‑caveat על XOR‑על‑basedOn.
+**החלטות/סטיות:** העדפתי הכרעה שמרנית על פני המתנה ל‑golden, כי ירושה‑רגילה היא בדיוק התנהגות הייצור הקיימת (סיכון אפס) ומתאימה לרוב המוחלט של המסמכים; ה‑golden נחוץ כעת רק כדי **לאשר** את ה‑XOR הבין‑רמתי ואת יחס ה‑direct‑מול‑style (כרגע direct דורס; מתועד ב‑docstring). המנוע כעת **ניתן‑לחיווט**: סמנטיקת השרשרת זהה לייצור, וההבדל היחיד שייכנס בחיווט הוא ה‑XOR הבין‑רמתי + rPrDefault (שכבר נחת בנפרד).
+**בדיקות:** עודכנה קבוצת ה‑toggle ב‑[style_engine_test.dart](../packages/docx_creator/test/style_engine_test.dart) (basedOn=ירושה; XOR בין רמות; direct דורס). `docx_creator`: **378 ירוקות**, analyze נקי.
+**בעיות פתוחות / ל‑AI הבא:** חיווט המנוע ל‑`parseRun` (השחלת `paragraphStyleId`/`runStyleId` + direct), ואז `golden` ממסמך Word לאישור ה‑XOR הבין‑רמתי ויחס ה‑direct.
+
+### 2026-06-11 — חלק B — מענה לסקירה שנייה (קאש + תיעוד golden)
+**בוצע:** טופלה סקירת QA שנייה של המנוע (ללא ממצאי 🔴).
+- **🟡 באג קאש — התנגשות תוחם:** מפתח `_runStyleCache` היה מחרוזת `"<p>|<r>"`; `w:styleId` (ST_String) יכול להכיל `|`, כך ש‑`('a|b','c')` ו‑`('a','b|c')` התמפו לאותו מפתח → סגנון שגוי מהקאש. הוחלף ל‑record `(String?, String?)` (שוויון‑ערך, ללא תוחם). `_paragraphStyleCache` הוסב ל‑`Map<String?, …>` (מפתח null במקום `''`).
+- **🟢 בניית רמות סימטרית:** `paragraphStyleId` נכנס ל‑levels רק כשאינו null (כמו runStyleId) — בלי "רמת רפאים" ריקה.
+- **🟡 #1 (direct toggle = override מול XOR):** חוזק התיעוד — הדוגמה הקנונית ב‑ISO §17.7.3 היא דווקא `<w:b/>` **ישיר** על פסקה מודגשת → לא‑מודגש, כלומר ה‑XOR מודגם ברובד ה‑direct, מה שסותר את ה‑override הנוכחי. זהו הספק היחיד שסביר שיתהפך; סומן ב‑docstring וב‑`TODO(golden)` בטסט (characterization). **לא הופך בלי golden** — להחלטת המשתמש.
+- **🟢 decorations לא‑אדיטיבי בירושה** (`merge`) — תועד כ‑NOTE ב‑`_collapseChain` (קדם‑קיים; golden ייעודי בעת חיווט).
+**בדיקות:** `docx_creator` **378 ירוקות**, analyze נקי.
+**ל‑AI/למשתמש:** דרוש `.docx` מ‑Word עם (א) שרשרת basedOn של toggle, (ב) `<w:b/>` ישיר על ריצה שסגנונה מודגש — לאישור/תיקון יחס ה‑direct לפני חיווט המנוע לייצור.

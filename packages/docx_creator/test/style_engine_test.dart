@@ -47,61 +47,75 @@ void main() {
     });
   });
 
-  group('B — toggle XOR (B.2, ISO 17.7.3)', () {
-    test('bold turned on twice across style layers cancels out', () {
+  group('B — basedOn inheritance vs cross-level toggle XOR (B.2)', () {
+    test('basedOn chain uses normal nearest-wins inheritance, not XOR', () {
       final styles = {
         'P1': style('P1', '<w:b/>'),
         'P2': style('P2', '<w:b/>', basedOn: 'P1'),
         'P3': style('P3', '<w:b/>', basedOn: 'P2'),
       };
       final resolver = DocxStyleResolver(styles: styles);
-
+      // Re-asserting bold down a basedOn chain stays bold (it does NOT cancel by
+      // parity); this matches ReaderContext.resolveStyle and Word inheritance.
       expect(resolver.resolveRun(paragraphStyleId: 'P1').fontWeight,
-          DocxFontWeight.bold,
-          reason: 'one layer → bold');
+          DocxFontWeight.bold);
       expect(resolver.resolveRun(paragraphStyleId: 'P2').fontWeight,
-          DocxFontWeight.normal,
-          reason: 'bold ^ bold → off');
+          DocxFontWeight.bold);
       expect(resolver.resolveRun(paragraphStyleId: 'P3').fontWeight,
-          DocxFontWeight.bold,
-          reason: 'bold ^ bold ^ bold → on');
+          DocxFontWeight.bold);
     });
 
-    test('direct rPr overrides the XOR result outright', () {
+    test('child inherits a toggle the parent set and the child omits', () {
       final styles = {
-        'P1': style('P1', '<w:b/>'),
-        'P2': style('P2', '<w:b/>', basedOn: 'P1'), // XOR → off
+        'Base': style('Base', '<w:b/>'),
+        'Child': style('Child', '<w:i/>', basedOn: 'Base'),
       };
-      final resolver = DocxStyleResolver(styles: styles);
-      final direct = DocxStyle.fromXml('temp', rPr: rPr('<w:b/>'));
-
-      final s = resolver.resolveRun(paragraphStyleId: 'P2', direct: direct);
-      expect(s.fontWeight, DocxFontWeight.bold,
-          reason: 'direct bold wins over the cancelled style toggle');
+      final s = DocxStyleResolver(styles: styles)
+          .resolveRun(paragraphStyleId: 'Child');
+      expect(s.fontWeight, DocxFontWeight.bold, reason: 'inherited from Base');
+      expect(s.fontStyle, DocxFontStyle.italic, reason: 'set on Child');
     });
 
-    test('caps/italic toggles XOR independently', () {
-      final styles = {
-        'X': style('X', '<w:caps/><w:i/>'),
-        'Y': style('Y', '<w:caps/>', basedOn: 'X'), // caps off, italic still on
-      };
-      final resolver = DocxStyleResolver(styles: styles);
-      final s = resolver.resolveRun(paragraphStyleId: 'Y');
-      expect(s.isAllCaps, isFalse, reason: 'caps ^ caps → off');
-      expect(s.fontStyle, DocxFontStyle.italic, reason: 'italic set once → on');
-    });
-
-    test('paragraph style bold XOR character style bold → off', () {
-      // The canonical toggle case: Emphasis-on-already-bold cancels.
+    test('paragraph-style bold XOR character-style bold → off (canonical)', () {
+      // The documented toggle case: an emphasis style over already-bold text
+      // cancels to non-bold.
       final styles = {
         'Para': style('Para', '<w:b/>'),
         'Strong': style('Strong', '<w:b/>', type: 'character'),
       };
-      final resolver = DocxStyleResolver(styles: styles);
-      final s =
-          resolver.resolveRun(paragraphStyleId: 'Para', runStyleId: 'Strong');
+      final s = DocxStyleResolver(styles: styles)
+          .resolveRun(paragraphStyleId: 'Para', runStyleId: 'Strong');
       expect(s.fontWeight, DocxFontWeight.normal,
           reason: 'bold (pStyle) ^ bold (rStyle) → off');
+    });
+
+    test('cross-level XOR is per-property (caps cancels, italic survives)', () {
+      final styles = {
+        'Para': style('Para', '<w:caps/><w:i/>'),
+        'Char': style('Char', '<w:caps/>', type: 'character'),
+      };
+      final s = DocxStyleResolver(styles: styles)
+          .resolveRun(paragraphStyleId: 'Para', runStyleId: 'Char');
+      expect(s.isAllCaps, isFalse, reason: 'caps ^ caps → off');
+      expect(s.fontStyle, DocxFontStyle.italic, reason: 'italic only on pStyle');
+    });
+
+    // TODO(golden): characterization test — it locks the *current* "direct
+    // overrides" choice, which ISO 29500 §17.7.3's canonical example suggests
+    // should actually be an XOR at the direct level (direct <w:b/> on bold text
+    // → not bold). Confirm against a real-Word golden before wiring; if XOR is
+    // correct this expectation flips to DocxFontWeight.normal.
+    test('direct rPr currently overrides the cancelled cross-level toggle', () {
+      final styles = {
+        'Para': style('Para', '<w:b/>'),
+        'Strong': style('Strong', '<w:b/>', type: 'character'), // cancels → off
+      };
+      final resolver = DocxStyleResolver(styles: styles);
+      final direct = DocxStyle.fromXml('temp', rPr: rPr('<w:b/>'));
+      final s = resolver.resolveRun(
+          paragraphStyleId: 'Para', runStyleId: 'Strong', direct: direct);
+      expect(s.fontWeight, DocxFontWeight.bold,
+          reason: 'direct bold currently overrides the cancelled style toggle');
     });
   });
 

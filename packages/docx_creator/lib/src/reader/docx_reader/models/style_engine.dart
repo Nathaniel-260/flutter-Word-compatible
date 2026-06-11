@@ -27,18 +27,28 @@ import '../../../../docx_creator.dart';
 /// **INTERNAL / not yet wired.** This class is *not* exported from the package
 /// and does not yet drive the parse pipeline — the reader still resolves styles
 /// via `ReaderContext.resolveStyle` + last-wins merge. Do not treat it as public
-/// API until it is wired in and the open semantic question below is settled.
+/// API until it is wired in.
 ///
-/// **Open question — XOR across a `basedOn` chain (unverified).** This engine
-/// applies the toggle XOR (B.2) across *every* named-style layer, including each
-/// link of a `basedOn` chain (so `A(b)→B(b)→C(b)` resolves to bold by parity).
-/// That follows the literal ISO 17.7.3 reading, but Word's actual behaviour for
-/// a deep same-direction `basedOn` chain is **not yet verified**; Word may treat
-/// `basedOn` as ordinary nearest-wins inheritance and reserve XOR for the
-/// interaction *between* levels (paragraph-style vs character-style vs direct).
-/// Before this engine is wired into production, lock the behaviour with a golden
-/// generated from a real Word document. The plan makes Word the ground truth
-/// (§7.2); the spec is only the backup.
+/// **`basedOn` semantics (conservative model).** A style's `basedOn` chain is
+/// collapsed with ordinary **nearest-wins inheritance** (the same behaviour as
+/// the proven `ReaderContext.resolveStyle`); the toggle XOR is applied *only*
+/// between the resolved style **levels** — paragraph-style vs character-style —
+/// which is the canonical Word case (e.g. an italic character style applied to
+/// already-italic text cancels). An earlier revision XOR'd across every chain
+/// link; that was the literal ISO 17.7.3 reading but is unlikely to match Word
+/// for a deep same-direction chain, so it was dropped in favour of this safer,
+/// production-aligned model.
+///
+/// **Open (golden-blocked) — direct toggle interaction.** Direct run formatting
+/// currently *overrides* the style toggles (`resolveRun`'s final `merge`). But
+/// note ISO 29500 §17.7.3's canonical toggle example is exactly a direct `<w:b/>`
+/// on a run whose paragraph style is already bold → the result is *not* bold —
+/// i.e. the spec demonstrates the toggle XOR at the *direct* level, which would
+/// contradict the override used here. This is the single semantic this engine is
+/// most likely to have wrong; lock it with a real-Word golden before wiring and,
+/// if confirmed, make direct toggles XOR with the style result instead of
+/// overriding. (An explicit direct `w:val="0"` correctly forces *off* either
+/// way, which is what Word's Bold button actually stores.)
 class DocxStyleResolver {
   /// styleId -> parsed style definition (each carries *only its own* props).
   final Map<String, DocxStyle> styles;
@@ -55,13 +65,18 @@ class DocxStyleResolver {
   /// Cache of flattened `basedOn` chains (root→leaf order), per styleId.
   final Map<String, List<DocxStyle>> _chainCache = {};
 
-  /// Cache of fully-merged *style-only* run styles, keyed by
-  /// `"<pStyleId>|<rStyleId>"`. Direct run props are applied on top per call
-  /// (cheap) so the expensive chain+XOR work happens once per style combo.
-  final Map<String, DocxStyle> _runStyleCache = {};
+  /// Cache of fully-merged *style-only* run styles, keyed by the
+  /// `(paragraphStyleId, runStyleId)` pair. A record gives value-equality with
+  /// no string delimiter to collide on (`w:styleId` is `ST_String` and may
+  /// contain any character). Direct run props are applied on top per call so the
+  /// expensive chain+XOR work happens once per style combo.
+  final Map<(String?, String?), DocxStyle> _runStyleCache = {};
 
   /// Cache of fully-merged *style-only* paragraph styles, keyed by pStyleId.
-  final Map<String, DocxStyle> _paragraphStyleCache = {};
+  final Map<String?, DocxStyle> _paragraphStyleCache = {};
+
+  /// Cache of each style's `basedOn` chain collapsed by *normal* inheritance.
+  final Map<String, DocxStyle> _collapsedCache = {};
 
   DocxStyleResolver({
     required this.styles,
@@ -119,13 +134,17 @@ class DocxStyleResolver {
     String? runStyleId,
     DocxStyle? direct,
   }) {
-    final key = '${paragraphStyleId ?? ''}|${runStyleId ?? ''}';
-    final styleMerged = _runStyleCache.putIfAbsent(key, () {
-      final named = <DocxStyle>[
-        ...chainLayers(paragraphStyleId),
-        ...chainLayers(runStyleId),
+    final styleMerged =
+        _runStyleCache.putIfAbsent((paragraphStyleId, runStyleId), () {
+      // Each style's basedOn chain is collapsed with *normal* nearest-wins
+      // inheritance (matching ReaderContext.resolveStyle); toggle XOR then
+      // applies only between the resolved paragraph-style and character-style
+      // levels — the canonical Word toggle interaction.
+      final levels = <DocxStyle>[
+        if (paragraphStyleId != null) _collapseChain(paragraphStyleId),
+        if (runStyleId != null) _collapseChain(runStyleId),
       ];
-      return _mergeStyleLayers(docDefaultsRun, named);
+      return _mergeStyleLayers(docDefaultsRun, levels);
     });
     if (direct == null) return styleMerged;
     // Direct rPr overrides outright (including toggles, which are non-null when
@@ -140,12 +159,33 @@ class DocxStyleResolver {
     DocxStyle? direct,
   }) {
     final styleMerged = _paragraphStyleCache.putIfAbsent(
-      paragraphStyleId ?? '',
-      () => _mergeStyleLayers(
-          docDefaultsParagraph, chainLayers(paragraphStyleId)),
+      paragraphStyleId,
+      () => _mergeStyleLayers(docDefaultsParagraph, [
+        if (paragraphStyleId != null) _collapseChain(paragraphStyleId),
+      ]),
     );
     if (direct == null) return styleMerged;
     return styleMerged.merge(direct);
+  }
+
+  /// Collapses [styleId]'s `basedOn` chain to a single style using *normal*
+  /// nearest-wins inheritance (the leaf overrides its ancestors) — no toggle
+  /// XOR within the chain, matching the proven `ReaderContext.resolveStyle`
+  /// behaviour. Cached.
+  ///
+  /// NOTE: [DocxStyle.merge] treats `decorations` non-additively — a child that
+  /// sets any decoration (e.g. strike) replaces an underline it inherited rather
+  /// than adding to it. Pre-existing reader behaviour; flagged for a dedicated
+  /// golden when this engine is wired in.
+  DocxStyle _collapseChain(String? styleId) {
+    if (styleId == null) return DocxStyle.empty();
+    return _collapsedCache.putIfAbsent(styleId, () {
+      var acc = DocxStyle.empty();
+      for (final layer in chainLayers(styleId)) {
+        acc = acc.merge(layer);
+      }
+      return acc;
+    });
   }
 
   /// Clears all caches (call when styles/theme change — e.g. styleEpoch bump).
@@ -153,6 +193,7 @@ class DocxStyleResolver {
     _chainCache.clear();
     _runStyleCache.clear();
     _paragraphStyleCache.clear();
+    _collapsedCache.clear();
   }
 
   // ---------------------------------------------------------------------------
