@@ -97,7 +97,8 @@ void main() {
       final s = DocxStyleResolver(styles: styles)
           .resolveRun(paragraphStyleId: 'Para', runStyleId: 'Char');
       expect(s.isAllCaps, isFalse, reason: 'caps ^ caps → off');
-      expect(s.fontStyle, DocxFontStyle.italic, reason: 'italic only on pStyle');
+      expect(s.fontStyle, DocxFontStyle.italic,
+          reason: 'italic only on pStyle');
     });
 
     // TODO(golden): characterization test — it locks the *current* "direct
@@ -120,7 +121,8 @@ void main() {
   });
 
   group('B — explicit toggle-off (w:val="0")', () {
-    test('child style <w:b w:val="0"/> forces bold OFF, not another toggle', () {
+    test('child style <w:b w:val="0"/> forces bold OFF, not another toggle',
+        () {
       final styles = {
         'Base': style('Base', '<w:b/>'),
         'Child': style('Child', '<w:b w:val="0"/>', basedOn: 'Base'),
@@ -150,14 +152,15 @@ void main() {
       final resolver =
           DocxStyleResolver(styles: styles, docDefaultsRun: docDefaultsRun);
       final s = resolver.resolveRun(paragraphStyleId: 'A');
-      expect(s.fontSize, 11.0, reason: 'sz=22 half-points → 11pt from rPrDefault');
+      expect(s.fontSize, 11.0,
+          reason: 'sz=22 half-points → 11pt from rPrDefault');
       expect(s.fontFamily, 'Calibri');
       expect(s.fontWeight, DocxFontWeight.bold);
     });
 
     test('bare run (no styles) still picks up docDefaults', () {
-      final resolver = DocxStyleResolver(
-          styles: const {}, docDefaultsRun: docDefaultsRun);
+      final resolver =
+          DocxStyleResolver(styles: const {}, docDefaultsRun: docDefaultsRun);
       expect(resolver.resolveRun().fontSize, 11.0);
     });
 
@@ -226,8 +229,8 @@ void main() {
   group('B — theme colour tint/shade (B.3)', () {
     test('tint mixes toward white: c*tint + 255*(1-tint)', () {
       // tint 0x99 = 0.6 → red stays FF, green/blue rise to 0x66.
-      expect(ThemeColorResolver.applyTintShade('FF0000', tintHex: '99'),
-          'FF6666');
+      expect(
+          ThemeColorResolver.applyTintShade('FF0000', tintHex: '99'), 'FF6666');
     });
 
     test('shade mixes toward black: c*shade', () {
@@ -249,6 +252,21 @@ void main() {
       expect(ThemeColorResolver.resolve(colors, 'accent1'), '4F81BD');
       expect(ThemeColorResolver.resolve(colors, 'text1'), '000000');
       expect(ThemeColorResolver.resolve(colors, 'no-such-name'), isNull);
+    });
+
+    test('auto colour: black on light/none, white on dark (B.3)', () {
+      expect(ThemeColorResolver.resolveAutoColor(), '000000',
+          reason: 'no background → black');
+      expect(ThemeColorResolver.resolveAutoColor(backgroundHex: 'FFFFFF'),
+          '000000');
+      expect(ThemeColorResolver.resolveAutoColor(backgroundHex: 'FFFF00'),
+          '000000',
+          reason: 'yellow is light');
+      expect(ThemeColorResolver.resolveAutoColor(backgroundHex: '000000'),
+          'FFFFFF');
+      expect(ThemeColorResolver.resolveAutoColor(backgroundHex: '#1F3864'),
+          'FFFFFF',
+          reason: 'dark blue → white text (handles leading #)');
     });
   });
 

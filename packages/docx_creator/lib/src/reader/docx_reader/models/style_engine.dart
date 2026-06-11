@@ -339,4 +339,26 @@ class ThemeColorResolver {
     if (value == null) return null;
     return value / 255.0;
   }
+
+  /// Resolves an OOXML *automatic* colour (`w:color w:val="auto"`) per B.3:
+  /// black on a light or absent background, white on a dark one. The effective
+  /// background is the resolved shading fill behind the text ([backgroundHex],
+  /// 6-digit hex with or without `#`; null = no fill). "Dark" uses a simple
+  /// perceptual luminance threshold of 0.5.
+  static String resolveAutoColor({String? backgroundHex}) {
+    if (backgroundHex == null) return '000000';
+    final lum = _luminance(backgroundHex);
+    if (lum == null) return '000000';
+    return lum < 0.5 ? 'FFFFFF' : '000000';
+  }
+
+  /// Simple perceptual luminance (0..1) of a 6-digit hex colour, or null.
+  static double? _luminance(String hex) {
+    final n = hex.replaceFirst('#', '');
+    if (n.length != 6) return null;
+    final r = int.parse(n.substring(0, 2), radix: 16) / 255.0;
+    final g = int.parse(n.substring(2, 4), radix: 16) / 255.0;
+    final b = int.parse(n.substring(4, 6), radix: 16) / 255.0;
+    return 0.299 * r + 0.587 * g + 0.114 * b;
+  }
 }
