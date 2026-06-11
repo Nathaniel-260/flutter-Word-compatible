@@ -262,8 +262,7 @@ class DocxWidgetGenerator {
 
       // מעבר עמוד inline (w:br w:type="page") בתוך פסקה — שובר *אחרי* הפסקה.
       final bool hasInlinePageBreak = element is DocxParagraph &&
-          element.children
-              .any((c) => c is DocxLineBreak && c.isPageBreak);
+          element.children.any((c) => c is DocxLineBreak && c.isPageBreak);
 
       if (isPageBreak) {
         flushBatch();
@@ -492,7 +491,8 @@ class DocxWidgetGenerator {
           ConstrainedBox(
             constraints: BoxConstraints(minHeight: pageHeight),
             child: Padding(
-              padding: EdgeInsets.fromLTRB(padLeft, padTop, padRight, padBottom),
+              padding:
+                  EdgeInsets.fromLTRB(padLeft, padTop, padRight, padBottom),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
@@ -904,6 +904,7 @@ class DocxWidgetGenerator {
     final buffer = StringBuffer();
     for (final inline in inlines) {
       if (inline is DocxText) {
+        if (inline.hidden) continue; // w:vanish — not rendered, not searchable.
         buffer.write(inline.content);
       } else if (inline is DocxTab) {
         buffer.write('    ');

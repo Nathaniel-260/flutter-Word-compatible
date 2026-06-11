@@ -7,8 +7,12 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../docx_view_config.dart';
+import '../layout/bidi_align.dart';
+import '../layout/span_factory.dart';
+import '../layout/tab_engine.dart';
 import '../theme/docx_view_theme.dart';
 import '../widgets/drop_cap_text.dart';
+import '../widgets/tabbed_line.dart';
 
 /// Builds Flutter widgets from [DocxParagraph] elements.
 class ParagraphBuilder {
@@ -19,6 +23,10 @@ class ParagraphBuilder {
   final void Function(int id)? onFootnoteTap;
   final void Function(int id)? onEndnoteTap;
 
+  /// Shared run→span source of truth (Plan §C.1); the measurer uses the same
+  /// instance-equivalent factory so measured geometry matches rendered.
+  final SpanFactory _spanFactory;
+
   // Used for search highlighting
 
   ParagraphBuilder({
@@ -28,7 +36,11 @@ class ParagraphBuilder {
     this.onFootnoteTap,
     this.onEndnoteTap,
     this.docxTheme,
-  });
+  }) : _spanFactory = SpanFactory(
+          theme: theme,
+          config: config,
+          docxTheme: docxTheme,
+        );
 
   /// Build a widget from a [DocxParagraph].
   Widget build(DocxParagraph paragraph, {BlockIndexCounter? counter}) {
@@ -90,6 +102,14 @@ class ParagraphBuilder {
   /// Native Flutter builder for standard paragraphs.
   Widget _buildNativeParagraph(DocxParagraph paragraph,
       {Set<DocxInline>? excludedFloats, List<SearchMatch>? matches, Key? key}) {
+    // Tab-stop layout (§C.3): only when the author defined explicit stops, the
+    // paragraph has a tab, and its content is plain text. This keeps ordinary
+    // leading-tab body paragraphs on the wrapping RichText path (the tabbed
+    // renderer does not wrap) and keeps segment measurement placeholder-free.
+    if (paragraph.tabStops.isNotEmpty && _isPlainTabbedLine(paragraph)) {
+      return _buildTabbedParagraph(paragraph, key: key);
+    }
+
     List<(DocxInline, DocxAlign?)> textChildren = [];
 
     // Separate content
@@ -137,14 +157,17 @@ class ParagraphBuilder {
     List<DocxInline> currentInlines = [];
 
     final lineHeightScale = _resolveLineHeightScale(paragraph);
+    // exact/atLeast line spacing → forced/min per-line box (§C.2), matching the
+    // measurer. auto spacing stays on the lineHeightScale multiplier above.
+    final strut = _spanFactory.resolveStrut(paragraph);
     final direction = _detectDirection(paragraph);
-    // `DocxAlign.left` הוא גם ברירת המחדל של הקורא (כשאין `w:jc` מפורש) וגם
-    // יישור-שמאל אמיתי. ב-RTL זה כמעט תמיד ברירת מחדל לא-רצויה, ולכן ממפים
-    // אותו ל-`TextAlign.start` (כיוון-תלוי): תחת Directionality.rtl → ימין,
-    // תחת ltr → שמאל. center/right/justify מפורשים נשמרים כפי שהם.
-    final textAlign = paragraph.align == DocxAlign.left
-        ? TextAlign.start
-        : _convertAlign(paragraph.align);
+    // יישור תלוי-כיוון לפי טבלת ה-BiDi המחייבת (§C.4). הכיוון נלקח מ-`w:bidi`
+    // (כשקיים) או מזיהוי התוכן — ה-fallback. resolveParagraphTextAlign מחזיר
+    // TextAlign פיזי, כך שאינו תלוי עוד ב-Directionality לפענוח start/end.
+    final textAlign = resolveParagraphTextAlign(
+      paragraph.align,
+      isRtl: direction == TextDirection.rtl,
+    );
 
     // Track current text offset for highlighting
     int currentTextOffset = 0;
@@ -177,9 +200,11 @@ class ParagraphBuilder {
       );
       isFirstFlush = false;
 
-      // Update offset
+      // Update offset (skip hidden runs so search offsets stay aligned with the
+      // search index, which also drops w:vanish text).
       for (final inline in currentInlines) {
         if (inline is DocxText) {
+          if (inline.hidden) continue;
           currentTextOffset += inline.content.length;
         } else if (inline is DocxTab) {
           currentTextOffset += 4; // '    '.length
@@ -208,6 +233,7 @@ class ParagraphBuilder {
           rightElements: rights,
           textAlign: textAlign,
           lineHeightScale: lineHeightScale,
+          strut: strut,
         );
       } else {
         // Standard text layout for efficiency if no floats
@@ -215,11 +241,13 @@ class ParagraphBuilder {
           rowWidget = SelectableText.rich(
             fullTextSpan,
             textAlign: textAlign,
+            strutStyle: strut,
           );
         } else {
           rowWidget = RichText(
             text: fullTextSpan,
             textAlign: textAlign,
+            strutStyle: strut,
           );
         }
         // Ensure it takes width to respect alignment
@@ -323,33 +351,77 @@ class ParagraphBuilder {
     );
   }
 
-  // ... (keeping internal helper structures same) ...
-  // [Lines 226-433 omitted in replace request to save space if unchanged, assuming tool can handle partial replacments.
-  // Wait, I am replacing a large chunk. I should just update _buildTextSpans separately?
-  // No, I need _buildNativeParagraph to manage currentTextOffset.
-  // So I'll assume lines 226-432 are safe or I'll just use the provided range carefully.]
-  // NOTE: I am replacing `build`, `buildExcludingFloats`, `_buildNativeParagraph` fully.
-  // I need to skip `_buildFloatingLayout`, `_wrapWithParagraphStyle`, `_buildParagraphDecoration`, `_buildBorderSide`.
-  // The provided `_buildNativeParagraph` implementation above ends around line 224 which is correct.
-  // Below I will implement `_buildTextSpans` and `_buildTextSpan`.
+  /// True when [paragraph] has at least one tab and contains only inline
+  /// content the tab renderer can measure with a plain `TextPainter` (no
+  /// images/shapes/checkboxes → no placeholders, and no floats).
+  bool _isPlainTabbedLine(DocxParagraph paragraph) {
+    var hasTab = false;
+    for (final c in paragraph.children) {
+      if (c is DocxTab) {
+        hasTab = true;
+      } else if (c is DocxInlineImage ||
+          c is DocxShape ||
+          c is DocxCheckbox ||
+          c is DocxLineBreak) {
+        // The single-line tabbed renderer (maxLines: 1, no wrap) would clip
+        // everything after a line break — keep such paragraphs on the normal
+        // wrapping path. Images/shapes/checkboxes need placeholder measurement.
+        return false;
+      }
+    }
+    return hasTab;
+  }
 
-  // ... (omitting lines 226-433 in this prompt, I will assume I only replace up to 224 and then replace 433 separately)
-  // THE TOOL replace_file_content replaces a CONTIGUOUS BLOCK.
-  // So I must provide the whole block or do two calls.
-  // `_buildNativeParagraph` spans lines 44 to 224.
-  // `_buildTextSpans` starts at 434.
-  // So I will split this into two calls or one giant call.
-  // Giant call is risky if I miss lines.
-  // I'll do two calls.
-  // Call 1: Update `build` and `_buildNativeParagraph`
-  // Call 2: Update `_buildTextSpans` and `_buildTextSpan`.
+  /// Renders a tab-stop line through the [TabEngine]/[TabbedLineRenderer]
+  /// (§C.3). Segments are split at tabs; search highlighting is skipped on this
+  /// path (rare for tabbed headers/footers) — a documented limitation.
+  Widget _buildTabbedParagraph(DocxParagraph paragraph, {Key? key}) {
+    final lineHeightScale = _resolveLineHeightScale(paragraph);
+    final direction = _detectDirection(paragraph);
 
-  // Let's refine for Call 1: Replace lines 31 to 224.
-  // I will submit specific content for that.
+    final segments = <InlineSpan>[];
+    final tabsBefore = <int>[];
+    var current = <DocxInline>[];
+    var pendingTabs = 0;
 
-  // Wait, the `blockIndex` is passed to `build`.
+    void flush() {
+      final spans = buildInlineSpans(current, lineHeight: lineHeightScale);
+      segments.add(TextSpan(style: theme.defaultTextStyle, children: spans));
+      tabsBefore.add(pendingTabs);
+    }
 
-  // Okay, in THIS tool call, I will do Call 1: `build` through `_buildNativeParagraph`.
+    for (final child in paragraph.children) {
+      if (child is DocxTab) {
+        if (current.isNotEmpty) {
+          flush();
+          current = <DocxInline>[];
+          pendingTabs = 1;
+        } else {
+          pendingTabs++;
+        }
+      } else {
+        current.add(child);
+      }
+    }
+    flush();
+
+    const engine = TabEngine();
+    final widget = TabbedLineRenderer(
+      segments: segments,
+      tabsBefore: tabsBefore,
+      stops: engine.resolveStops(paragraph),
+      barStops: engine.barStops(paragraph),
+      engine: engine,
+      direction: direction,
+      leaderColor: theme.defaultTextStyle.color ?? const Color(0xFF000000),
+    );
+
+    return _wrapWithParagraphStyle(
+      paragraph,
+      Directionality(textDirection: direction, child: widget),
+      key: key,
+    );
+  }
 
   /// Builds a layout that wraps text around left and/or right floating elements.
   ///
@@ -360,6 +432,7 @@ class ParagraphBuilder {
     List<DocxInline> rightElements = const [],
     required TextAlign textAlign,
     double? lineHeightScale,
+    StrutStyle? strut,
   }) {
     const double floatSpacing = 12.0;
 
@@ -401,8 +474,8 @@ class ParagraphBuilder {
 
     // Build the text widget
     Widget textWidget = config.enableSelection
-        ? SelectableText.rich(textSpan, textAlign: textAlign)
-        : RichText(text: textSpan, textAlign: textAlign);
+        ? SelectableText.rich(textSpan, textAlign: textAlign, strutStyle: strut)
+        : RichText(text: textSpan, textAlign: textAlign, strutStyle: strut);
 
     // Use IntrinsicHeight to allow text to wrap naturally beside floats
     return IntrinsicHeight(
@@ -498,7 +571,7 @@ class ParagraphBuilder {
   BoxDecoration? _buildParagraphDecoration(DocxParagraph paragraph) {
     Color? backgroundColor;
     if (paragraph.shadingFill != null) {
-      backgroundColor = _parseHexColor(paragraph.shadingFill!);
+      backgroundColor = _spanFactory.parseHexColor(paragraph.shadingFill!);
     }
 
     // Build borders from DocxBorderSide properties
@@ -556,7 +629,7 @@ class ParagraphBuilder {
 
     // Convert size from eighths of a point to pixels
     final width = (side.size / 8.0).clamp(0.5, 10.0);
-    final color = _resolveColor(
+    final color = _spanFactory.resolveColor(
             side.color.hex, side.themeColor, side.themeTint, side.themeShade) ??
         Colors.black;
 
@@ -593,6 +666,7 @@ class ParagraphBuilder {
 
     for (final inline in inlines) {
       if (inline is DocxText) {
+        if (inline.hidden) continue; // w:vanish — not rendered or measured.
         spans.addAll(_buildTextSpan(
           inline,
           lineHeight: lineHeight,
@@ -701,7 +775,7 @@ class ParagraphBuilder {
 
     Color? textColor;
     if (checkbox.color != null) {
-      textColor = _parseHexColor(checkbox.color!.hex);
+      textColor = _spanFactory.parseHexColor(checkbox.color!.hex);
     }
 
     return TextSpan(
@@ -724,214 +798,13 @@ class ParagraphBuilder {
     List<SearchMatch>? matches,
     int offset = 0,
   }) {
-    // Transform content based on text effects
-    String content = text.content;
-    if (text.isAllCaps) {
-      content = content.toUpperCase();
-    } else if (text.isSmallCaps) {
-      content = content.toUpperCase();
-    }
-
-    // Determine text style (common for all segments)
-    FontWeight fontWeight = text.fontWeight == DocxFontWeight.bold
-        ? FontWeight.bold
-        : FontWeight.normal;
-
-    FontStyle fontStyle = text.fontStyle == DocxFontStyle.italic
-        ? FontStyle.italic
-        : FontStyle.normal;
-
-    // Handle multiple text decorations
-    TextDecoration decoration = TextDecoration.none;
-    final decorations = <TextDecoration>[];
-
-    // Underline pattern → Flutter decoration style/thickness/color.
-    // Flutter exposes a single decorationStyle/Color/Thickness shared by all
-    // decorations on a span, so the underline pattern takes priority over the
-    // double-strike style mapping when both are present.
-    TextDecorationStyle decorationStyle = TextDecorationStyle.solid;
-    double? decorationThickness;
-    Color? decorationColor;
-
-    final uStyle = text.effectiveUnderlineStyle;
-    if (uStyle != null && uStyle != DocxUnderlineStyle.none) {
-      decorations.add(TextDecoration.underline);
-      final mapped = _mapUnderline(uStyle);
-      decorationStyle = mapped.$1;
-      decorationThickness = mapped.$2;
-      if (text.underlineColor != null) {
-        decorationColor = _resolveColor(
-          text.underlineColor!.hex,
-          text.underlineColor!.themeColor,
-          text.underlineColor!.themeTint,
-          text.underlineColor!.themeShade,
-        );
-      }
-    }
-
-    if (text.isStrike || text.isDoubleStrike) {
-      decorations.add(TextDecoration.lineThrough);
-      if (text.isDoubleStrike && !text.isUnderline) {
-        decorationStyle = TextDecorationStyle.double;
-      }
-    }
-
-    if (decorations.isNotEmpty) {
-      decoration = TextDecoration.combine(decorations);
-    }
-
-    Color? textColor;
-    if (text.color != null) {
-      textColor = _resolveColor(
-        text.color!.hex,
-        text.themeColor ?? text.color!.themeColor,
-        text.themeTint ?? text.color!.themeTint,
-        text.themeShade ?? text.color!.themeShade,
-      );
-    }
-
-    Color? backgroundColor;
-    if (text.shadingFill != null || text.themeFill != null) {
-      backgroundColor = _resolveColor(
-        text.shadingFill,
-        text.themeFill,
-        text.themeFillTint,
-        text.themeFillShade,
-      );
-    }
-
-    if (backgroundColor == null && text.highlight != DocxHighlight.none) {
-      backgroundColor = _highlightToColor(text.highlight);
-    }
-
-    double? fontSize = text.fontSize;
-    if (fontSize != null) {
-      fontSize = fontSize * 1.333;
-    } else {
-      fontSize = theme.defaultTextStyle.fontSize;
-    }
-
-    String? fontFamily; // Start with null to prioritize granular resolution
-
-    // Resolve Theme Font if applicable
-    if (docxTheme != null) {
-      String? themeFontName;
-      if (text.fonts?.asciiTheme != null) {
-        themeFontName = text.fonts!.asciiTheme;
-      } else if (text.fonts?.hAnsiTheme != null) {
-        themeFontName = text.fonts!.hAnsiTheme;
-      } else if (text.fonts?.eastAsiaTheme != null) {
-        themeFontName = text.fonts!.eastAsiaTheme;
-      }
-
-      if (themeFontName != null) {
-        final resolved = docxTheme!.fonts.getFont(themeFontName);
-        if (resolved != null) {
-          fontFamily = resolved;
-        }
-      }
-    }
-
-    // granular fonts override theme or base family
-    if (text.fonts?.ascii != null) {
-      fontFamily = text.fonts!.ascii;
-    } else if (text.fonts?.hAnsi != null) {
-      fontFamily = text.fonts!.hAnsi;
-    } else if (text.fonts?.family != null) {
-      fontFamily = text.fonts!.family;
-    }
-
-    // Fallback to basic fontFamily property if still null
-    fontFamily ??= text.fontFamily;
-
-    // Apply font fallbacks
-    if (fontFamily == null && config.customFontFallbacks.isNotEmpty) {
-      fontFamily = config.customFontFallbacks.first;
-    }
-
-    if (text.isSuperscript || text.isSubscript) {
-      fontSize = (fontSize ?? 14) * 0.7;
-    }
-
-    if (text.isSmallCaps && !text.isAllCaps) {
-      fontSize = (fontSize ?? 14) * 0.85;
-    }
-
-    // ... (Shadows/Emboss/Imprint etc logic reused) ...
-    List<Shadow>? shadows;
-    if (text.isShadow) {
-      shadows = [
-        Shadow(
-          color: Colors.black.withValues(alpha: 0.3),
-          offset: const Offset(1, 1),
-          blurRadius: 2,
-        ),
-      ];
-    } else if (text.isEmboss) {
-      shadows = [
-        Shadow(
-          color: Colors.white.withValues(alpha: 0.7),
-          offset: const Offset(-1, -1),
-          blurRadius: 1,
-        ),
-        Shadow(
-          color: Colors.black.withValues(alpha: 0.3),
-          offset: const Offset(1, 1),
-          blurRadius: 1,
-        ),
-      ];
-    } else if (text.isImprint) {
-      shadows = [
-        Shadow(
-          color: Colors.black.withValues(alpha: 0.3),
-          offset: const Offset(-1, -1),
-          blurRadius: 1,
-        ),
-        Shadow(
-          color: Colors.white.withValues(alpha: 0.5),
-          offset: const Offset(1, 1),
-          blurRadius: 1,
-        ),
-      ];
-    }
-
-    Paint? foreground;
-    if (text.isOutline) {
-      foreground = Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 0.5
-        ..color = textColor ?? Colors.black;
-      textColor = null;
-    }
-
-    final baseStyle = TextStyle(
-      fontWeight: fontWeight,
-      fontStyle: fontStyle,
-      decoration: decoration,
-      decorationStyle: decorationStyle,
-      decorationColor: decorationColor,
-      decorationThickness: decorationThickness,
-      color: foreground == null
-          ? (textColor ?? theme.defaultTextStyle.color)
-          : null,
-      foreground: foreground,
-      backgroundColor: backgroundColor,
-      // characterSpacing is in twips; convert at 96 DPI (twips/15) to stay
-      // consistent with DocxUnits and avoid mixing 72/96 DPI in one layout.
-      letterSpacing:
-          text.characterSpacing != null ? text.characterSpacing! / 15.0 : null,
-      fontSize: fontSize,
-      fontFamily: fontFamily,
-      fontFamilyFallback: config.customFontFallbacks,
-      height: lineHeight ?? theme.defaultTextStyle.height,
-      shadows: shadows,
-      fontFeatures: (text.isSuperscript || text.isSubscript)
-          ? [
-              if (text.isSuperscript) const FontFeature.superscripts(),
-              if (text.isSubscript) const FontFeature.subscripts(),
-            ]
-          : null,
-    );
+    // Content transform + run style come from the shared [SpanFactory] so the
+    // measurer (Part C) builds byte-identical geometry. Link colour, search
+    // highlight and text-border are layered on below — all geometry-neutral.
+    final content = _spanFactory.resolveContent(text);
+    final baseStyle =
+        _spanFactory.resolveRunStyle(text, lineHeight: lineHeight);
+    final backgroundColor = baseStyle.backgroundColor;
 
     // Tap handler
     TapGestureRecognizer? tapRecognizer;
@@ -1066,70 +939,10 @@ class ParagraphBuilder {
     return resultSpans;
   }
 
-  /// Resolve color from hex or theme properties.
-  Color? _resolveColor(
-      String? hex, String? themeColor, String? themeTint, String? themeShade) {
-    Color? baseColor;
-
-    if (themeColor != null && docxTheme != null) {
-      final themeHex = docxTheme!.colors.getColor(themeColor);
-      if (themeHex != null) {
-        baseColor = _parseHexColor(themeHex);
-      }
-    }
-
-    if (baseColor == null && hex != null && hex != 'auto') {
-      baseColor = _parseHexColor(hex);
-    }
-
-    if (baseColor == null) return null;
-
-    if (themeTint != null) {
-      final tintVal = int.tryParse(themeTint, radix: 16);
-      if (tintVal != null) {
-        final factor = tintVal / 255.0;
-        baseColor = Color.alphaBlend(
-            Colors.white.withValues(alpha: 1 - factor), baseColor);
-      }
-    }
-
-    if (themeShade != null) {
-      final shadeVal = int.tryParse(themeShade, radix: 16);
-      if (shadeVal != null) {
-        final factor = shadeVal / 255.0;
-        baseColor = Color.alphaBlend(
-            Colors.black.withValues(alpha: 1 - factor), baseColor);
-      }
-    }
-
-    return baseColor;
-  }
-
-  /// Resolves the TextStyle line-height scale from [DocxParagraph.lineSpacing]
-  /// and [DocxParagraph.lineRule].
-  ///
-  /// - `'auto'` (default): `lineSpacing / 240` where 240 twips = one standard line.
-  /// - `'exact'`: lineSpacing is an absolute height; normalised against the same baseline.
-  /// - `'atLeast'`: minimum spacing — clamped to ≥ 1.0 so lines never collapse.
-  double? _resolveLineHeightScale(DocxParagraph paragraph) {
-    if (paragraph.lineSpacing == null) return null;
-    final spacing = paragraph.lineSpacing!;
-    switch (paragraph.lineRule ?? 'auto') {
-      case 'exact':
-      case 'atLeast':
-        // TextStyle.height is relative to the rendered font size, so dividing
-        // by the fixed 240-twip baseline (12pt) produces an incorrect scale for
-        // any font other than 12pt. Normalize against the theme default instead.
-        final baseFontSizePx = theme.defaultTextStyle.fontSize ?? 16.0;
-        final baseHeightTwips = baseFontSizePx * 15.0;
-        final scale = spacing / baseHeightTwips;
-        return (paragraph.lineRule == 'exact')
-            ? scale.clamp(0.5, 10.0)
-            : scale.clamp(1.0, 10.0);
-      default:
-        return spacing / 240.0;
-    }
-  }
+  /// Resolves the TextStyle line-height scale via the shared [SpanFactory], so
+  /// the measurer and renderer agree (Plan §C.2).
+  double? _resolveLineHeightScale(DocxParagraph paragraph) =>
+      _spanFactory.resolveLineHeightScale(paragraph);
 
   /// Build a widget for a paragraph with a drop cap.
   Widget buildDropCap(DocxDropCap dropCap) {
@@ -1234,11 +1047,14 @@ class ParagraphBuilder {
       width: shape.width,
       height: shape.height,
       decoration: BoxDecoration(
-        color: _resolveColor(shape.fillColor?.hex, shape.fillColor?.themeColor,
-            shape.fillColor?.themeTint, shape.fillColor?.themeShade),
+        color: _spanFactory.resolveColor(
+            shape.fillColor?.hex,
+            shape.fillColor?.themeColor,
+            shape.fillColor?.themeTint,
+            shape.fillColor?.themeShade),
         border: shape.outlineColor != null
             ? Border.all(
-                color: _resolveColor(
+                color: _spanFactory.resolveColor(
                         shape.outlineColor!.hex,
                         shape.outlineColor!.themeColor,
                         shape.outlineColor!.themeTint,
@@ -1248,128 +1064,6 @@ class ParagraphBuilder {
             : null,
       ),
     );
-  }
-
-  /// Maps a Word underline pattern to the closest Flutter
-  /// [TextDecorationStyle] and a relative thickness multiplier.
-  ///
-  /// Word distinguishes more patterns than Flutter can render: `dash`,
-  /// `dashLong`, `dotDash` and `dotDotDash` all collapse to
-  /// [TextDecorationStyle.dashed], and `wavyDouble` falls back to a single
-  /// [TextDecorationStyle.wavy]. "Heavy"/`thick` variants are approximated with
-  /// a thicker line via the returned multiplier.
-  (TextDecorationStyle, double) _mapUnderline(DocxUnderlineStyle style) {
-    switch (style) {
-      case DocxUnderlineStyle.none:
-      case DocxUnderlineStyle.single:
-      case DocxUnderlineStyle.words:
-        return (TextDecorationStyle.solid, 1.0);
-      case DocxUnderlineStyle.thick:
-        return (TextDecorationStyle.solid, 2.5);
-      case DocxUnderlineStyle.double:
-        return (TextDecorationStyle.double, 1.0);
-      case DocxUnderlineStyle.dotted:
-        return (TextDecorationStyle.dotted, 1.0);
-      case DocxUnderlineStyle.dottedHeavy:
-        return (TextDecorationStyle.dotted, 2.5);
-      case DocxUnderlineStyle.dash:
-      case DocxUnderlineStyle.dashLong:
-      case DocxUnderlineStyle.dotDash:
-      case DocxUnderlineStyle.dotDotDash:
-        return (TextDecorationStyle.dashed, 1.0);
-      case DocxUnderlineStyle.dashedHeavy:
-      case DocxUnderlineStyle.dashLongHeavy:
-      case DocxUnderlineStyle.dashDotHeavy:
-      case DocxUnderlineStyle.dashDotDotHeavy:
-        return (TextDecorationStyle.dashed, 2.5);
-      case DocxUnderlineStyle.wave:
-      case DocxUnderlineStyle.wavyDouble:
-        return (TextDecorationStyle.wavy, 1.0);
-      case DocxUnderlineStyle.wavyHeavy:
-        return (TextDecorationStyle.wavy, 2.5);
-    }
-  }
-
-  TextAlign _convertAlign(DocxAlign align) {
-    switch (align) {
-      case DocxAlign.left:
-        return TextAlign.left;
-      case DocxAlign.center:
-        return TextAlign.center;
-      case DocxAlign.right:
-        return TextAlign.right;
-      case DocxAlign.justify:
-        return TextAlign.justify;
-    }
-  }
-
-  Color? _parseHexColor(String hex) {
-    if (hex == 'auto') return theme.defaultTextStyle.color;
-    try {
-      final buffer = StringBuffer();
-      if (hex.length == 6 || hex.length == 8) {
-        if (hex.length == 6) buffer.write('ff');
-        buffer.write(hex);
-        final color = Color(int.parse(buffer.toString(), radix: 16));
-
-        // Smart inversion for dark mode:
-        // If background is dark and text is dark (black), invert text to white.
-        // Leaves other colors (red, green, etc.) untouched.
-        final bg = theme.backgroundColor;
-        if (bg != null && bg.computeLuminance() < 0.5) {
-          if (color.computeLuminance() < 0.179) {
-            return Colors.white;
-          }
-        }
-        return color;
-      }
-    } catch (_) {}
-    return null;
-  }
-
-  Color? _highlightToColor(DocxHighlight highlight) {
-    switch (highlight) {
-      case DocxHighlight.black:
-        return Colors.black;
-      case DocxHighlight.blue:
-        return Colors.blue;
-      case DocxHighlight.cyan:
-        return Colors.cyan;
-      case DocxHighlight.green:
-        return Colors.green;
-      case DocxHighlight.magenta:
-        return const Color(0xFFFF00FF);
-      case DocxHighlight.red:
-        return Colors.red;
-      case DocxHighlight.yellow:
-        return Colors.yellow;
-      case DocxHighlight.white:
-        return Colors.white;
-      case DocxHighlight.darkBlue:
-        return Colors.blue.shade900;
-// ... (omitted for brevity in prompt but I will be careful in actual replacement)
-// Actually I should just target specific methods.
-
-// 1. Fixing highlighting color
-// 2. Fixing _ParagraphSliceWalker
-
-      case DocxHighlight.darkCyan:
-        return Colors.cyan.shade900;
-      case DocxHighlight.darkGreen:
-        return Colors.green.shade900;
-      case DocxHighlight.darkMagenta:
-        return Colors.purple.shade900;
-      case DocxHighlight.darkRed:
-        return Colors.red.shade900;
-      case DocxHighlight.darkYellow:
-        return Colors.yellow.shade800;
-      case DocxHighlight.darkGray:
-        return Colors.grey.shade700;
-      case DocxHighlight.lightGray:
-        return Colors.grey.shade300;
-      case DocxHighlight.none:
-        return null;
-    }
   }
 
   Future<void> _launchUrl(String url) async {

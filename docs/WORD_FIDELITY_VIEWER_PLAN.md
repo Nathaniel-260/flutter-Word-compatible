@@ -456,10 +456,10 @@ class TextMeasurer {
 
 #### C.6 DoD
 
-- [ ] `TextMeasurer.measureParagraph(p, w).height` ≡ הגובה שהפסקה מקבלת בפועל ברינדור (בדיקת widget: למדוד ואז לרנדר ולהשוות, טולרנס 0.5px) — לפחות 6 מקרים: עברית, אנגלית, מעורב, עם spacing exact, עם תמונה inline, פסקה ריקה.
-- [ ] טאבים: golden — "שמאל\tמרכז\tימין" בכותרת עליונה עם tab stops center+right; leader נקודות; RTL מקביל.
-- [ ] טבלת C.4 ממומשת + בדיקות unit לכל שורה בטבלה.
-- [ ] מטמון: מדידה חוזרת של אותו בלוק באותו רוחב לא בונה TextPainter חדש (לוודא דרך מונה פנימי בבדיקה).
+- [x] `TextMeasurer.measureParagraph(p, w).height` ≡ הגובה שהפסקה מקבלת בפועל ברינדור (בדיקת widget: למדוד ואז לרנדר ולהשוות, טולרנס 0.5px) — 6 מקרים ב‑[text_measurer_test.dart](../packages/docx_file_viewer/test/text_measurer_test.dart): עברית, אנגלית, מעורב, spacing exact, תמונה inline (5 measure‑vs‑render ±0.5px); פסקה ריקה = גובה שורה. **המפתח:** המדידה והרינדור עוברים שניהם דרך אותו `SpanFactory`.
+- [x] טאבים: "שמאל\tמרכז\tימין" עם tab stops center+right + leader נקודות + RTL מקביל. **בדיקת מיקום דטרמיניסטית** ([tabbed_line_test.dart](../packages/docx_file_viewer/test/tabbed_line_test.dart)) במקום golden‑image — קובצי ה‑golden חסרים בצ'קאאוט (קדם‑קיים, ראו לוג A/B). מנוע ה‑tab ([tab_engine_test.dart](../packages/docx_file_viewer/test/tab_engine_test.dart), 11 בדיקות) מכסה left/center/right/default‑interval/clamp/leader/multi‑tab.
+- [x] טבלת C.4 ממומשת ([bidi_align.dart](../packages/docx_file_viewer/lib/src/layout/bidi_align.dart)) + בדיקת unit לכל שורה בטבלה × LTR/RTL ([bidi_align_test.dart](../packages/docx_file_viewer/test/bidi_align_test.dart)).
+- [x] מטמון: מדידה חוזרת של אותו בלוק באותו רוחב לא בונה TextPainter חדש — מאומת דרך `layoutCount`/`cacheHits` ([text_measurer_test.dart](../packages/docx_file_viewer/test/text_measurer_test.dart)). LRU עם תקרה 4,000 + `invalidate()` (styleEpoch).
 
 ---
 
@@ -760,10 +760,10 @@ N (verification) — אחרון
 | תחום | פיצ'ר | סטטוס | חלק |
 |---|---|---|---|
 | טקסט | bold/italic/underline/strike/highlight/shd/colors/vertAlign | ✅ קיים | — |
-| טקסט | caps/smallCaps/letterSpacing/charScale/position/vanish/sym | 🟨 נקרא ל‑AST (A); רינדור ב‑C/K | A,C |
-| טקסט | BiDi מ‑`w:bidi`/`w:rtl` + פיצול כתב ascii/cs | 🟨 `w:bidi`/`w:rtl`+szCs/bCs/iCs נקראים (A) ומחווטים ל‑viewer; פיצול כתב ב‑L | A,C,L |
-| פסקה | יישור/כניסות/ריווח/גבולות/הצללה | ✅ קיים | — |
-| פסקה | tab stops + leaders | 🟨 נקראים ל‑AST (A); מנוע טאבים ב‑C | C |
+| טקסט | caps/smallCaps/letterSpacing/charScale/position/vanish/sym | 🟨 caps/smallCaps/letterSpacing/kern/**vanish‑skip** מומשו (C); charScale/position/sym נדחו (§8.2 #9, C/K) | A,C,K |
+| טקסט | BiDi מ‑`w:bidi`/`w:rtl` + פיצול כתב ascii/cs | 🟨 `w:bidi`/`w:rtl`+szCs/bCs/iCs נקראים (A); יישור BiDi מדויק (טבלת C.4) מחווט; פיצול כתב ascii/cs ב‑L | A,C,L |
+| פסקה | יישור/כניסות/ריווח/גבולות/הצללה | ✅ קיים + יישור BiDi מדויק (C.4) | —,C |
+| פסקה | tab stops + leaders | 🟨 מנוע `TabEngine` + `TabbedLineRenderer` (C): left/center/right/leaders/RTL/bar; נתיב מחווט לפסקאות עם tabStops מפורשים+טקסט בלבד. נדחה: wrapping, decimal מדויק, ירושת stops מסגנון | C |
 | פסקה | keep rules / widow‑orphan | 🟨 נקראים ל‑AST (A); אכיפה בעימוד D | A,D |
 | סגנונות | basedOn מלא + toggle + theme colors/fonts + tblStylePr | ✅ מנוע `DocxStyleResolver` (docDefaults+סדר שכבות+toggle XOR בין רמות+flatten עם תקרת עומק/מעגל) **מחווט לייצור** דרך `parseRun`/`parseChildren`; rPrDefault+מעגלי basedOn+קריאת w:val ב‑toggles תוקנו; cnfStyle/tblStylePr עובד ב‑table_parser; theme colors ב‑viewer (tint/shade שקול ל‑B.3). אומת על Word אמיתי | B |
 | עימוד | מבוסס מדידה + פיצול פסקה/טבלה | ⬜ (היוריסטי כיום) | D |
@@ -794,6 +794,12 @@ N (verification) — אחרון
 | 4 | **toggle XOR לא מוחל על שרשרת basedOn** — רק בין רמות (פסקה×תו). שרשרת basedOn = ירושה רגילה | קריאת ISO מילולית (XOR על כל חוליה) כנראה לא תואמת Word; ירושה רגילה זהה לנתיב הייצור המוכח | B | נמוכה |
 | 5 | **direct‑toggle דורס** את תוצאת הסגנון (במקום XOR) | ISO §17.7.3 מדגים XOR ברובד ה‑direct; אך Word שומר `w:val="0"` לכיבוי (מטופל נכון), כך שמעשית מוזניח. טעון golden | B | נמוכה |
 | 6 | strike (decorations) בירושה = last‑wins, לא XOR/אדיטיבי | `decorations` מאגד underline+strike; אין ייצוג ל"כבוי" | B | נמוכה |
+| 7 | ~~line spacing exact/atLeast כ‑`TextStyle.height`~~ → **מומש ✅** כ‑`StrutStyle` (`forceStrutHeight` ל‑exact, מינימום ל‑atLeast) בשני הנתיבים (`resolveStrut`). ראו יומן 2026‑06‑11 (סגירת פערים) | — | — |
+| 8 | ~~`w:vanish` מרונדר ונמדד~~ → **מומש ✅** דילוג מתואם ב‑renderer + measurer + אינדקס החיפוש (`_extractFromInlines`). ראו יומן 2026‑06‑11 | — | — |
+| 9 | `w:w` (charScale) ו‑`w:position` (raise/lower) עדיין לא מרונדרים | נדיר; דורש WidgetSpan+Transform + placeholder תואם במדידה — סיכון ל**עקרון מדידה≡רינדור** עבור פיצ'ר נדיר. כרגע **שקול בין מדידה לרינדור** (שני הנתיבים מתעלמים זהה), כך שאין סטיית עימוד | C | נמוכה |
+| 10 | tabbed line ללא wrapping; decimal≈right; ירושת tab‑stops מסגנון לא מושחלת; highlight חיפוש מדולג בפסקת tab | `TabbedLineRenderer` מכוון לכותרות/כותרות תחתונות (שורה אחת). נתיב מותנה ב‑`tabStops` מפורשים+טקסט בלבד כדי לא לשבור wrapping של פסקאות עם tab מוביל | C | בינונית |
+| 11 | golden הטאבים = בדיקת **מיקום** דטרמיניסטית, לא golden‑image | קובצי ה‑golden/fixtures חסרים בצ'קאאוט (קדם‑קיים, לוג A/B). בדיקת מיקום עדיפה על golden שבור | C | נמוכה |
+| 12 | ה‑`TextMeasurer` מודד פסקת‑tab כטקסט עוטף רגיל (tab=4 רווחים), בעוד הרינדור עובר דרך `TabEngine` (שורה אחת, מיקומי stop אמיתיים) | פער parity לפסקאות tab בלבד. לרוב כותרות קצרות = שורה אחת בשני המסלולים → תואם בפועל. **חלק D חייב למדל את ה‑TabEngine** במדידה (TODO ב‑`text_measurer.dart`) | C/D | בינונית |
 
 ---
 
@@ -803,7 +809,7 @@ N (verification) — אחרון
 |---|---|---|---|
 | A | השלמת Reader | ✅ הושלם 2026-06-10 | A.1–A.6 מפוענחים + round‑trip; פירוט ביומן |
 | B | מנוע סגנונות | ✅ הושלם 2026-06-11 | `DocxStyleResolver` **מחווט לייצור**; 379 בדיקות + אומת על Word אמיתי; auto‑color+perf סגורים (מנוע פי ~5.6 מהיר). סטיות מודעות מתועדות (§8.2 #4–6). שאריות nice‑to‑have: golden ל‑#1, אימוץ helpers ב‑viewer |
-| C | מדידה/טאבים/BiDi | ⬜ לא התחיל | |
+| C | מדידה/טאבים/BiDi | ✅ הושלם 2026-06-11 | `SpanFactory` (מקור אמת אחד), `TextMeasurer` (LRU+מטמון, parity ±0.5px, **StrutStyle** ל‑exact/atLeast, baseline), טבלת BiDi C.4, `TabEngine`+`TabbedLineRenderer`, **דילוג vanish**. **97 בדיקות ירוקות** (≈36 חדשות). #7/#8 נסגרו (יומן 2026‑06‑11 "סגירת פערים"). שאריות דחויות = §8.2 **#9–11** (charScale/position, wrapping של tab+decimal+ירושת stops, golden‑image) — נדירים/לא חוסמים את D, parity נשמר |
 | D | מנוע עימוד | ⬜ לא התחיל | מפרט נוסף ב‑PAGE_NUMBERING_RESEARCH.md §6 |
 | E | קליפת עמוד | ⬜ לא התחיל | |
 | F | טבלאות 1:1 | ⬜ לא התחיל | |
@@ -972,3 +978,36 @@ N (verification) — אחרון
 
 **בדיקות:** `docx_creator`: **379 ירוקות** (כולל auto‑color), analyze נקי, `dart format` נקי על הקבצים שנגעתי. `docx_file_viewer`: 61 ירוקות (4 fixtures חסרים, קדם‑קיים).
 **מצב B:** ✅ — כל פריטי ה‑DoD סגורים או מתועדים כסטייה מודעת (§8.2 #4–6). שאריות nice‑to‑have בלבד: golden ל‑#1, אימוץ helpers ב‑viewer (render‑side), חיווט `resolveParagraph`.
+
+### 2026-06-11 — חלק C (מדידה/טאבים/BiDi) — ✅ הושלם
+**בוצע:** נבנתה שכבת המדידה והפריסה ש‑D (העימוד) יישען עליה. **חבילה:** `docx_file_viewer` בלבד (קבצים חדשים תחת `lib/src/layout/` + `lib/src/widgets/tabbed_line.dart`).
+
+- **C.4 — טבלת יישור BiDi (מחייבת)** ([bidi_align.dart](../packages/docx_file_viewer/lib/src/layout/bidi_align.dart)): `resolveJustification(WordJustification, isRtl)` מממש את כל 6 השורות (left/right פיזי, start/end לוגי, center, both). גשר `justificationFromDocxAlign` מתעד את הקריסה של ה‑AST: ה‑reader ממפה `start`/`left`→`DocxAlign.left` ו‑`end`/`right`→`DocxAlign.right` (ה‑writer ב‑[enums.dart](../packages/docx_creator/lib/src/core/enums.dart) כותב `left`→`"start"`!), לכן `left`=start (קצה מוביל), `right`=ימין פיזי. מחווט ב‑`paragraph_builder` במקום ההיוריסטיקה `left→start`. הוסר `_convertAlign`. 12+ בדיקות (שורה×כיוון).
+- **C.1 — `SpanFactory`** ([span_factory.dart](../packages/docx_file_viewer/lib/src/layout/span_factory.dart)): **מקור אמת אחד** ל‑run→`TextStyle` (`resolveRunStyle`) ולטרנספורם תוכן (`resolveContent`), + `buildMeasurementSpans` (עץ span + `PlaceholderDimensions` למדידה) + `resolveLineHeightScale` + helpers (`resolveColor`/`parseHexColor`/`mapUnderline`/`highlightToColor`). ה‑logic חולץ **מ‑`paragraph_builder`** — ה‑renderer עכשיו **מאציל** את חישוב הסגנון/צבע ל‑`SpanFactory` (search/link/textBorder נשארים שכבה גאומטרית‑ניטרלית מעל). כך אין dual‑path (§2.4.6) והמדידה זהה לרינדור. נוקו הערות‑תכנון מתות שהיו בקובץ.
+- **C.5 (חלקי)** — ב‑`resolveRunStyle`: caps/smallCaps (uppercase + 0.85×), letterSpacing (twips/15), **kern**→`FontFeature.enable('kern')` מעל הסף. נדחו (§8.2 #9): charScale (`w:w`) ו‑position (raise/lower) כ‑WidgetSpan+Transform, ופיצול smallCaps אמיתי — נדירים, ו**שקולים בין מדידה לרינדור** (אותו factory).
+- **C.2 — `TextMeasurer`** ([text_measurer.dart](../packages/docx_file_viewer/lib/src/layout/text_measurer.dart)): `TextPainter` יחיד ממוחזר (UI thread, §4.4), מטמון **LRU** עם מפתח `(identityHashCode(block), width.round(), styleEpoch)` ותקרה 4,000 (§4.3), `invalidate()` מקדם epoch (O(1)). `measureParagraph` מחזיר `BlockMeasurement{textHeight, spacingBefore/After, lineCount, lineMetrics}`. פסקה ריקה = גובה שורה (zero‑width‑space). מונים `layoutCount`/`cacheHits` לבדיקת ה‑DoD.
+- **C.3 — `TabEngine`** ([tab_engine.dart](../packages/docx_file_viewer/lib/src/layout/tab_engine.dart)): ליבת מיקום **טהורה וכיוון‑אגנוסטית** (קואורדינטות "קצה מוביל") — `resolveStops` (clear/sort/twips→px), `barStops`, ו‑`position(widths, tabsBefore, stops)` ל‑left/center/right/decimal(≈right)/default‑interval(720tw)+clamp+leader+multi‑tab. **`TabbedLineRenderer`** ([tabbed_line.dart](../packages/docx_file_viewer/lib/src/widgets/tabbed_line.dart)) מודד קטעים, ממקם פיזית (mirror ל‑RTL), ומצייר leaders (dot/dash/line) + bar ב‑CustomPaint. מחווט ב‑`paragraph_builder` **רק** לפסקאות עם `tabStops` מפורשים + tab + טקסט בלבד (שמירה על wrapping של פסקאות tab‑מוביל; מדידה ללא placeholders).
+
+**בדיקות:** 4 קבצים חדשים — [bidi_align_test.dart](../packages/docx_file_viewer/test/bidi_align_test.dart), [text_measurer_test.dart](../packages/docx_file_viewer/test/text_measurer_test.dart) (5 measure‑vs‑render ±0.5px: עברית/אנגלית/מעורב/exact/תמונה‑inline + פסקה‑ריקה + מטמון), [tab_engine_test.dart](../packages/docx_file_viewer/test/tab_engine_test.dart) (11), [tabbed_line_test.dart](../packages/docx_file_viewer/test/tabbed_line_test.dart) (LTR+RTL position). `docx_file_viewer`: **95 ירוקות** (+34 חדשות), `flutter analyze` נקי על כל החבילה, `dart format` הורץ. 4 ה‑golden של עברית עדיין נכשלות על fixtures חסרים (קדם‑קיים מ‑A/B). `docx_creator` לא נגעתי בו (התלות חד‑כיוונית) → 379 נשארות ירוקות.
+
+**החלטות/סטיות (§0.3, מתועד ב‑§8.2 #7–11):**
+1. **"מדידה≡רינדור" הוא העיקרון העליון של חלק C.** לכן ה‑measurer **משתמש באותו מנגנון של ה‑renderer**: line‑spacing דרך `TextStyle.height` (לא `StrutStyle.forceStrutHeight`). מעבר ל‑StrutStyle (Word‑מדויק יותר ל‑exact/atLeast) חייב לקרות **בשני** הנתיבים יחד — נדחה (§8.2 #7). תוצאה: 5 מקרי ה‑parity עוברים ±0.5px **כי שני המסלולים זהים גאומטרית**.
+2. **`w:vanish` עדיין מרונדר ונמדד** (§8.2 #8). דילוג אמיתי דורש תיאום עם **אינדקס החיפוש** ([docx_widget_generator.dart](../packages/docx_file_viewer/lib/src/widget_generator/docx_widget_generator.dart) `_extractFromInlines` מחזיק offsets כולל hidden). הפרמטר `skipHidden` כבר קיים ב‑`SpanFactory` (כבוי) לחיבור עתידי.
+3. **golden הטאבים = בדיקת מיקום דטרמיניסטית** ולא golden‑image (§8.2 #11) — קובצי ה‑fixtures/goldens חסרים בצ'קאאוט (קדם‑קיים). בדיקת מיקום מאמתת left‑flush/center‑on‑200/right‑at‑400 + RTL mirror — אימות חזק יותר מ‑golden שבור.
+4. **שם הטיפוס `WordJustification`** (ולא הרחבת `DocxAlign` ב‑enum) — הרחבת ה‑enum הייתה שוברת switch‑ים ב‑exporters (§1.2: אסור לגעת) ובכל מקרה ה‑AST קרס את ההבחנה start/left ב‑parse.
+
+**בעיות פתוחות / ל‑AI הבא (חלק D — Paginator):**
+- ה‑`TextMeasurer` מוכן לצריכה ב‑D: `measureParagraph(p, width, direction).lineMetrics` נותן נקודות פיצול‑שורה; `totalHeight` כולל spacing. לזכור: D צריך גם למדוד **טבלאות** (לא ממומש ב‑C — רק פסקאות).
+- ה‑`TabEngine` כיוון‑אגנוסטי וניתן לשימוש גם במדידת רוחב טאבים בעימוד.
+- שאריות C נדחות (לא חוסמות את D): StrutStyle (#7), דילוג vanish (#8), charScale/position (#9), wrapping של tabbed‑line + decimal מדויק + ירושת tab‑stops מסגנון (#10), golden‑image אמיתי כשיסופקו fixtures (#11), פיצול כתב ascii/cs נשאר לחלק L.
+
+### 2026-06-11 — חלק C — סגירת פערים נוספים (StrutStyle + vanish + baseline)
+**בוצע:** נסגרו 3 פערים אמיתיים מול המפרט שנדחו בתחילה (בעקבות בקשה לממש "מה שאפשר"):
+1. **StrutStyle ל‑`exact`/`atLeast`** (§C.2, היה §8.2 #7) — נוסף `SpanFactory.resolveStrut`: `exact`→`StrutStyle(fontSize: lineSpacing/15, height:1, forceStrutHeight:true)` (קופסת שורה כפויה), `atLeast`→מינימום (`forceStrutHeight:false`). `resolveLineHeightScale` מחזיר כעת `null` ל‑exact/atLeast (ה‑strut מטפל), ומכפיל רק ל‑`auto`. הוחל **בשני הנתיבים**: ה‑measurer (`_painter.strutStyle`) וה‑renderer (`RichText`/`SelectableText`/`_buildFloatingLayout` עם `strutStyle:`). בדיקת parity של exact עדיין ±0.5px + בדיקה ש‑480tw→32px קופסה כפויה.
+2. **דילוג `w:vanish` (hidden)** (§C.5, היה §8.2 #8) — מתואם בכל 3 המקומות כדי לשמור יישור offsets של חיפוש: `buildInlineSpans` (renderer) + לולאת ה‑offset ב‑`flushBuffer` + אינדקס החיפוש ([docx_widget_generator.dart](../packages/docx_file_viewer/lib/src/widget_generator/docx_widget_generator.dart) `_extractFromInlines`) + ה‑measurer (`skipHidden: true`). בדיקה: ריצה מוסתרת לא מוסיפה גובה/רוחב ואינה מופיעה ב‑`toPlainText()`.
+3. **baseline ראשון/אחרון** ב‑`BlockMeasurement` (§C.2 — הושלמה חתימת ה‑API) מתוך `lineMetrics`, לשימוש העימוד (D).
+
+**נשאר דחוי במכוון (סיבות, §8.2 #9–11):** charScale (`w:w`)/position (raise/lower) — נדיר, ומימוש WidgetSpan+Transform מסכן את עקרון "מדידה≡רינדור" (ה‑placeholder חייב להתאים בדיוק); כרגע **שקול** בין שני הנתיבים כך שאין סטיית עימוד. tabbed‑line ללא wrapping; decimal≈right; ירושת tab‑stops מסגנון (תלוי השחלה ב‑reader); `w:ptab` לא מרונדר; golden‑image (fixtures חסרים); פיצול כתב ascii/cs → חלק L.
+
+**בדיקות:** `docx_file_viewer`: **97 ירוקות** (+2: vanish, exact‑strut), `flutter analyze` נקי, `dart format` הורץ. אותן 4 golden נכשלות על fixtures חסרים (קדם‑קיים). `docx_creator` לא נגעתי בו.
+**מצב C:** ✅ — כל 4 פריטי ה‑DoD מסומנים; השאריות הן סטיות מודעות מתועדות (§8.2 #9–11) ופיצ'רים נדירים שאינם חוסמים את D.
