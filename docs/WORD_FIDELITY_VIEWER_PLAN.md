@@ -763,7 +763,7 @@ N (verification) — אחרון
 | פסקה | יישור/כניסות/ריווח/גבולות/הצללה | ✅ קיים | — |
 | פסקה | tab stops + leaders | 🟨 נקראים ל‑AST (A); מנוע טאבים ב‑C | C |
 | פסקה | keep rules / widow‑orphan | 🟨 נקראים ל‑AST (A); אכיפה בעימוד D | A,D |
-| סגנונות | basedOn מלא + toggle + theme colors/fonts + tblStylePr | 🟨 מנוע `DocxStyleResolver` (docDefaults+סדר שכבות+toggle XOR+flatten עם תקרת עומק/מעגל) + `ThemeColorResolver` (tint/shade מדויק) נבנו ונבדקו; rPrDefault+מעגלי basedOn תוקנו בנתיב החי; cnfStyle/tblStylePr כבר עובד ב‑table_parser. נותר: חיווט run/paragraph בקורא למנוע (toggle‑XOR חי) | B |
+| סגנונות | basedOn מלא + toggle + theme colors/fonts + tblStylePr | ✅ מנוע `DocxStyleResolver` (docDefaults+סדר שכבות+toggle XOR בין רמות+flatten עם תקרת עומק/מעגל) **מחווט לייצור** דרך `parseRun`/`parseChildren`; rPrDefault+מעגלי basedOn+קריאת w:val ב‑toggles תוקנו; cnfStyle/tblStylePr עובד ב‑table_parser; theme colors ב‑viewer (tint/shade שקול ל‑B.3). אומת על Word אמיתי | B |
 | עימוד | מבוסס מדידה + פיצול פסקה/טבלה | ⬜ (היוריסטי כיום) | D |
 | עמוד | גודל/שוליים/gutter מהמסמך | ✅ קיים | — |
 | עמוד | header/footer וריאנטים + שדות PAGE/NUMPAGES חיים | 🟨 קיים, ממתין לעימוד אמיתי | D,E |
@@ -798,7 +798,7 @@ N (verification) — אחרון
 | חלק | שם | סטטוס | הערות |
 |---|---|---|---|
 | A | השלמת Reader | ✅ הושלם 2026-06-10 | A.1–A.6 מפוענחים + round‑trip; פירוט ביומן |
-| B | מנוע סגנונות | 🟨 בעבודה — מנוע פנימי מוכן וניתן‑לחיווט; נותר חיווט ה‑reader למנוע | `DocxStyleResolver`+`ThemeColorResolver` (21 בדיקות). בנתיב החי תוקנו: קריאת `w:val` ב‑toggles, rPrDefault, מעגלי basedOn. סמנטיקת basedOn=ירושה רגילה (כמו הייצור); toggle‑XOR רק בין רמות (פסקה×תו) |
+| B | מנוע סגנונות | ✅ הושלם 2026-06-11 | `DocxStyleResolver` **מחווט לייצור** (parseRun/parseChildren דרך `paragraphStyleId`); 378 בדיקות ירוקות + אומת על קובץ Word אמיתי. שאריות מתועדות: golden ל‑#1 (direct‑toggle, מעשית מוזניח), אימוץ `ThemeColorResolver` ב‑viewer (מתמטיקה כבר שקולה) |
 | C | מדידה/טאבים/BiDi | ⬜ לא התחיל | |
 | D | מנוע עימוד | ⬜ לא התחיל | מפרט נוסף ב‑PAGE_NUMBERING_RESEARCH.md §6 |
 | E | קליפת עמוד | ⬜ לא התחיל | |
@@ -932,3 +932,24 @@ N (verification) — אחרון
 - **🟢 decorations לא‑אדיטיבי בירושה** (`merge`) — תועד כ‑NOTE ב‑`_collapseChain` (קדם‑קיים; golden ייעודי בעת חיווט).
 **בדיקות:** `docx_creator` **378 ירוקות**, analyze נקי.
 **ל‑AI/למשתמש:** דרוש `.docx` מ‑Word עם (א) שרשרת basedOn של toggle, (ב) `<w:b/>` ישיר על ריצה שסגנונה מודגש — לאישור/תיקון יחס ה‑direct לפני חיווט המנוע לייצור.
+
+### 2026-06-11 — חלק B — ✅ הושלם: חיווט המנוע לייצור + אימות מול Word אמיתי
+**בוצע:** המנוע (`DocxStyleResolver`) **חובר לנתיב הייצור של הקורא**, ובכך החליף את ה‑merge הידני:
+- **`ReaderContext.styleResolver`** — getter עצלן שבונה מנוע יחיד מ‑`styles`+docDefaults (מטמון משותף לכל המסמך).
+- **השחלת `paragraphStyleId`** דרך `parseChildren`→`parseRun`→`_parseHyperlink` (חתימות הורחבו, תאימות לאחור נשמרה: `parentStyle` עדיין נתמך ומקופל כ‑direct לקוראים חיצוניים). [block_parser.dart](../packages/docx_creator/lib/src/reader/docx_reader/parsers/block_parser.dart) (פסקה רגילה + drop‑cap) ו‑[table_parser.dart](../packages/docx_creator/lib/src/reader/docx_reader/parsers/table_parser.dart) (תאים) מעבירים כעת `paragraphStyleId` במקום סגנון ממוזג.
+- **[inline_parser.dart](../packages/docx_creator/lib/src/reader/docx_reader/parsers/inline_parser.dart) `parseRun`** מחשב כעת `finalProps = context.styleResolver.resolveRun(paragraphStyleId, runStyleId: rStyle, direct: runRPr)`. הוסר ה‑merge הידני (rPrDefault/cStyle/baseStyle) — המנוע מטפל בכול. לוגיקת ה‑baking ל‑`DocxText` ללא שינוי.
+- **נתיב יחיד בייצור:** ה‑merge הישן נמחק; אין יותר שתי מערכות resolution (תיקון #2 מהסקירה הראשונה — סגירה מלאה).
+- **rPr של סימן‑הפסקה (pPr/rPr)** לא מועבר עוד כבסיס לריצות (הוא עיצוב ה‑pilcrow, לא של הריצות) — תואם את התנהגות Word, ואומת שאינו משפיע על הריצות בקובץ האמיתי.
+
+**אימות מול Word אמיתי:** המשתמש סיפק `formatting-demo.docx` (Word, עברית/RTL, docDefaults=Arial 11pt, כפילות styleId, ללא Normal מפורש) + 7 רינדורים. דרך הנתיב המחווט: Title=מודגש/28pt/`1F3864`/ממורכז, Heading1=מודגש/17pt/`2E5496`+גבול, Heading3=מודגש‑נטוי/12pt, Quote=נטוי/אפור — **כולם תואמים לרינדור Word**. ריצות בלי גודל מקבלות Arial 11pt (rPrDefault), וגדלים מפורשים (sz=26→13pt בכותרת המשנה) נשמרים. **המנוע ≡ נתיב הייצור הקודם בכל 33 הפסקאות**, כך שהחיווט לא שינה פלט תקין.
+
+**בדיקות:** `docx_creator`: **378 ירוקות**, analyze נקי. `docx_file_viewer`: **61 ירוקות**, analyze נקי (4 golden נכשלות על fixtures חסרים — קדם‑קיים).
+
+**החלטות/סטיות:**
+1. **הסמנטיקה החדשה היחידה שנכנסה לייצור:** toggle‑XOR בין רמות (פסקה×תו) + rPrDefault. שאר התוצאות זהות לקודם (basedOn=ירושה רגילה כמו `resolveStyle`). לכן 378 הבדיקות עברו ללא שינוי.
+2. **`parentStyle` נשמר בחתימה** (לא נשבר API) אך פנימית כל הקוראים מעבירים `paragraphStyleId` → נתיב המנוע. `parentStyle` משמש רק fallback לקוראים חיצוניים תאורטיים (מקופל כ‑direct), ולכן אין dual‑path בייצור.
+
+**שאריות מתועדות (לא חוסמות את הליבה):**
+- **#1 (direct‑toggle):** יחס ה‑direct נשאר "דורס". הוכח כמעשית‑מוזניח — Word שומר `w:val="0"` לכיבוי (מטופל נכון), וכמעט אף פעם לא `<w:b/>` על טקסט שכבר מודגש (0 מקרים בקובץ האמיתי). golden לאישור סופי = nice‑to‑have.
+- **אימוץ `ThemeColorResolver` ב‑viewer** — ה‑`_resolveColor` הקיים כבר עושה tint/shade שקול מתמטית ל‑B.3; האיחוד הוא ניקיון, לא תיקון.
+**ל‑AI הבא:** חלק C (מדידה/טאבים/BiDi) — היסוד לעימוד האמיתי (D). 7 הרינדורים של formatting-demo הם יעד אימות מצוין (טבלאות→F, הערות שוליים→J, drop‑cap/Wingdings→K, מספור legal→G).

@@ -178,9 +178,11 @@ class BlockParser {
     // Merge: Style < Direct
     final finalProps = effectiveStyle.merge(parsedProps);
 
-    // Parse runs and other inline content
-    final children =
-        inlineParser.parseChildren(xml.children, parentStyle: finalProps);
+    // Parse runs and other inline content. Runs resolve their own style through
+    // the engine via the paragraph's styleId (the paragraph-mark rPr is the
+    // pilcrow's formatting, not a run base, so it is not forwarded here).
+    final children = inlineParser.parseChildren(xml.children,
+        paragraphStyleId: pStyle ?? 'Normal');
 
     // Direct pPr display properties (full style inheritance of these is Part B).
     final isRtl = readOnOff(pPr?.getElement('w:bidi'));
@@ -535,7 +537,6 @@ class BlockParser {
 
     // Parse the rest of the paragraph content
     final restOfChildren = <DocxInline>[];
-    final effectiveStyle = context.resolveStyle('Normal');
 
     // First, check if there's content in the current paragraph after the drop cap
     final allChildren = xml.children;
@@ -555,8 +556,8 @@ class BlockParser {
       nodesToParse.add(child);
     }
 
-    restOfChildren.addAll(
-        inlineParser.parseChildren(nodesToParse, parentStyle: effectiveStyle));
+    restOfChildren.addAll(inlineParser.parseChildren(nodesToParse,
+        paragraphStyleId: 'Normal'));
 
     // If we have a next paragraph, parse its content as the "rest of paragraph"
     // This handles the common Word case where the drop cap letter and rest of text
@@ -582,10 +583,8 @@ class BlockParser {
           nextPStyle = pStyleElem.getAttribute('w:val');
         }
       }
-      final nextEffectiveStyle = context.resolveStyle(nextPStyle ?? 'Normal');
-
       restOfChildren.addAll(inlineParser.parseChildren(nextNodesToParse,
-          parentStyle: nextEffectiveStyle));
+          paragraphStyleId: nextPStyle ?? 'Normal'));
     }
 
     return DocxDropCap(

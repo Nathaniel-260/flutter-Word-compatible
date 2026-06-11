@@ -17,7 +17,7 @@ class InlineParser {
   /// (`fldChar begin → instrText… → separate → result… → end`) as well as the
   /// simple `w:fldSimple` form, collapsing each into a single field node.
   List<DocxInline> parseChildren(Iterable<XmlNode> nodes,
-      {DocxStyle? parentStyle}) {
+      {DocxStyle? parentStyle, String? paragraphStyleId}) {
     final children = <DocxInline>[];
 
     // Complex-field accumulator. Non-null instruction = currently inside a
@@ -62,7 +62,7 @@ class InlineParser {
             child.getElement('w:instrText') != null;
 
         if (!hasFieldControl) {
-          final run = parseRun(child, parentStyle: parentStyle);
+          final run = parseRun(child, parentStyle: parentStyle, paragraphStyleId: paragraphStyleId);
           if (fieldInstr == null) {
             children.add(run);
           } else if (inResult || depth > 0) {
@@ -78,7 +78,7 @@ class InlineParser {
         DocxInline? content;
         var contentAttached = false;
         DocxInline runContent() =>
-            content ??= parseRun(child, parentStyle: parentStyle);
+            content ??= parseRun(child, parentStyle: parentStyle, paragraphStyleId: paragraphStyleId);
 
         for (final rc in child.children.whereType<XmlElement>()) {
           switch (rc.name.local) {
@@ -130,7 +130,7 @@ class InlineParser {
 
       if (local == 'fldSimple') {
         final instr = child.getAttribute('w:instr') ?? '';
-        final inner = parseChildren(child.children, parentStyle: parentStyle);
+        final inner = parseChildren(child.children, parentStyle: parentStyle, paragraphStyleId: paragraphStyleId);
         final node =
             FieldInstruction.parse(instr, cachedText: _cachedText(inner));
         final field = node ?? DocxUnknownField(instr, cachedResult: inner);
@@ -139,7 +139,7 @@ class InlineParser {
       }
 
       if (local == 'hyperlink') {
-        final parsed = _parseHyperlink(child, parentStyle: parentStyle);
+        final parsed = _parseHyperlink(child, parentStyle: parentStyle, paragraphStyleId: paragraphStyleId);
         (fieldInstr != null ? cached : children).addAll(parsed);
         continue;
       }
@@ -157,7 +157,7 @@ class InlineParser {
           final content = child.findAllElements('w:sdtContent').firstOrNull;
           if (content != null) contentNodes = content.children;
         }
-        final parsed = parseChildren(contentNodes, parentStyle: parentStyle);
+        final parsed = parseChildren(contentNodes, parentStyle: parentStyle, paragraphStyleId: paragraphStyleId);
         (fieldInstr != null ? cached : children).addAll(parsed);
         continue;
       }
@@ -171,7 +171,7 @@ class InlineParser {
         final container = byLocal('Choice') ?? byLocal('Fallback');
         if (container != null) {
           final parsed =
-              parseChildren(container.children, parentStyle: parentStyle);
+              parseChildren(container.children, parentStyle: parentStyle, paragraphStyleId: paragraphStyleId);
           (fieldInstr != null ? cached : children).addAll(parsed);
         }
         continue;
@@ -197,7 +197,8 @@ class InlineParser {
   }
 
   /// Parse a single run (w:r) element.
-  DocxInline parseRun(XmlElement run, {DocxStyle? parentStyle}) {
+  DocxInline parseRun(XmlElement run,
+      {DocxStyle? parentStyle, String? paragraphStyleId}) {
     // Check for line break — מבחין בין מעבר שורה למעבר עמוד (w:type="page").
     final br = run.findAllElements('w:br').firstOrNull;
     if (br != null) {
@@ -274,29 +275,24 @@ class InlineParser {
       }
     }
 
-    // 1. Base style = docDefaults rPrDefault (lowest layer) < Parent Paragraph
-    //    Style. rPrDefault carries the document's base run font/size (Part B,
-    //    B.1 step 1); it was previously skipped, so runs with no explicit size
-    //    fell back to the viewer default instead of Word's document default.
-    //    `merge` is last-wins, so the paragraph style overrides the defaults and
-    //    the defaults only fill gaps the paragraph style leaves open.
-    var baseStyle = parentStyle ?? context.resolveStyle('DefaultParagraphFont');
-    final runDefaults = context.defaultRunStyle;
-    if (runDefaults != null) {
-      baseStyle = runDefaults.merge(baseStyle);
-    }
-
-    // 2. Run Style (Character Style) - Overrides paragraph style properties
-    if (rStyle != null) {
-      final cStyle = context.resolveStyle(rStyle);
-      baseStyle = baseStyle.merge(cStyle);
-    }
-
-    // 3. Direct Properties - Parse directly from XML (these are explicit)
+    // Direct run properties (this run's own rPr).
     final parsedProps = DocxStyle.fromXml('temp', rPr: rPr);
 
-    // 4. Merged properties for formatting checks (bold, italic, etc.)
-    final finalProps = baseStyle.merge(parsedProps);
+    // Resolve the effective run style through the Part B style engine:
+    // docDefaults → paragraph-style chain ⊕ character-style chain (cross-level
+    // toggle XOR) → direct. Chain handling matches ReaderContext.resolveStyle so
+    // non-toggle results are unchanged; the engine adds correct toggle
+    // resolution and the rPrDefault base. When only a pre-resolved [parentStyle]
+    // is supplied (a legacy/external caller without a styleId) it is folded in
+    // as a direct base so such callers keep working.
+    final direct = (paragraphStyleId == null && parentStyle != null)
+        ? parentStyle.merge(parsedProps)
+        : parsedProps;
+    final finalProps = context.styleResolver.resolveRun(
+      paragraphStyleId: paragraphStyleId,
+      runStyleId: rStyle,
+      direct: direct,
+    );
 
     // Extract text
     final textElem = run.getElement('w:t');
@@ -387,7 +383,7 @@ class InlineParser {
   }
 
   List<DocxInline> _parseHyperlink(XmlElement hyperlink,
-      {DocxStyle? parentStyle}) {
+      {DocxStyle? parentStyle, String? paragraphStyleId}) {
     final results = <DocxInline>[];
     final rId = hyperlink.getAttribute('r:id');
     String? href;
@@ -397,7 +393,7 @@ class InlineParser {
     }
 
     for (var grandChild in hyperlink.findAllElements('w:r')) {
-      final run = parseRun(grandChild, parentStyle: parentStyle);
+      final run = parseRun(grandChild, parentStyle: parentStyle, paragraphStyleId: paragraphStyleId);
       if (run is DocxText && href != null) {
         final newDecorations = List<DocxTextDecoration>.from(run.decorations);
         if (!newDecorations.contains(DocxTextDecoration.underline)) {

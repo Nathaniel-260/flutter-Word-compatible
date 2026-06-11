@@ -526,20 +526,14 @@ class TableParser {
       }
     }
 
-    // Resolve style for inheritance
+    // Resolve style for inheritance (used for the paragraph-level fields below;
+    // runs resolve their own style through the engine via the styleId).
     final effectiveStyle = context.resolveStyle(pStyle ?? 'Normal');
 
-    // Parse direct properties (override styles)
-    // Extract rPr from pPr if present
-    final rPr = pPr?.getElement('w:rPr');
-    final parsedProps = DocxStyle.fromXml('temp', pPr: pPr, rPr: rPr);
-
-    // Merge: Style < Direct
-    final finalProps = effectiveStyle.merge(parsedProps);
-
-    // Parse inline children with full formatting
-    final children =
-        inlineParser.parseChildren(xml.children, parentStyle: finalProps);
+    // Parse inline children with full formatting. Runs resolve through the
+    // engine via the paragraph's styleId (see BlockParser.parseParagraph).
+    final children = inlineParser.parseChildren(xml.children,
+        paragraphStyleId: pStyle ?? 'Normal');
 
     return DocxParagraph(
       children: children,

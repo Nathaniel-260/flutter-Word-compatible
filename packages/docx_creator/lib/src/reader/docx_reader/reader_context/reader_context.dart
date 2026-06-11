@@ -7,6 +7,7 @@ import 'package:xml/xml.dart';
 import '../models/docx_relationship.dart';
 import '../models/docx_style.dart';
 import '../models/docx_theme.dart';
+import '../models/style_engine.dart';
 
 /// Shared context for all reader components.
 ///
@@ -74,6 +75,18 @@ class ReaderContext {
 
   /// Default run style from docDefaults
   DocxStyle? defaultRunStyle;
+
+  DocxStyleResolver? _styleResolver;
+
+  /// The shared style-resolution engine (Part B). Built lazily from the parsed
+  /// styles + docDefaults (which are populated before body parsing), so the
+  /// expensive `basedOn` flattening and toggle resolution happen once per style
+  /// combo across the whole document. See [DocxStyleResolver].
+  DocxStyleResolver get styleResolver => _styleResolver ??= DocxStyleResolver(
+        styles: styles,
+        docDefaultsParagraph: defaultParagraphStyle,
+        docDefaultsRun: defaultRunStyle,
+      );
 
   /// Resolve a style by ID, handling inheritance and defaults.
   DocxStyle resolveStyle(String? styleId) => _resolveStyle(styleId, <String>{});
