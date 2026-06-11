@@ -52,6 +52,26 @@ class BlockMeasurement {
   double get totalHeight => spacingBefore + textHeight + spacingAfter;
 }
 
+/// Line-boundary layout of a paragraph, used by the paginator to pick a split
+/// point (Plan §D.4 / §6.4).
+///
+/// [lineStartChar] and [lineTop] both have length `lineCount + 1`. Entry `k`
+/// gives the character offset (painter text space) and the cumulative top-Y of
+/// visual line `k`; the final entry is the paragraph end / total content height.
+class ParagraphLayout {
+  const ParagraphLayout({
+    required this.lineStartChar,
+    required this.lineTop,
+    required this.segments,
+  });
+
+  final List<int> lineStartChar;
+  final List<double> lineTop;
+  final List<SpanSegment> segments;
+
+  int get lineCount => lineTop.length - 1;
+}
+
 /// Measures paragraph height/line layout with a single recycled [TextPainter]
 /// and an LRU cache (Plan §C.2). The painter is **not** thread-safe; like all
 /// `TextPainter` work it must run on the UI thread (§4.4).
@@ -142,7 +162,33 @@ class TextMeasurer {
     TextDirection direction,
   ) {
     _layoutCount++;
+    _layoutInto(paragraph, width, direction);
 
+    final lineMetrics = _painter.computeLineMetrics();
+    final textHeight = _painter.height;
+
+    return BlockMeasurement(
+      source: paragraph,
+      textHeight: textHeight,
+      spacingBefore: _spacingBefore(paragraph),
+      spacingAfter: _spacingAfter(paragraph),
+      lineCount: lineMetrics.isEmpty ? 1 : lineMetrics.length,
+      lineMetrics: lineMetrics,
+      firstBaseline:
+          lineMetrics.isEmpty ? textHeight : lineMetrics.first.baseline,
+      lastBaseline:
+          lineMetrics.isEmpty ? textHeight : lineMetrics.last.baseline,
+    );
+  }
+
+  /// Lays [paragraph] out on the recycled painter at [width]/[direction] and
+  /// returns the built spans (with the segment map). Shared by [_measure] and
+  /// [layoutForSplit] so both lay out identically.
+  MeasurementSpans _layoutInto(
+    DocxParagraph paragraph,
+    double width,
+    TextDirection direction,
+  ) {
     // TODO(plan §C.3): tabbed paragraphs render through TabEngine/
     // TabbedLineRenderer (real stop positions, single line), but here they are
     // measured as plain wrapping text with tabs as 4 spaces — so the measured
@@ -184,21 +230,47 @@ class TextMeasurer {
       _painter.setPlaceholderDimensions(placeholders);
     }
     _painter.layout(maxWidth: width);
+    return built;
+  }
 
+  /// Lays [paragraph] out and returns its per-line character offsets and
+  /// cumulative heights for paragraph splitting (Plan §D.4). The returned
+  /// [ParagraphLayout.segments] map painter offsets back to the source inlines,
+  /// so the caller can cut the children via [SpanFactory.sliceInlines].
+  ///
+  /// Not cached — only called for the rare block that overflows a page.
+  ParagraphLayout layoutForSplit(
+    DocxParagraph paragraph,
+    double width,
+    TextDirection direction,
+  ) {
+    _layoutCount++;
+    final built = _layoutInto(paragraph, width, direction);
     final lineMetrics = _painter.computeLineMetrics();
-    final textHeight = _painter.height;
+    final textLen = built.root.toPlainText(includePlaceholders: true).length;
 
-    return BlockMeasurement(
-      source: paragraph,
-      textHeight: textHeight,
-      spacingBefore: _spacingBefore(paragraph),
-      spacingAfter: _spacingAfter(paragraph),
-      lineCount: lineMetrics.isEmpty ? 1 : lineMetrics.length,
-      lineMetrics: lineMetrics,
-      firstBaseline:
-          lineMetrics.isEmpty ? textHeight : lineMetrics.first.baseline,
-      lastBaseline:
-          lineMetrics.isEmpty ? textHeight : lineMetrics.last.baseline,
+    final lineCount = lineMetrics.isEmpty ? 1 : lineMetrics.length;
+    final lineStartChar = List<int>.filled(lineCount + 1, 0);
+    final lineTop = List<double>.filled(lineCount + 1, 0);
+
+    var cumTop = 0.0;
+    for (var k = 0; k < lineCount; k++) {
+      lineTop[k] = cumTop;
+      // Leading edge of the line: x=0 for LTR, x=width for RTL.
+      if (k > 0) {
+        final x = direction == TextDirection.rtl ? width : 0.0;
+        final pos = _painter.getPositionForOffset(Offset(x, cumTop + 0.5));
+        lineStartChar[k] = pos.offset;
+      }
+      cumTop += lineMetrics.isEmpty ? _painter.height : lineMetrics[k].height;
+    }
+    lineTop[lineCount] = cumTop;
+    lineStartChar[lineCount] = textLen;
+
+    return ParagraphLayout(
+      lineStartChar: lineStartChar,
+      lineTop: lineTop,
+      segments: built.segments,
     );
   }
 

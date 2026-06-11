@@ -11,13 +11,49 @@ import '../theme/docx_view_theme.dart';
 /// told their sizes via [TextPainter.setPlaceholderDimensions]; bundling the
 /// span with its placeholder list lets the measurer feed them in one call.
 class MeasurementSpans {
-  const MeasurementSpans(this.root, this.placeholders);
+  const MeasurementSpans(this.root, this.placeholders, this.segments);
 
   /// Root span (style = the body default; children fully specify geometry).
   final InlineSpan root;
 
   /// Placeholder dimensions for the [WidgetSpan]s in [root], in order.
   final List<PlaceholderDimensions> placeholders;
+
+  /// Maps character ranges of the laid-out text (the painter's offset space,
+  /// including placeholder/`U+FFFC` chars) back to the source inline that
+  /// produced them, in order. The paginator uses this to turn a line-boundary
+  /// character offset into a paragraph split point (Plan §D.4 / §6.4).
+  final List<SpanSegment> segments;
+}
+
+/// One contiguous run of characters in a measured paragraph's text, attributed
+/// to the [inline] (an original child of the paragraph) that produced it.
+///
+/// [inline] is null for synthetic, non-child content such as the first-line
+/// indent placeholder. [atomic] runs (images, tabs, fields, breaks) are never
+/// split through their interior — the slicer keeps or drops them whole.
+class SpanSegment {
+  const SpanSegment({
+    required this.start,
+    required this.length,
+    required this.inline,
+    required this.atomic,
+  });
+
+  /// Start offset in the painter's text space.
+  final int start;
+
+  /// Number of characters this run contributes (placeholders count as 1).
+  final int length;
+
+  /// The source inline, or null for synthetic content (first-line indent).
+  final DocxInline? inline;
+
+  /// True when the run cannot be split through its middle (only [DocxText] is
+  /// splittable).
+  final bool atomic;
+
+  int get end => start + length;
 }
 
 /// Single source of truth for turning a [DocxText] run into a Flutter
@@ -318,6 +354,32 @@ class SpanFactory {
   }) {
     final spans = <InlineSpan>[];
     final placeholders = <PlaceholderDimensions>[];
+    final segments = <SpanSegment>[];
+    var cursor = 0;
+
+    // Records the contribution of an inline to the painter's text space so the
+    // paginator can map a line-boundary offset back to a child (Plan §D.4).
+    void seg(int len, DocxInline? inline, {bool atomic = true}) {
+      if (len <= 0) return;
+      segments.add(SpanSegment(
+        start: cursor,
+        length: len,
+        inline: inline,
+        atomic: atomic,
+      ));
+      cursor += len;
+    }
+
+    // Records a zero-width anchor (e.g. a bookmark) at the current offset so a
+    // paragraph split keeps it on the correct side (PAGEREF correctness, §D.4).
+    void anchorSeg(DocxInline inline) {
+      segments.add(SpanSegment(
+        start: cursor,
+        length: 0,
+        inline: inline,
+        atomic: true,
+      ));
+    }
 
     if (firstLineIndentPx > 0) {
       spans.add(WidgetSpan(
@@ -330,9 +392,10 @@ class SpanFactory {
         alignment: PlaceholderAlignment.baseline,
         baseline: TextBaseline.alphabetic,
       ));
+      seg(1, null); // the placeholder counts as one U+FFFC in the painter text
     }
 
-    void addImage(double w, double h) {
+    void addImage(double w, double h, DocxInline inline) {
       spans.add(WidgetSpan(
         alignment: PlaceholderAlignment.middle,
         child: SizedBox(width: w, height: h),
@@ -341,21 +404,26 @@ class SpanFactory {
         size: Size(w, h),
         alignment: PlaceholderAlignment.middle,
       ));
+      seg(1, inline);
     }
 
     for (final inline in inlines) {
       if (inline is DocxText) {
         if (skipHidden && inline.hidden) continue; // w:vanish.
+        final content = resolveContent(inline);
         spans.add(TextSpan(
-          text: resolveContent(inline),
+          text: content,
           style: resolveRunStyle(inline, lineHeight: lineHeight),
         ));
+        seg(content.length, inline, atomic: false); // splittable text run
       } else if (inline is DocxLineBreak) {
         spans.add(const TextSpan(text: '\n'));
+        seg(1, inline);
       } else if (inline is DocxTab) {
         // Tab width is resolved by the TabEngine during layout; for plain
         // measurement we use the renderer's placeholder width (four spaces).
         spans.add(const TextSpan(text: '    '));
+        seg(4, inline);
       } else if (inline is DocxCheckbox) {
         spans.add(TextSpan(
           text: inline.isChecked ? '☒ ' : '☐ ',
@@ -370,10 +438,11 @@ class SpanFactory {
             height: lineHeight ?? theme.defaultTextStyle.height,
           ),
         ));
+        seg(2, inline);
       } else if (inline is DocxInlineImage) {
-        addImage(inline.width, inline.height);
+        addImage(inline.width, inline.height, inline);
       } else if (inline is DocxShape) {
-        addImage(inline.width, inline.height);
+        addImage(inline.width, inline.height, inline);
       } else if (inline is DocxFootnoteRef || inline is DocxEndnoteRef) {
         // Superscript reference mark; same size factor as the renderer.
         final id = inline is DocxFootnoteRef
@@ -386,13 +455,21 @@ class SpanFactory {
             fontFeatures: const [FontFeature.superscripts()],
           ),
         ));
+        seg(id.length, inline);
       } else if (inline is DocxPageNumber) {
-        spans.add(_fieldSpan(inline.cachedText ?? '1', lineHeight));
+        final t = inline.cachedText ?? '1';
+        spans.add(_fieldSpan(t, lineHeight));
+        seg(t.length, inline);
       } else if (inline is DocxPageCount) {
-        spans.add(_fieldSpan(inline.cachedText ?? '1', lineHeight));
+        final t = inline.cachedText ?? '1';
+        spans.add(_fieldSpan(t, lineHeight));
+        seg(t.length, inline);
       } else if (inline is DocxPageRef) {
         final text = inline.cachedText ?? '';
-        if (text.isNotEmpty) spans.add(_fieldSpan(text, lineHeight));
+        if (text.isNotEmpty) {
+          spans.add(_fieldSpan(text, lineHeight));
+          seg(text.length, inline);
+        }
       } else if (inline is DocxUnknownField) {
         final nested = buildMeasurementSpans(
           inline.cachedResult,
@@ -400,14 +477,76 @@ class SpanFactory {
         );
         spans.add(nested.root);
         placeholders.addAll(nested.placeholders);
+        seg(nested.root.toPlainText(includePlaceholders: true).length, inline);
+      } else if (inline is DocxBookmark) {
+        // Zero-width anchor: contributes no glyphs, but its position is recorded
+        // so a paragraph split keeps the bookmark on the correct side.
+        anchorSeg(inline);
       }
-      // DocxBookmark and other zero-width anchors contribute nothing.
+      // Other zero-width anchors contribute nothing.
     }
 
     return MeasurementSpans(
       TextSpan(style: theme.defaultTextStyle, children: spans),
       placeholders,
+      segments,
     );
+  }
+
+  /// Returns the inline children of a paragraph cut to the painter-space
+  /// character range `[startChar, endChar)`, reusing every inline by reference
+  /// and cloning only the [DocxText] run(s) on the boundary (§2.4 rule 1).
+  ///
+  /// [segments] must come from a [buildMeasurementSpans] call with the same
+  /// [inlines], [skipHidden] and [firstLineIndentPx]; offsets are in that
+  /// painter text space. Atomic runs (images, tabs, fields, breaks) are kept
+  /// whole when their start lies inside the range and dropped otherwise.
+  ///
+  /// Zero-width anchors (bookmarks) are placed half-open `[startChar, endChar)`;
+  /// pass [includeEndAnchors] for the tail slice (which runs to the paragraph
+  /// end) so an anchor sitting at the final offset is kept rather than dropped.
+  List<DocxInline> sliceInlines(
+    List<DocxInline> inlines,
+    List<SpanSegment> segments,
+    int startChar,
+    int endChar, {
+    bool includeEndAnchors = false,
+  }) {
+    final out = <DocxInline>[];
+    for (final s in segments) {
+      final inline = s.inline;
+      if (inline == null) continue; // synthetic (first-line indent)
+
+      if (s.length == 0) {
+        // Zero-width anchor: include by position (intersection math can never
+        // catch an empty range).
+        final keep = s.start >= startChar &&
+            (s.start < endChar || (includeEndAnchors && s.start == endChar));
+        if (keep) out.add(inline);
+        continue;
+      }
+
+      // Intersection of [s.start, s.end) with [startChar, endChar).
+      final lo = s.start < startChar ? startChar : s.start;
+      final hi = s.end < endChar ? s.end : endChar;
+      if (lo >= hi) continue; // no overlap
+
+      if (!s.atomic && inline is DocxText) {
+        final content = resolveContent(inline);
+        final a = (lo - s.start).clamp(0, content.length);
+        final b = (hi - s.start).clamp(0, content.length);
+        if (b <= a) continue;
+        if (a == 0 && b == content.length) {
+          out.add(inline); // whole run — keep by reference
+        } else {
+          out.add(inline.copyWith(content: content.substring(a, b)));
+        }
+      } else {
+        // Atomic run: include it whole when its start is within the range.
+        if (s.start >= startChar && s.start < endChar) out.add(inline);
+      }
+    }
+    return out;
   }
 
   TextSpan _fieldSpan(String text, double? lineHeight) => TextSpan(
