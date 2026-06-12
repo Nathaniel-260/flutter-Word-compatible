@@ -80,9 +80,29 @@ class DocxWidgetGenerator {
     // TableBuilder, ListBuilder, ShapeBuilder need docxTheme, set in generateWidgets
   }
 
-  /// Generate a list of widgets from a parsed document.
+  /// Generate a list of widgets from a parsed document (synchronous; one widget
+  /// per page in paged mode).
   List<Widget> generateWidgets(DocxBuiltDocument doc) {
-    // Re-initialize builders that depend on document-specific theme
+    _initBuilders(doc);
+    if (config.pageMode == DocxPageMode.paged) {
+      return _generatePagedWidgets(doc);
+    }
+    return _generateContinuousWidgets(doc);
+  }
+
+  /// Time-sliced variant of [generateWidgets] (Plan §4.4): paged-mode pagination
+  /// yields the UI thread periodically so loading a large document does not
+  /// freeze the frame. Continuous mode is unchanged (already cheap).
+  Future<List<Widget>> generateWidgetsAsync(DocxBuiltDocument doc) async {
+    _initBuilders(doc);
+    if (config.pageMode == DocxPageMode.paged) {
+      return _generatePagedWidgetsAsync(doc);
+    }
+    return _generateContinuousWidgets(doc);
+  }
+
+  /// (Re)initializes the block builders that depend on the document's theme.
+  void _initBuilders(DocxBuiltDocument doc) {
     _paragraphBuilder = ParagraphBuilder(
       theme: theme,
       config: config,
@@ -91,21 +111,17 @@ class DocxWidgetGenerator {
       onEndnoteTap: onEndnoteTap,
       docxTheme: doc.theme,
     );
-
     _listBuilder = ListBuilder(
       theme: theme,
       config: config,
       paragraphBuilder: _paragraphBuilder,
       docxTheme: doc.theme,
     );
-
     _imageBuilder = ImageBuilder(config: config);
-
     _shapeBuilder = ShapeBuilder(
       config: config,
       docxTheme: doc.theme,
     );
-
     _tableBuilder = TableBuilder(
       theme: theme,
       config: config,
@@ -115,12 +131,6 @@ class DocxWidgetGenerator {
       shapeBuilder: _shapeBuilder,
       docxTheme: doc.theme,
     );
-
-    if (config.pageMode == DocxPageMode.paged) {
-      return _generatePagedWidgets(doc);
-    }
-
-    return _generateContinuousWidgets(doc);
   }
 
   /// Original continuous generation logic
@@ -197,6 +207,31 @@ class DocxWidgetGenerator {
     final pagination =
         Paginator(measurer: measurer, config: config).paginate(doc);
     measurer.dispose();
+    return _renderPages(doc, pagination);
+  }
+
+  /// Time-sliced variant of [_generatePagedWidgets] (Plan §4.4): the heavy
+  /// measurement phase yields the UI thread periodically so a large document
+  /// loads without freezing the frame.
+  Future<List<Widget>> _generatePagedWidgetsAsync(DocxBuiltDocument doc) async {
+    final spanFactory = SpanFactory(
+      theme: theme,
+      config: config,
+      docxTheme: doc.theme,
+    );
+    final measurer = TextMeasurer(spanFactory: spanFactory);
+    final pagination =
+        await Paginator(measurer: measurer, config: config).paginateAsync(doc);
+    measurer.dispose();
+    return _renderPages(doc, pagination);
+  }
+
+  /// Builds one page widget per [PaginationResult.pages] entry, wiring each
+  /// page's [PageContext] (live `PAGE`/`NUMPAGES`/`SECTIONPAGES`/`PAGEREF`,
+  /// even/odd and title-page chrome, per-section geometry). Shared by the sync
+  /// and async paths.
+  List<Widget> _renderPages(
+      DocxBuiltDocument doc, PaginationResult pagination) {
     _lastPagination = pagination;
 
     // One counter shared across all pages' body widgets so search keys stay in

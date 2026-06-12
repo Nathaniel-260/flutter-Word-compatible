@@ -57,6 +57,22 @@ void main() {
     return sb.toString();
   }
 
+  test('paginateAsync yields the same layout as paginate (§4.4)', () async {
+    final paras = List.generate(60, (i) => para('Async block number $i'));
+    final doc = DocxBuiltDocument(elements: paras);
+
+    final sync = paginator.paginate(doc);
+    // sliceBudgetMs:0 forces a UI-thread yield after every group.
+    final async = await paginator.paginateAsync(doc, sliceBudgetMs: 0);
+
+    expect(async.pages.length, sync.pages.length);
+    expect(
+      async.pages.map((p) => p.slices.length).toList(),
+      sync.pages.map((p) => p.slices.length).toList(),
+      reason: 'time-slicing must not change page boundaries',
+    );
+  });
+
   test('empty document yields a single blank page', () {
     final res = paginator.paginate(const DocxBuiltDocument(elements: []));
     expect(res.pages.length, 1);

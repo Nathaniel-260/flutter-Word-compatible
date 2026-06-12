@@ -813,7 +813,7 @@ N (verification) — אחרון
 | A | השלמת Reader | ✅ הושלם 2026-06-10 | A.1–A.6 מפוענחים + round‑trip; פירוט ביומן |
 | B | מנוע סגנונות | ✅ הושלם 2026-06-11 | `DocxStyleResolver` **מחווט לייצור**; 379 בדיקות + אומת על Word אמיתי; auto‑color+perf סגורים (מנוע פי ~5.6 מהיר). סטיות מודעות מתועדות (§8.2 #4–6). שאריות nice‑to‑have: golden ל‑#1, אימוץ helpers ב‑viewer |
 | C | מדידה/טאבים/BiDi | ✅ הושלם 2026-06-11 | `SpanFactory` (מקור אמת אחד), `TextMeasurer` (LRU+מטמון, parity ±0.5px, **StrutStyle** ל‑exact/atLeast, baseline), טבלת BiDi C.4, `TabEngine`+`TabbedLineRenderer`, **דילוג vanish**. **97 בדיקות ירוקות** (≈36 חדשות). #7/#8 נסגרו (יומן 2026‑06‑11 "סגירת פערים"). שאריות דחויות = §8.2 **#9–11** (charScale/position, wrapping של tab+decimal+ירושת stops, golden‑image) — נדירים/לא חוסמים את D, parity נשמר |
-| D | מנוע עימוד | 🟨 בעבודה — מנוע+חיווט הושלמו; חסר async+אימות Word | **מנוע ה‑Paginator (M3+M4+M5) +חיווט לייצור הושלמו** (21 בדיקות): מילוי מבוסס‑מדידה, פיצול פסקה (widow/orphan), פיצול טבלה (חזרת כותרת+cantSplit), מקטעים+evenPage/oddPage blank, keepNext/keepLines, מפות bookmark/footnote. **ההיוריסטי נמחק** (`_estimateElementHeight`+batching) — נתיב יחיד. ה‑viewer מרנדר פרוסות עם `PageContext` אמיתי (PAGE/NUMPAGES/SECTIONPAGES/PAGEREF, even/odd, multi‑section); חיפוש מיושר לסדר הפרוסות. אומת end‑to‑end על `formatting-demo.docx` (עברית/RTL, 89 בלוקים). **נשאר:** time‑slicing אסינכרוני (§4.4)+תקציבי §2.2/§2.3; אימות מול Word על מכשיר (harness משתמש בפונט Ahem→10 עמ' מול 7 ב‑Word; פונטים אמיתיים יתכנסו). יומן 2026‑06‑11/12 |
+| D | מנוע עימוד | 🟨 כמעט הושלם — נשאר streaming UX + אימות מכשיר | **מנוע+חיווט+§D.2.5+async הושלמו** (22 בדיקות): מילוי מבוסס‑מדידה, פיצול פסקה (widow/orphan), פיצול טבלה (חזרת כותרת+cantSplit), מקטעים+evenPage blank, keepNext, פיצול שבירת‑עמוד אמצע‑פסקה (§D.2.5), מפות bookmark/footnote. **ההיוריסטי נמחק** — נתיב יחיד. `PageContext` אמיתי (PAGE/NUMPAGES/SECTIONPAGES/PAGEREF, even/odd, multi‑section); חיפוש מיושר לפרוסות. **time‑slicing אסינכרוני** (`paginateAsync`/`generateWidgetsAsync`, מנות ≤8ms — UI לא קופא). **אומת מול Word: 7 עמ' = 7 עמ'** ב‑formatting-demo (פונט+ריווח אמיתיים). ריווח ברירת‑מחדל הודק 1.5→1.15. **נשאר:** streaming של עמודים מוכנים + placeholder (§4.4), מדידת תקציבי §2 על מסמך ייחוס, אימות ידני מול Word על מכשיר (3 מסמכים). יומן 2026‑06‑11/12 |
 | E | קליפת עמוד | ⬜ לא התחיל | |
 | F | טבלאות 1:1 | ⬜ לא התחיל | |
 | G | רשימות 1:1 | ⬜ לא התחיל | |
@@ -1085,3 +1085,19 @@ N (verification) — אחרון
 
 **בדיקות:** 2 בדיקות חדשות (§D.2.5: פיצול אמצע‑פסקה + פסקת‑שבירה ללא עמוד ריק). `docx_file_viewer`: **120 ירוקות**, analyze נקי, format הורץ. בדיקת ה‑real‑font הייתה מקומית (תלויה בפונטי Windows + `.tmp_docx`) — לא נשמרה (תיכנס ל‑corpus של חלק N).
 **מסקנה:** **המנוע תואם ל‑Word (±0) בהינתן מטריקות Word** (פונט+ריווח). הפער היחיד הוא ברירת‑מחדל ריווח השורה של ה‑viewer.
+
+### 2026-06-12 — חלק D — עיבוד אסינכרוני (§4.4) + הידוק ריווח שורה
+**בוצע (לפי בקשת המשתמש, 3 משימות):**
+1. **הידוק ריווח שורה:** `DocxViewTheme` (light/dark/בסיס) `defaultTextStyle.height` 1.5→**1.15** (קרוב ל‑single של Word; 1.5 ניפח עמודים). 120 בדיקות נשארו ירוקות (parity נשמר — שני המסלולים על אותו theme).
+2. **time‑slicing אסינכרוני (§4.4):**
+   - `Paginator.paginateAsync(doc, {sliceBudgetMs=8})` — אותו עימוד, אך משחרר את ה‑UI thread (`await Future.delayed(Duration.zero)`) בכל פעם שמנה חורגת מ‑8ms. הרקורסיה (`_placeBlock`/`_placeGroup`) נשארה סינכרונית (חסומה פר‑בלוק); רק לולאת הבלוקים העליונה (`_fillBlocksAsync`) מניבה בין קבוצות. `paginate` הסינכרוני נשמר (בדיקות/מסמכים קטנים); שניהם חולקים `_finalize`/`_placeNextGroup`.
+   - `DocxWidgetGenerator.generateWidgetsAsync` + `_generatePagedWidgetsAsync` → מפרידים pagination מ‑`_renderPages` (משותף לסינכרוני/אסינכרוני). `_initBuilders` חולץ.
+   - `DocxView._loadDocument` קורא `await generateWidgetsAsync` → **המסך לא קופא** בזמן עימוד מסמך גדול (ה‑spinner מתנפש).
+3. **commit** — בוצע (`caeffa2` לחיווט+§D.2.5+ריווח; קומיט נוסף ל‑async).
+
+**בדיקות:** בדיקה חדשה `paginateAsync ≡ paginate` (sliceBudgetMs:0 → yield אחרי כל קבוצה; אותם גבולות עמוד). `docx_file_viewer`: **121 ירוקות**, analyze נקי, format הורץ. 4 golden קדם‑קיימות נכשלות על fixtures חסרים.
+
+**נשאר ל‑D (✅):**
+1. **streaming אמיתי** — כרגע `paginateAsync` מעמד הכול ואז מציג; "עמוד ראשון ≤1.5s" (§2.2) דורש הצגת עמודים ככל שנולדים + placeholder לעמודים שטרם עומדו (scrollbar יציב). callback/`Stream<PageModel>` פר‑עמוד + בניית widget עצלה ב‑`ListView.builder`.
+2. **מדידת תקציבי §2.2/§2.3** על מסמך ייחוס (200 עמ') ב‑`--profile`.
+3. **אימות ידני מול Word על מכשיר** (3 מסמכים, ±שורה).

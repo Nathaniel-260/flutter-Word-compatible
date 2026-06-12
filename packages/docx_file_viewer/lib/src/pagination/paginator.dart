@@ -62,25 +62,45 @@ class Paginator {
 
   double get _remaining => _geo.bodyHeight - _used;
 
-  /// Lays [doc] out into pages and the bookmark/footnote position maps.
+  /// Lays [doc] out into pages and the bookmark/footnote position maps,
+  /// synchronously (used by tests and small documents).
   PaginationResult paginate(DocxBuiltDocument doc) {
     _reset();
-
     final sections = _splitSections(doc);
     for (var si = 0; si < sections.length; si++) {
-      final run = sections[si];
-      _beginSection(run, si);
-      _fillBlocks(run.blocks);
+      _beginSection(sections[si], si);
+      _fillBlocks(sections[si].blocks);
     }
     _closePage();
+    return _finalize(doc);
+  }
 
+  /// Time-sliced pagination (Plan §4.4): the same layout, but the UI thread is
+  /// released for a frame whenever a slice exceeds [sliceBudgetMs] (`TextPainter`
+  /// must run on the UI thread, so we cooperate instead of blocking it). Keeps
+  /// the viewer responsive while a large document paginates.
+  Future<PaginationResult> paginateAsync(
+    DocxBuiltDocument doc, {
+    int sliceBudgetMs = 8,
+  }) async {
+    _reset();
+    final sw = Stopwatch()..start();
+    final sections = _splitSections(doc);
+    for (var si = 0; si < sections.length; si++) {
+      _beginSection(sections[si], si);
+      await _fillBlocksAsync(sections[si].blocks, sw, sliceBudgetMs);
+    }
+    _closePage();
+    return _finalize(doc);
+  }
+
+  PaginationResult _finalize(DocxBuiltDocument doc) {
     if (_pages.isEmpty) {
       // An empty document still shows one (blank) page.
       _pendingFirstOfSection = true;
       _openPage(doc.section ?? const DocxSectionDef(), 0);
       _closePage();
     }
-
     return PaginationResult(
       pages: List.unmodifiable(_pages),
       bookmarkPages: Map.unmodifiable(_bookmarkPages),
@@ -238,16 +258,36 @@ class Paginator {
   void _fillBlocks(List<DocxNode> blocks) {
     var i = 0;
     while (i < blocks.length) {
-      // Build a keepNext group: consecutive blocks where each but the last has
-      // `w:keepNext` (Plan §D.2.3).
-      final group = <DocxNode>[blocks[i]];
-      while (i + 1 < blocks.length && _keepsWithNext(blocks[i])) {
-        i++;
-        group.add(blocks[i]);
-      }
-      i++;
-      _placeGroup(group);
+      i = _placeNextGroup(blocks, i);
     }
+  }
+
+  /// Async variant of [_fillBlocks] that yields the UI thread between groups once
+  /// the current slice exceeds [budgetMs] (Plan §4.4).
+  Future<void> _fillBlocksAsync(
+      List<DocxNode> blocks, Stopwatch sw, int budgetMs) async {
+    var i = 0;
+    while (i < blocks.length) {
+      i = _placeNextGroup(blocks, i);
+      if (sw.elapsedMilliseconds >= budgetMs) {
+        await Future<void>.delayed(Duration.zero);
+        sw.reset();
+      }
+    }
+  }
+
+  /// Builds the keepNext group starting at [i] (consecutive blocks where each
+  /// but the last has `w:keepNext`, Plan §D.2.3), places it, and returns the
+  /// index past the group.
+  int _placeNextGroup(List<DocxNode> blocks, int i) {
+    final group = <DocxNode>[blocks[i]];
+    while (i + 1 < blocks.length && _keepsWithNext(blocks[i])) {
+      i++;
+      group.add(blocks[i]);
+    }
+    i++;
+    _placeGroup(group);
+    return i;
   }
 
   bool _keepsWithNext(DocxNode block) =>

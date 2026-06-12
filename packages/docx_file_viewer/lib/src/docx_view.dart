@@ -191,10 +191,12 @@ class _DocxViewState extends State<DocxView> {
             _showNoteContent('Endnote', endnoteMap[id]?.content),
       );
 
-      // Generate widgets
-      final widgets = _generator.generateWidgets(doc);
+      // Generate widgets. Paged mode paginates time-sliced (Plan §4.4) so a
+      // large document loads without freezing the frame.
+      final widgets = await _generator.generateWidgetsAsync(doc);
 
-      // Build search index
+      // Build search index (uses the pagination just produced for slice-aligned
+      // search keys).
       final textIndex = _generator.extractTextForSearch(doc);
 
       // Update search controller with document text
