@@ -1101,3 +1101,10 @@ N (verification) — אחרון
 1. **streaming אמיתי** — כרגע `paginateAsync` מעמד הכול ואז מציג; "עמוד ראשון ≤1.5s" (§2.2) דורש הצגת עמודים ככל שנולדים + placeholder לעמודים שטרם עומדו (scrollbar יציב). callback/`Stream<PageModel>` פר‑עמוד + בניית widget עצלה ב‑`ListView.builder`.
 2. **מדידת תקציבי §2.2/§2.3** על מסמך ייחוס (200 עמ') ב‑`--profile`.
 3. **אימות ידני מול Word על מכשיר** (3 מסמכים, ±שורה).
+
+### 2026-06-12 — חלק D — מענה לסקירת קוד (עמידות משאבים + ביצועי חיפוש)
+**בוצע (סקירה חיצונית של 3 הקומיטים):**
+- **🔴 try/finally סביב `measurer.dispose()`** ([docx_widget_generator.dart](../packages/docx_file_viewer/lib/src/widget_generator/docx_widget_generator.dart) `_generatePagedWidgets`/`_generatePagedWidgetsAsync`): אם `paginate`/`paginateAsync` זורקים, ה‑`TextPainter` הממוחזר היה דולף. עכשיו משוחרר ב‑`finally`.
+- **🔴 חיפוש לא מעמד מחדש:** `_onSearchChanged` ([docx_view.dart](../packages/docx_file_viewer/lib/src/docx_view.dart)) קרא `generateWidgets` → עימוד מלא (מדידה) בכל הקלדה. נוסף `rerenderWidgets` שמשתמש ב‑`_lastPagination` הממוטמן (חיפוש לא משנה layout, §2.4.6) ובונה widgets עם ההדגשות בלבד — **בלי מדידה מחדש**. ב‑continuous נופל ל‑`generateWidgets` כרגיל. (החלפת ה‑GlobalKey‑per‑block ווירטואליזציה מלאה = עדיין חלק M.)
+- **נדחה (מתועד):** מפתח קאש `width.round()` — **לא בעיה**: רוחב התוכן קבוע פר‑עימוד (אין וריאציה שברירית), אז אין cache‑miss מיותר. lookahead=5 ל‑float grouping וקאש ל‑`layoutForSplit` — קדם‑קיים/נדיר, נשאר. איחוד inline→span (TODO) = חלק C/L.
+**בדיקות:** בדיקה חדשה (`rerenderWidgets` משתמש שוב ב‑pagination — אותו object). `docx_file_viewer`: **122 ירוקות**, analyze נקי, format הורץ.

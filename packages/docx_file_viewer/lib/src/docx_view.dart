@@ -258,8 +258,9 @@ class _DocxViewState extends State<DocxView> {
 
   void _onSearchChanged() {
     if (_doc != null) {
-      // Regenerate widgets to reflect search highlights
-      final widgets = _generator.generateWidgets(_doc!);
+      // Re-render to reflect search highlights *without re-paginating* — search
+      // does not change layout, so reuse the cached pagination (Plan §2.4.6).
+      final widgets = _generator.rerenderWidgets(_doc!);
 
       if (mounted) {
         setState(() {

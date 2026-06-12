@@ -101,6 +101,19 @@ class DocxWidgetGenerator {
     return _generateContinuousWidgets(doc);
   }
 
+  /// Re-renders the page widgets from the *last* pagination without re-measuring
+  /// — used when only search highlights change, since search does not affect
+  /// layout (Plan §2.4.6 / §M.1). Falls back to a full [generateWidgets] when
+  /// there is no cached pagination (continuous mode or before the first load).
+  List<Widget> rerenderWidgets(DocxBuiltDocument doc) {
+    final pagination = _lastPagination;
+    if (config.pageMode == DocxPageMode.paged && pagination != null) {
+      _initBuilders(doc);
+      return _renderPages(doc, pagination);
+    }
+    return generateWidgets(doc);
+  }
+
   /// (Re)initializes the block builders that depend on the document's theme.
   void _initBuilders(DocxBuiltDocument doc) {
     _paragraphBuilder = ParagraphBuilder(
@@ -204,9 +217,12 @@ class DocxWidgetGenerator {
       docxTheme: doc.theme,
     );
     final measurer = TextMeasurer(spanFactory: spanFactory);
-    final pagination =
-        Paginator(measurer: measurer, config: config).paginate(doc);
-    measurer.dispose();
+    final PaginationResult pagination;
+    try {
+      pagination = Paginator(measurer: measurer, config: config).paginate(doc);
+    } finally {
+      measurer.dispose(); // release the recycled TextPainter even on error
+    }
     return _renderPages(doc, pagination);
   }
 
@@ -220,9 +236,13 @@ class DocxWidgetGenerator {
       docxTheme: doc.theme,
     );
     final measurer = TextMeasurer(spanFactory: spanFactory);
-    final pagination =
-        await Paginator(measurer: measurer, config: config).paginateAsync(doc);
-    measurer.dispose();
+    final PaginationResult pagination;
+    try {
+      pagination = await Paginator(measurer: measurer, config: config)
+          .paginateAsync(doc);
+    } finally {
+      measurer.dispose(); // release the recycled TextPainter even on error
+    }
     return _renderPages(doc, pagination);
   }
 

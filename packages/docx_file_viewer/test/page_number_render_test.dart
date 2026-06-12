@@ -59,4 +59,31 @@ void main() {
     final footers = texts.where((t) => t.startsWith('Page ')).toSet();
     expect(footers.length, greaterThanOrEqualTo(2));
   });
+
+  test('rerenderWidgets reuses the cached pagination (no re-measure)', () {
+    final body = <DocxNode>[
+      for (var i = 0; i < 20; i++)
+        DocxParagraph(children: [DocxText('Paragraph $i')]),
+    ];
+    final doc = DocxBuiltDocument(
+      elements: body,
+      section: const DocxSectionDef(),
+    );
+    const config = DocxViewConfig(
+      pageMode: DocxPageMode.paged,
+      pageHeight: 260,
+      enableSelection: false,
+    );
+    final gen = DocxWidgetGenerator(config: config);
+
+    final first = gen.generateWidgets(doc);
+    final paginated = gen.lastPagination;
+    expect(paginated, isNotNull);
+
+    // A search-driven re-render must NOT paginate again — same result object.
+    final second = gen.rerenderWidgets(doc);
+    expect(identical(gen.lastPagination, paginated), isTrue,
+        reason: 'rerenderWidgets must reuse the cached pagination');
+    expect(second.length, first.length);
+  });
 }
