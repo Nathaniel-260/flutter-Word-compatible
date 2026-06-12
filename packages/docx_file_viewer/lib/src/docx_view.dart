@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import 'docx_view_config.dart';
 import 'font_loader/embedded_font_loader.dart';
+import 'pagination/page_model.dart';
 import 'search/docx_search_controller.dart';
 import 'theme/docx_view_theme.dart';
 import 'widget_generator/docx_widget_generator.dart';
@@ -110,10 +111,30 @@ class DocxView extends StatefulWidget {
 }
 
 class _DocxViewState extends State<DocxView> {
+  /// Eager widget list. Used by continuous mode, and by paged mode only once a
+  /// search builds the keyed list for highlight/navigation. Null in paged mode
+  /// during the streaming load.
   List<Widget>? _widgets;
   DocxBuiltDocument? _doc; // Store for re-rendering on search
+
+  /// Pages produced so far in paged mode (grows as pagination streams them in,
+  /// Plan §D.2.9). Page widgets are built lazily from these.
+  List<PageModel> _pages = [];
+
+  /// The completed pagination (null until paginating finishes); supplies the
+  /// final `NUMPAGES`/`SECTIONPAGES`/`PAGEREF` values once known.
+  PaginationResult? _pagination;
+
+  /// True while paged pagination is still streaming pages in (drives the
+  /// placeholder tail).
+  bool _paginating = false;
+
   bool _isLoading = true;
   Object? _error;
+
+  /// Incremented on every [_loadDocument] so a stale streaming pagination (from
+  /// a superseded load) cannot mutate the current page list or call setState.
+  int _loadGeneration = 0;
 
   late DocxSearchController _searchController;
   late DocxWidgetGenerator _generator;
@@ -147,9 +168,14 @@ class _DocxViewState extends State<DocxView> {
   }
 
   Future<void> _loadDocument() async {
+    final int myGen = ++_loadGeneration;
     setState(() {
       _isLoading = true;
       _error = null;
+      _widgets = null;
+      _pages = <PageModel>[];
+      _pagination = null;
+      _paginating = false;
     });
 
     try {
@@ -191,31 +217,132 @@ class _DocxViewState extends State<DocxView> {
             _showNoteContent('Endnote', endnoteMap[id]?.content),
       );
 
-      // Generate widgets. Paged mode paginates time-sliced (Plan §4.4) so a
-      // large document loads without freezing the frame.
-      final widgets = await _generator.generateWidgetsAsync(doc);
-
-      // Build search index (uses the pagination just produced for slice-aligned
-      // search keys).
-      final textIndex = _generator.extractTextForSearch(doc);
-
-      // Update search controller with document text
-      _searchController.setDocument(textIndex);
-
-      setState(() {
+      if (widget.config.pageMode == DocxPageMode.paged) {
+        // Streaming paged load (Plan §D.2.9 / §4.4): display pages as the
+        // paginator lays them out, with a placeholder tail for pages not yet
+        // measured, so the first page shows well before the full document is
+        // paginated and the scrollbar stays stable.
         _doc = doc;
-        _widgets = widgets;
-        _isLoading = false;
-      });
+        _pages = <PageModel>[];
+        setState(() {
+          _isLoading = false;
+          _paginating = true;
+        });
 
-      widget.onLoaded?.call();
+        // Display each page on the UI thread as it is laid out. Several pages
+        // can arrive before a frame draws; setState coalesces the rebuilds, so
+        // the lazy ListView.builder repaints once per frame.
+        final pagination = await _generator.paginateStreaming(
+          doc,
+          onPage: (page) {
+            if (!mounted || myGen != _loadGeneration) return;
+            _pages.add(page);
+            setState(() {});
+          },
+          // Abandon this pagination if a newer load supersedes it, instead of
+          // running it to completion on the UI thread (wasted work exactly when
+          // the user wants responsiveness).
+          shouldContinue: () => mounted && myGen == _loadGeneration,
+        );
+        if (!mounted || myGen != _loadGeneration) return;
+
+        // Pagination finished: build the slice-aligned search index and settle
+        // the page fields to their final NUMPAGES/SECTIONPAGES/PAGEREF values.
+        // setDocument clears any query the user typed mid-stream, so capture and
+        // replay it now that the index and navigation keys exist.
+        final pendingQuery = _searchController.query;
+        _searchController.setDocument(_generator.extractTextForSearch(doc));
+        setState(() {
+          _pagination = pagination;
+          _pages = pagination.pages;
+          _paginating = false;
+        });
+        if (pendingQuery.isNotEmpty) _searchController.search(pendingQuery);
+        widget.onLoaded?.call();
+      } else {
+        // Continuous mode: build everything up front (already cheap).
+        final widgets = await _generator.generateWidgetsAsync(doc);
+        if (!mounted || myGen != _loadGeneration) return;
+        _searchController.setDocument(_generator.extractTextForSearch(doc));
+        setState(() {
+          _doc = doc;
+          _widgets = widgets;
+          _isLoading = false;
+        });
+        widget.onLoaded?.call();
+      }
     } catch (e) {
+      if (!mounted || myGen != _loadGeneration) return;
       setState(() {
         _error = e;
         _isLoading = false;
+        _paginating = false;
       });
       widget.onError?.call(e);
     }
+  }
+
+  /// A full page-height loading affordance at the *tail* of the paged list
+  /// while later pages are still being laid out (Plan §4.4). It marks one page
+  /// of pending content; the content region grows as real pages stream in ahead
+  /// of it. (A per-remaining-page estimate to fully fix the scroll extent is a
+  /// follow-up — it needs a reliable page-count estimate before pagination ends,
+  /// and the placeholder's fixed height (vs a page's flexible `minHeight`) would
+  /// otherwise accumulate drift.)
+  Widget _buildPagePlaceholder() {
+    final theme = widget.config.theme ?? DocxViewTheme.light();
+    final section = _doc?.section;
+    return Container(
+      width: _generator.pageDisplayWidth(section),
+      height: _generator.pageDisplayHeight(section),
+      margin: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+      decoration: BoxDecoration(
+        color: (theme.backgroundColor ?? Colors.white).withValues(alpha: 0.6),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.06),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: const Center(
+        child: SizedBox(
+          width: 22,
+          height: 22,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      ),
+    );
+  }
+
+  /// Tail notice shown when pagination stopped at the page cap (a pathological
+  /// or hostile document); see [PaginationResult.truncated].
+  Widget _buildTruncationNotice() {
+    final shown = _pages.length;
+    return Container(
+      width: _generator.pageDisplayWidth(_doc?.section),
+      margin: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.amber.shade100,
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: Colors.amber.shade700),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.warning_amber_rounded, color: Colors.amber.shade900),
+          const SizedBox(width: 12),
+          Flexible(
+            child: Text(
+              'This document is very large; showing the first $shown pages.',
+              style: TextStyle(color: Colors.amber.shade900),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showNoteContent(String title, List<DocxBlock>? content) {
@@ -257,73 +384,75 @@ class _DocxViewState extends State<DocxView> {
   }
 
   void _onSearchChanged() {
-    if (_doc != null) {
-      // Re-render to reflect search highlights *without re-paginating* — search
-      // does not change layout, so reuse the cached pagination (Plan §2.4.6).
-      final widgets = _generator.rerenderWidgets(_doc!);
+    // Search waits until pagination has finished and the index is built — there
+    // are no matches to show (or keys to navigate) mid-stream.
+    if (_doc == null || _paginating) return;
 
-      if (mounted) {
-        setState(() {
-          _widgets = widgets;
-        });
+    // Re-render to reflect search highlights *without re-paginating* — search
+    // does not change layout, so reuse the cached pagination (Plan §2.4.6). In
+    // paged mode this swaps the lazy streamed display for the keyed eager list
+    // so block keys exist for navigation.
+    final widgets = _generator.rerenderWidgets(_doc!);
 
-        // Handle navigation
-        final matchIndex = _searchController.currentMatchIndex;
-        if (matchIndex != -1 && matchIndex < _searchController.matches.length) {
-          final match = _searchController.matches[matchIndex];
-          final blockIndex = match.blockIndex;
+    if (!mounted) return;
+    setState(() {
+      _widgets = widgets;
+    });
 
-          final key = _generator.keys[blockIndex];
-          if (key != null) {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (key.currentContext != null) {
-                final context = key.currentContext!;
-                if (!context.mounted) return;
+    // Handle navigation
+    final matchIndex = _searchController.currentMatchIndex;
+    if (matchIndex != -1 && matchIndex < _searchController.matches.length) {
+      final match = _searchController.matches[matchIndex];
+      final blockIndex = match.blockIndex;
 
-                double alignment = 0.5;
+      final key = _generator.keys[blockIndex];
+      if (key != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (key.currentContext != null) {
+            final context = key.currentContext!;
+            if (!context.mounted) return;
 
-                try {
-                  // For large blocks, calculate dynamic alignment
-                  final renderObject = context.findRenderObject();
-                  if (renderObject is RenderBox) {
-                    final scrollable = Scrollable.of(context);
-                    if (scrollable.position.hasViewportDimension) {
-                      final viewportHeight =
-                          scrollable.position.viewportDimension;
-                      if (renderObject.size.height > viewportHeight) {
-                        final text = _searchController.getBlockText(blockIndex);
-                        if (text.isNotEmpty) {
-                          final relativePos = match.startOffset / text.length;
-                          alignment = relativePos.clamp(0.0, 1.0);
-                        }
-                      }
+            double alignment = 0.5;
+
+            try {
+              // For large blocks, calculate dynamic alignment
+              final renderObject = context.findRenderObject();
+              if (renderObject is RenderBox) {
+                final scrollable = Scrollable.of(context);
+                if (scrollable.position.hasViewportDimension) {
+                  final viewportHeight = scrollable.position.viewportDimension;
+                  if (renderObject.size.height > viewportHeight) {
+                    final text = _searchController.getBlockText(blockIndex);
+                    if (text.isNotEmpty) {
+                      final relativePos = match.startOffset / text.length;
+                      alignment = relativePos.clamp(0.0, 1.0);
                     }
                   }
-                } catch (e) {
-                  debugPrint('DocxView: Error calculating alignment: $e');
                 }
-
-                debugPrint(
-                    'DocxView: Scrolling to match $matchIndex at block $blockIndex using alignment $alignment');
-
-                Scrollable.ensureVisible(
-                  context,
-                  duration: const Duration(milliseconds: 300),
-                  curve: Curves.easeInOut,
-                  alignment: alignment,
-                );
-              } else {
-                debugPrint(
-                    'DocxView: Key found for block $blockIndex but context is null');
               }
-            });
-          } else {
-            debugPrint('DocxView: No key found for block $blockIndex');
-            // Debug dump keys
+            } catch (e) {
+              debugPrint('DocxView: Error calculating alignment: $e');
+            }
+
             debugPrint(
-                'DocxView: Available keys: ${_generator.keys.keys.join(', ')}');
+                'DocxView: Scrolling to match $matchIndex at block $blockIndex using alignment $alignment');
+
+            Scrollable.ensureVisible(
+              context,
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeInOut,
+              alignment: alignment,
+            );
+          } else {
+            debugPrint(
+                'DocxView: Key found for block $blockIndex but context is null');
           }
-        }
+        });
+      } else {
+        debugPrint('DocxView: No key found for block $blockIndex');
+        // Debug dump keys
+        debugPrint(
+            'DocxView: Available keys: ${_generator.keys.keys.join(', ')}');
       }
     }
   }
@@ -358,15 +487,10 @@ class _DocxViewState extends State<DocxView> {
       );
     }
 
-    if (_widgets == null || _widgets!.isEmpty) {
-      return const Center(child: Text('Empty document'));
-    }
-
     // Use theme's background color, fallback to config, then to white
     final backgroundColor =
         widget.config.backgroundColor ?? theme.backgroundColor ?? Colors.white;
 
-    Widget content;
     final bool isPaged = widget.config.pageMode == DocxPageMode.paged;
     // virtualization: כשאין zoom (InteractiveViewer דורש גודל סופי) ואין רוחב-עמוד
     // legacy, מרנדרים ב-ListView.builder — רק הבלוקים הנראים מקבלים RenderObject,
@@ -374,24 +498,73 @@ class _DocxViewState extends State<DocxView> {
     // ראו WORD_FIDELITY_VIEWER_PLAN.md §4.1.
     final bool canVirtualize =
         !widget.config.enableZoom && widget.config.pageWidth == null;
-    final Widget list = canVirtualize
-        ? ListView.builder(
-            padding: widget.config.padding,
-            itemCount: _widgets!.length,
-            itemBuilder: (context, i) =>
-                isPaged ? Center(child: _widgets![i]) : _widgets![i],
-          )
-        : SingleChildScrollView(
-            padding: widget.config.padding,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: _widgets!.map((child) {
-                if (isPaged) return Center(child: child);
-                return child;
-              }).toList(),
-            ),
-          );
 
+    final Widget list;
+    if (isPaged && _widgets == null) {
+      // Paged streaming display: build each page lazily from its measured model,
+      // with a loading affordance at the tail while pages are still being laid
+      // out (Plan §D.3/§4.4). The keyed eager list (_widgets) only takes over
+      // once a search needs navigation keys.
+      final pageCount = _pages.length;
+      // One trailing item: a placeholder while paginating, or a truncation
+      // notice if the page cap was hit (a pathological/hostile document).
+      final bool truncated = !_paginating && (_pagination?.truncated ?? false);
+      final bool hasTail = _paginating || truncated;
+      final itemCount = pageCount + (hasTail ? 1 : 0);
+      if (itemCount == 0) {
+        return const Center(child: CircularProgressIndicator());
+      }
+      Widget buildItem(int i) {
+        if (i >= pageCount) {
+          return _paginating
+              ? Center(child: _buildPagePlaceholder())
+              : _buildTruncationNotice();
+        }
+        return Center(
+          child: _generator.buildPageWidget(_doc!, _pages, i,
+              finalResult: _pagination),
+        );
+      }
+
+      list = canVirtualize
+          ? ListView.builder(
+              padding: widget.config.padding,
+              itemCount: itemCount,
+              itemBuilder: (context, i) => buildItem(i),
+            )
+          : SingleChildScrollView(
+              padding: widget.config.padding,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [for (var i = 0; i < itemCount; i++) buildItem(i)],
+              ),
+            );
+    } else {
+      // Continuous mode, or the keyed eager list built for search navigation.
+      final widgets = _widgets;
+      if (widgets == null || widgets.isEmpty) {
+        return const Center(child: Text('Empty document'));
+      }
+      list = canVirtualize
+          ? ListView.builder(
+              padding: widget.config.padding,
+              itemCount: widgets.length,
+              itemBuilder: (context, i) =>
+                  isPaged ? Center(child: widgets[i]) : widgets[i],
+            )
+          : SingleChildScrollView(
+              padding: widget.config.padding,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: widgets.map((child) {
+                  if (isPaged) return Center(child: child);
+                  return child;
+                }).toList(),
+              ),
+            );
+    }
+
+    Widget content;
     if (widget.config.pageMode == DocxPageMode.paged) {
       // Paged View: Canvas style
       content = Container(

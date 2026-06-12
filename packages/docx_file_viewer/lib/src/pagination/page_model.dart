@@ -60,10 +60,16 @@ class PaginationResult {
     required this.bookmarkPages,
     required this.footnotePages,
     required this.endnotePages,
+    this.truncated = false,
   });
 
   /// All pages, in order (including blank even/odd filler pages).
   final List<PageModel> pages;
+
+  /// True when pagination stopped at the page cap (`Paginator.maxPages`) before
+  /// consuming the whole document — a pathological/hostile input. The host can
+  /// surface a "document truncated" notice.
+  final bool truncated;
 
   /// `bookmark name → display page number` for resolving `PAGEREF`.
   final Map<String, int> bookmarkPages;

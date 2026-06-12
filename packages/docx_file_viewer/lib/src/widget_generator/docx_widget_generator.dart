@@ -114,8 +114,21 @@ class DocxWidgetGenerator {
     return generateWidgets(doc);
   }
 
+  /// The document the builders were last initialized for, so repeated calls
+  /// with the same document (e.g. lazy per-page [buildPageWidget]) skip the
+  /// rebuild. The builders depend only on `config`/`theme`/`doc.theme`.
+  ///
+  /// Invariant: this assumes one generator per document load (as [DocxView]
+  /// creates) — `config`/`theme` are fixed at construction and `doc.theme` is
+  /// keyed by document identity here. A generator reused across a *theme change
+  /// with the same `doc`* would not refresh its builders.
+  DocxBuiltDocument? _buildersFor;
+
   /// (Re)initializes the block builders that depend on the document's theme.
   void _initBuilders(DocxBuiltDocument doc) {
+    if (identical(_buildersFor, doc)) return;
+    _buildersFor = doc;
+    _finalSectionCounts = null; // belongs to the previous document
     _paragraphBuilder = ParagraphBuilder(
       theme: theme,
       config: config,
@@ -246,6 +259,99 @@ class DocxWidgetGenerator {
     return _renderPages(doc, pagination);
   }
 
+  /// Paginates [doc] time-sliced (Plan §4.4), invoking [onPage] as each page is
+  /// laid out so the host can render pages as they are born (streaming display,
+  /// §D.2.9) instead of blocking until the whole document is paginated. Only the
+  /// *measurement* runs here; page widgets are built lazily by the host through
+  /// [buildPageWidget], so a 200-page document keeps its pagination slices light
+  /// (no eager widget tree per page).
+  ///
+  /// The returned [PaginationResult] carries the final bookmark/footnote maps and
+  /// page count, and is stored as [lastPagination] so [extractTextForSearch]
+  /// lines up with the rendered slice order afterwards.
+  Future<PaginationResult> paginateStreaming(
+    DocxBuiltDocument doc, {
+    required void Function(PageModel page) onPage,
+    bool Function()? shouldContinue,
+  }) async {
+    _initBuilders(doc);
+    // The recycled TextPainter is only needed during measurement; release it
+    // once pagination ends (the per-page renderers use their own).
+    final spanFactory = SpanFactory(
+      theme: theme,
+      config: config,
+      docxTheme: doc.theme,
+    );
+    final measurer = TextMeasurer(spanFactory: spanFactory);
+    final PaginationResult pagination;
+    try {
+      pagination = await Paginator(measurer: measurer, config: config)
+          .paginateAsync(doc, onPage: onPage, shouldContinue: shouldContinue);
+    } finally {
+      measurer.dispose(); // release the recycled TextPainter even on error
+    }
+    _lastPagination = pagination;
+    return pagination;
+  }
+
+  /// Builds the widget for a single already-measured [PageModel]. The streaming
+  /// host calls this lazily from its `ListView.builder` (Plan §D.3) so only
+  /// visible pages are ever built.
+  ///
+  /// No search keys are attached: during the initial streaming load there are no
+  /// matches yet, and search navigation later uses the keyed eager list from
+  /// [rerenderWidgets]/[_renderPages]. While pagination is still running pass
+  /// [finalResult] = null — the header/footer `NUMPAGES`/`SECTIONPAGES`/`PAGEREF`
+  /// fields then resolve against provisional running totals from [pages] and
+  /// settle to their final values once [finalResult] is supplied.
+  Widget buildPageWidget(
+    DocxBuiltDocument doc,
+    List<PageModel> pages,
+    int index, {
+    PaginationResult? finalResult,
+  }) {
+    _initBuilders(doc);
+    final page = pages[index];
+    final totalPages = finalResult?.pageCount ?? pages.length;
+    final bookmarkPages = finalResult?.bookmarkPages ?? const <String, int>{};
+    // SECTIONPAGES uses one definition of "pages per section" (shared with the
+    // eager path). When done it is memoized; while streaming it is recomputed
+    // from the pages seen so far (cheap, and the counts are provisional anyway).
+    final counts = finalResult != null
+        ? (_finalSectionCounts ??= _sectionPageCounts(finalResult.pages))
+        : _sectionPageCounts(pages);
+    final sectionPages = counts[page.sectionIndex] ?? totalPages;
+    return _buildPageFromModel(
+      doc,
+      page,
+      totalPages: totalPages,
+      sectionPages: sectionPages,
+      bookmarkPages: bookmarkPages,
+    );
+  }
+
+  /// Memoized `sectionIndex → page count` for the *final* pagination (cleared
+  /// when [_initBuilders] switches documents), so lazy per-page builds do not
+  /// re-scan every page each frame.
+  Map<int, int>? _finalSectionCounts;
+
+  /// The page width a rendered page occupies (`w:pgSz`, or the config override),
+  /// used to size streaming placeholders to match real pages.
+  double pageDisplayWidth([DocxSectionDef? section]) =>
+      config.pageWidth ??
+      (section != null
+          ? DocxUnits.twipsToPixels(section.effectiveWidth)
+          : 794.0);
+
+  /// The page height a rendered page occupies (`w:pgSz`, or the config
+  /// override), used to size streaming placeholders so the scrollbar stays
+  /// stable while later pages are still being laid out (Plan §4.4).
+  double pageDisplayHeight([DocxSectionDef? section]) =>
+      config.pageHeight ??
+      (section != null
+          ? DocxUnits.twipsToPixels(section.effectiveHeight)
+          : pageDisplayWidth(section) * 1.414);
+
   /// Builds one page widget per [PaginationResult.pages] entry, wiring each
   /// page's [PageContext] (live `PAGE`/`NUMPAGES`/`SECTIONPAGES`/`PAGEREF`,
   /// even/odd and title-page chrome, per-section geometry). Shared by the sync
@@ -270,39 +376,68 @@ class DocxWidgetGenerator {
     }
 
     // SECTIONPAGES: pages per section index.
-    final sectionPageCounts = <int, int>{};
-    for (final page in pagination.pages) {
-      sectionPageCounts.update(page.sectionIndex, (n) => n + 1,
-          ifAbsent: () => 1);
-    }
+    final sectionPageCounts = _sectionPageCounts(pagination.pages);
 
     final widgets = <Widget>[];
     for (final page in pagination.pages) {
-      final sliceBlocks = [for (final s in page.slices) s.block];
-      final content = _generateBlockWidgets(sliceBlocks, counter: counter);
-      final backgroundImages = _collectBehindTextImages(sliceBlocks);
-
-      final pageContext = PageContext(
-        pageNumber: page.pageNumber,
+      widgets.add(_buildPageFromModel(
+        doc,
+        page,
         totalPages: pagination.pageCount,
         sectionPages:
             sectionPageCounts[page.sectionIndex] ?? pagination.pageCount,
-        sectionFormat: page.section.pageNumberFormat,
         bookmarkPages: pagination.bookmarkPages,
-      );
-
-      widgets.add(_buildPageContainer(
-        content,
-        doc,
-        sectionOverride: page.section,
-        headerWidgets: page.absoluteIndex == 0 ? firstPageHeaderWidgets : null,
-        isFirstPage: page.isFirstPageOfSection,
-        isEvenPage: doc.evenAndOddHeaders && page.isEvenPage,
-        pageContext: pageContext,
-        backgroundImages: backgroundImages,
+        counter: counter,
+        firstPageHeaderWidgets:
+            page.absoluteIndex == 0 ? firstPageHeaderWidgets : null,
       ));
     }
     return widgets;
+  }
+
+  /// Maps `sectionIndex → page count` for `SECTIONPAGES`.
+  Map<int, int> _sectionPageCounts(List<PageModel> pages) {
+    final counts = <int, int>{};
+    for (final page in pages) {
+      counts.update(page.sectionIndex, (n) => n + 1, ifAbsent: () => 1);
+    }
+    return counts;
+  }
+
+  /// Builds the page chrome + body for one [page]. The single source of page
+  /// rendering, shared by the eager [_renderPages] list and the lazy streaming
+  /// [buildPageWidget] (so there is no second rendering path, §2.4.6).
+  Widget _buildPageFromModel(
+    DocxBuiltDocument doc,
+    PageModel page, {
+    required int totalPages,
+    required int sectionPages,
+    required Map<String, int> bookmarkPages,
+    BlockIndexCounter? counter,
+    List<Widget>? firstPageHeaderWidgets,
+  }) {
+    final sliceBlocks = [for (final s in page.slices) s.block];
+    final content = _generateBlockWidgets(sliceBlocks, counter: counter);
+    final backgroundImages = _collectBehindTextImages(sliceBlocks);
+
+    final pageContext = PageContext(
+      pageNumber: page.pageNumber,
+      totalPages: totalPages,
+      sectionPages: sectionPages,
+      sectionFormat: page.section.pageNumberFormat,
+      bookmarkPages: bookmarkPages,
+    );
+
+    return _buildPageContainer(
+      content,
+      doc,
+      sectionOverride: page.section,
+      headerWidgets: firstPageHeaderWidgets,
+      isFirstPage: page.isFirstPageOfSection,
+      isEvenPage: doc.evenAndOddHeaders && page.isEvenPage,
+      pageContext: pageContext,
+      backgroundImages: backgroundImages,
+    );
   }
 
   /// אוסף תמונות "מאחורי הטקסט" (behindDoc) מתוך רצף בלוקים — מרונדרות

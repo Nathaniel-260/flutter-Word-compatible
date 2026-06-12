@@ -73,6 +73,80 @@ void main() {
     );
   });
 
+  test('paginateAsync streams each page via onPage in document order (§D.2.9)',
+      () async {
+    final paras = List.generate(40, (i) => para('Streamed block number $i'));
+    final doc = DocxBuiltDocument(elements: paras);
+
+    final streamed = <PageModel>[];
+    // sliceBudgetMs:0 yields after every group, exercising the streaming path.
+    final res = await paginator.paginateAsync(doc,
+        sliceBudgetMs: 0, onPage: streamed.add);
+
+    expect(res.pages.length, greaterThan(1),
+        reason: 'document should span several pages');
+    expect(streamed.length, res.pages.length,
+        reason: 'every page is emitted exactly once');
+    for (var i = 0; i < res.pages.length; i++) {
+      expect(identical(streamed[i], res.pages[i]), isTrue,
+          reason: 'pages stream in the same order as the final result');
+    }
+  });
+
+  test('empty document still streams a single blank page via onPage', () async {
+    final streamed = <PageModel>[];
+    final res = await paginator.paginateAsync(
+        const DocxBuiltDocument(elements: []),
+        onPage: streamed.add);
+
+    expect(streamed.length, 1);
+    expect(identical(streamed.single, res.pages.single), isTrue);
+    expect(streamed.single.slices, isEmpty);
+  });
+
+  test('the synchronous paginate path never invokes a stale onPage', () async {
+    final doc = DocxBuiltDocument(elements: [para('one'), para('two')]);
+    final streamed = <PageModel>[];
+    // Run the streaming path once so _onPage is set on the instance...
+    await paginator.paginateAsync(doc, onPage: streamed.add);
+    streamed.clear();
+    // ...then the sync path must not reuse that callback (reset clears it).
+    paginator.paginate(doc);
+    expect(streamed, isEmpty);
+  });
+
+  test('shouldContinue=false abandons a superseded pagination early', () async {
+    final paras = List.generate(200, (i) => para('cancel me $i'));
+    final doc = DocxBuiltDocument(elements: paras);
+
+    var polled = 0;
+    // sliceBudgetMs:0 yields (and polls) after the first group; returning false
+    // cancels instead of laying out all ~100 pages.
+    final res = await paginator.paginateAsync(doc, sliceBudgetMs: 0,
+        shouldContinue: () {
+      polled++;
+      return false;
+    });
+
+    expect(polled, greaterThan(0), reason: 'the predicate is polled');
+    expect(res.pages.length, lessThan(10),
+        reason: 'cancelled long before the full ~100-page layout');
+  });
+
+  test('pagination is bounded by maxPages and flags truncated (anti-runaway)',
+      () {
+    // A tiny cap stands in for a pathological document (tiny page, huge body).
+    final capped = Paginator(measurer: measurer, config: config, maxPages: 3);
+    final paras = List.generate(200, (i) => para('overflow $i'));
+
+    final res = capped.paginate(DocxBuiltDocument(elements: paras));
+
+    expect(res.truncated, isTrue);
+    expect(res.pages.length, lessThanOrEqualTo(3),
+        reason: 'pagination stops at the cap, not the ~100 natural pages');
+    expect(res.pages.length, greaterThan(0));
+  });
+
   test('empty document yields a single blank page', () {
     final res = paginator.paginate(const DocxBuiltDocument(elements: []));
     expect(res.pages.length, 1);

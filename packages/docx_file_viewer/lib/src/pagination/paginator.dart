@@ -23,16 +23,41 @@ class Paginator {
   Paginator({
     required this.measurer,
     required this.config,
+    this.maxPages = 50000,
   });
 
   final TextMeasurer measurer;
   final DocxViewConfig config;
+
+  /// Anti-runaway backstop: an upper bound on the number of pages a single
+  /// document may produce. A pathological/hostile `.docx` (tiny page height,
+  /// enormous body) could otherwise paginate without end — unbounded memory and
+  /// CPU for a viewer that opens untrusted files. On reaching the cap the fill
+  /// loop and split recursion stop and the result is flagged
+  /// [PaginationResult.truncated]. The default is far above any real document.
+  final int maxPages;
 
   // --- Output accumulators (reset per paginate call) -----------------------
   final List<PageModel> _pages = [];
   final Map<String, int> _bookmarkPages = {};
   final Map<int, int> _footnotePages = {};
   final Map<int, int> _endnotePages = {};
+
+  // Streaming sink: invoked as each page is closed so the UI can display pages
+  // as they are born (Plan §D.2.9 / §4.4). Null for the synchronous path.
+  void Function(PageModel page)? _onPage;
+
+  // Cooperative-cancel predicate (async path): polled after each time-slice; a
+  // false return abandons a superseded pagination instead of running it to the
+  // end on the UI thread (e.g. the host switched documents).
+  bool Function()? _shouldContinue;
+  bool _cancelled = false;
+
+  // Set once [maxPages] is reached; flags the result and stops further work.
+  bool _truncated = false;
+
+  // True once the fill loop / split recursion must unwind (cancel or cap).
+  bool get _stop => _cancelled || _truncated;
 
   // --- Numbering / position state ------------------------------------------
   int _displayNumber = 1;
@@ -79,24 +104,39 @@ class Paginator {
   /// released for a frame whenever a slice exceeds [sliceBudgetMs] (`TextPainter`
   /// must run on the UI thread, so we cooperate instead of blocking it). Keeps
   /// the viewer responsive while a large document paginates.
+  /// [onPage] (when given) is called with each [PageModel] the moment its page
+  /// is closed, in document order — so the host can render pages as they are
+  /// laid out (streaming display) instead of waiting for the whole document.
+  /// The complete [PaginationResult] (with the bookmark/footnote maps, which are
+  /// only final at the end) is still returned.
+  ///
+  /// [shouldContinue], when given, is polled after each time-slice; returning
+  /// false abandons the pagination (a superseded load) so it stops consuming the
+  /// UI thread instead of running to completion.
   Future<PaginationResult> paginateAsync(
     DocxBuiltDocument doc, {
     int sliceBudgetMs = 8,
+    void Function(PageModel page)? onPage,
+    bool Function()? shouldContinue,
   }) async {
     _reset();
+    _onPage = onPage;
+    _shouldContinue = shouldContinue;
     final sw = Stopwatch()..start();
     final sections = _splitSections(doc);
     for (var si = 0; si < sections.length; si++) {
       _beginSection(sections[si], si);
       await _fillBlocksAsync(sections[si].blocks, sw, sliceBudgetMs);
+      if (_stop) break;
     }
     _closePage();
     return _finalize(doc);
   }
 
   PaginationResult _finalize(DocxBuiltDocument doc) {
-    if (_pages.isEmpty) {
-      // An empty document still shows one (blank) page.
+    if (_pages.isEmpty && !_cancelled) {
+      // An empty (or not-yet-cancelled) document still shows one blank page. A
+      // cancelled run returns whatever it had — the host discards it anyway.
       _pendingFirstOfSection = true;
       _openPage(doc.section ?? const DocxSectionDef(), 0);
       _closePage();
@@ -106,6 +146,7 @@ class Paginator {
       bookmarkPages: Map.unmodifiable(_bookmarkPages),
       footnotePages: Map.unmodifiable(_footnotePages),
       endnotePages: Map.unmodifiable(_endnotePages),
+      truncated: _truncated,
     );
   }
 
@@ -120,6 +161,10 @@ class Paginator {
     _slices = [];
     _used = 0;
     _pendingFirstOfSection = true;
+    _onPage = null;
+    _shouldContinue = null;
+    _cancelled = false;
+    _truncated = false;
   }
 
   // ===========================================================================
@@ -216,8 +261,10 @@ class Paginator {
   }
 
   /// Ensures a page is open before placing content. Opens one with the active
-  /// section's geometry when needed.
+  /// section's geometry when needed. No-op once stopped (cap/cancel), so the
+  /// unwinding placement code never resurrects a page past the cap.
   void _ensurePage() {
+    if (_stop) return;
     if (!_hasOpenPage) {
       _openPage(_activeSection, _pendingSectionIndex);
     }
@@ -225,7 +272,7 @@ class Paginator {
 
   void _closePage() {
     if (!_hasOpenPage) return;
-    _pages.add(PageModel(
+    final page = PageModel(
       pageNumber: _openDisplayNumber,
       absoluteIndex: _openAbsoluteIndex,
       sectionIndex: _pageSectionIndex,
@@ -235,19 +282,26 @@ class Paginator {
       isFirstPageOfSection: _pageIsFirstOfSection,
       isEvenPage: _openDisplayNumber.isEven,
       isBlank: _openIsBlank,
-    ));
+    );
+    _pages.add(page);
     _displayNumber++;
     _absoluteIndex++;
     _hasOpenPage = false;
+    if (_pages.length >= maxPages) _truncated = true; // anti-runaway backstop
+    // Emit the finished page so a streaming host can display it immediately.
+    _onPage?.call(page);
   }
 
   /// Closes the current page and immediately opens a fresh one in the same
-  /// section, for content that overflowed.
+  /// section, for content that overflowed. Once the page cap is hit (flagged by
+  /// [_closePage]) it does not open another page, so pagination stops at exactly
+  /// [maxPages].
   void _newPage() {
     final section = _hasOpenPage ? _pageSection : _activeSection;
     final sectionIndex =
         _hasOpenPage ? _pageSectionIndex : _pendingSectionIndex;
     _closePage();
+    if (_truncated) return;
     _openPage(section, sectionIndex);
   }
 
@@ -257,21 +311,23 @@ class Paginator {
 
   void _fillBlocks(List<DocxNode> blocks) {
     var i = 0;
-    while (i < blocks.length) {
+    while (i < blocks.length && !_stop) {
       i = _placeNextGroup(blocks, i);
     }
   }
 
   /// Async variant of [_fillBlocks] that yields the UI thread between groups once
-  /// the current slice exceeds [budgetMs] (Plan §4.4).
+  /// the current slice exceeds [budgetMs] (Plan §4.4). After each yield it polls
+  /// [_shouldContinue] and abandons a superseded pagination.
   Future<void> _fillBlocksAsync(
       List<DocxNode> blocks, Stopwatch sw, int budgetMs) async {
     var i = 0;
-    while (i < blocks.length) {
+    while (i < blocks.length && !_stop) {
       i = _placeNextGroup(blocks, i);
       if (sw.elapsedMilliseconds >= budgetMs) {
         await Future<void>.delayed(Duration.zero);
         sw.reset();
+        if (_shouldContinue != null && !_shouldContinue!()) _cancelled = true;
       }
     }
   }
@@ -294,6 +350,7 @@ class Paginator {
       block is DocxParagraph && block.keepWithNext;
 
   void _placeGroup(List<DocxNode> group) {
+    if (_stop) return;
     if (group.length > 1) {
       _ensurePage();
       final groupHeight = group.fold<double>(
@@ -313,11 +370,13 @@ class Paginator {
   }
 
   void _placeBlock(DocxNode block) {
+    if (_stop) return; // unwind the split recursion once stopped (cap/cancel)
     _ensurePage();
 
     // Hard page break before this paragraph (`w:pageBreakBefore`).
     if (block is DocxParagraph && block.pageBreakBefore && _used > 0) {
       _newPage();
+      if (_stop) return;
     }
 
     // Inline page break (`w:br w:type="page"`): split the paragraph at the first
