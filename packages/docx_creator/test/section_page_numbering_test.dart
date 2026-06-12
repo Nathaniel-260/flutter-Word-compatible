@@ -43,6 +43,11 @@ void main() {
           DocxPageNumberFormat.lowerLetter);
       expect(SectionParser.mapPageNumberFormat('upperLetter'),
           DocxPageNumberFormat.upperLetter);
+      // Hebrew numbering (§E.2): hebrew1 = gematria, hebrew2 = alphabet.
+      expect(SectionParser.mapPageNumberFormat('hebrew1'),
+          DocxPageNumberFormat.hebrew1);
+      expect(SectionParser.mapPageNumberFormat('hebrew2'),
+          DocxPageNumberFormat.hebrew2);
       // Unknown / missing → null (caller keeps its default).
       expect(SectionParser.mapPageNumberFormat('cardinalText'), isNull);
       expect(SectionParser.mapPageNumberFormat(null), isNull);

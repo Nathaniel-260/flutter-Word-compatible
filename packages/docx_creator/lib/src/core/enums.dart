@@ -444,6 +444,14 @@ enum DocxPageNumberFormat {
   lowerRoman,
   upperLetter,
   lowerLetter,
+
+  /// Hebrew gematria numerals — `w:fmt="hebrew1"` (א, ב … יא … the numeric
+  /// value of the page as additive letters). Critical for Hebrew sacred texts
+  /// (Plan §E.2).
+  hebrew1,
+
+  /// Hebrew alphabet ordinals — `w:fmt="hebrew2"` (1→א, 2→ב … the Nth letter).
+  hebrew2,
 }
 
 /// Chapter/page separator for `w:pgNumType w:chapSep` (e.g. "1-1", "2.5").
@@ -486,8 +494,9 @@ enum DocxPageBorderOffsetFrom { text, page }
 extension DocxPageBorderOffsetFromExtension on DocxPageBorderOffsetFrom {
   String get xmlValue => name;
 
-  static DocxPageBorderOffsetFrom fromXml(String? val) =>
-      val == 'page' ? DocxPageBorderOffsetFrom.page : DocxPageBorderOffsetFrom.text;
+  static DocxPageBorderOffsetFrom fromXml(String? val) => val == 'page'
+      ? DocxPageBorderOffsetFrom.page
+      : DocxPageBorderOffsetFrom.text;
 }
 
 /// When line numbering restarts (`w:lnNumType w:restart`).

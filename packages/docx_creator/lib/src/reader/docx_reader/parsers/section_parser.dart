@@ -166,7 +166,8 @@ class SectionParser {
         columns = DocxColumns(
           count: int.tryParse(colsElem.getAttribute('w:num') ?? '') ??
               (hasExplicitCols ? colDefs.length : 1),
-          spaceTwips: int.tryParse(colsElem.getAttribute('w:space') ?? '') ?? 720,
+          spaceTwips:
+              int.tryParse(colsElem.getAttribute('w:space') ?? '') ?? 720,
           // Absent attribute + explicit columns ⇒ not equal-width (Word's
           // behavior), so the explicit per-column widths survive round-trip.
           equalWidth: equalAttr != null
@@ -180,15 +181,16 @@ class SectionParser {
       // Vertical alignment of body content
       final vAlignElem = sectPr.getElement('w:vAlign');
       if (vAlignElem != null) {
-        vAlign = DocxSectionVAlignExtension.fromXml(vAlignElem.getAttribute('w:val'));
+        vAlign = DocxSectionVAlignExtension.fromXml(
+            vAlignElem.getAttribute('w:val'));
       }
 
       // Page borders
       final pgBorders = sectPr.getElement('w:pgBorders');
       if (pgBorders != null) {
         pageBorders = DocxPageBorders(
-          display:
-              DocxPageBorderDisplayExtension.fromXml(pgBorders.getAttribute('w:display')),
+          display: DocxPageBorderDisplayExtension.fromXml(
+              pgBorders.getAttribute('w:display')),
           offsetFrom: DocxPageBorderOffsetFromExtension.fromXml(
               pgBorders.getAttribute('w:offsetFrom')),
           zOrderBack: pgBorders.getAttribute('w:zOrder') == 'back',
@@ -206,8 +208,8 @@ class SectionParser {
           countBy: int.tryParse(lnNumType.getAttribute('w:countBy') ?? ''),
           start: int.tryParse(lnNumType.getAttribute('w:start') ?? ''),
           distance: int.tryParse(lnNumType.getAttribute('w:distance') ?? ''),
-          restart:
-              DocxLineNumberRestartExtension.fromXml(lnNumType.getAttribute('w:restart')),
+          restart: DocxLineNumberRestartExtension.fromXml(
+              lnNumType.getAttribute('w:restart')),
         );
       }
 
@@ -312,6 +314,10 @@ class SectionParser {
         return DocxPageNumberFormat.upperLetter;
       case 'lowerLetter':
         return DocxPageNumberFormat.lowerLetter;
+      case 'hebrew1':
+        return DocxPageNumberFormat.hebrew1;
+      case 'hebrew2':
+        return DocxPageNumberFormat.hebrew2;
       default:
         return null;
     }

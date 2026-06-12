@@ -768,8 +768,8 @@ N (verification) — אחרון
 | סגנונות | basedOn מלא + toggle + theme colors/fonts + tblStylePr | ✅ מנוע `DocxStyleResolver` (docDefaults+סדר שכבות+toggle XOR בין רמות+flatten עם תקרת עומק/מעגל) **מחווט לייצור** דרך `parseRun`/`parseChildren`; rPrDefault+מעגלי basedOn+קריאת w:val ב‑toggles תוקנו; cnfStyle/tblStylePr עובד ב‑table_parser; theme colors ב‑viewer (tint/shade שקול ל‑B.3). אומת על Word אמיתי | B |
 | עימוד | מבוסס מדידה + פיצול פסקה/טבלה | 🟨 מנוע `Paginator` **מחווט לייצור** (ההיוריסטי נמחק — נתיב יחיד). M3 מילוי, M4 פיצול פסקה+widow/orphan, M5 פיצול טבלה+חזרת כותרת, מקטעים+evenPage blank, keepNext/keepLines, מפות bookmark/footnote, async time‑slicing + **streaming display + placeholder (§D.2.9/§D.3/§4.4)**. נשאר: אימות תקציבי §2 + Word על מכשיר | D |
 | עמוד | גודל/שוליים/gutter מהמסמך | ✅ קיים | — |
-| עמוד | header/footer וריאנטים + שדות PAGE/NUMPAGES חיים | 🟨 קיים, ממתין לעימוד אמיתי | D,E |
-| עמוד | vAlign/גבולות עמוד/סימן מים/רקע | 🟨 vAlign/pgBorders נקראים ל‑AST (A); רינדור ב‑E | A,E |
+| עמוד | header/footer וריאנטים + שדות PAGE/NUMPAGES חיים | ✅ `PageContext` אמיתי פר‑עמוד (D) + קליפת עמוד (E); first/even/default + titlePg | D,E |
+| עמוד | vAlign/גבולות עמוד/סימן מים/רקע | 🟨 **vAlign+pgBorders+רקע מקטע מרונדרים (E)**; גובה עמוד קבוע; סימן מים (תלוי H) ומספור שורות נדחו | A,E |
 | טבלה | borders/shading/merge/nested | ✅ קיים בסיסי | — |
 | טבלה | autofit אמיתי/קונפליקט גבולות/bidiVisual/cellMar/cantSplit | 🟨 מאפיינים נקראים ל‑AST (A: bidiVisual/tblLayout/tcMar/cantSplit/…); פריסה ב‑F | A,F |
 | רשימות | מספור בסיסי+roman/alpha | ✅ קיים | — |
@@ -778,7 +778,7 @@ N (verification) — אחרון
 | ציורים | wrap אמיתי/מיקום מוחלט/תיבות טקסט/rotation/crop/VML | ⬜ | H |
 | טורים | w:cols | 🟨 `w:cols` נקרא ל‑AST (A); פריסה ב‑I | A,I |
 | הערות | שוליים/סיום על העמוד | ⬜ (Dialog כיום) | J |
-| שדות | PAGE/NUMPAGES/SECTIONPAGES/PAGEREF | ✅ פענוח+החלפה | — |
+| שדות | PAGE/NUMPAGES/SECTIONPAGES/PAGEREF | ✅ פענוח+החלפה; פורמטים decimal/roman/letter + **hebrew1/hebrew2** (E) | —,E |
 | שדות | STYLEREF/TOC חי/קישורים פנימיים | ⬜ | K |
 | פונטים | מוטמעים (כולל obfuscated) | ✅ קיים | — |
 | פונטים | תחליפים מטריים/fallback לפי כתב/טעינה עצלה | ⬜ | L |
@@ -804,6 +804,10 @@ N (verification) — אחרון
 | 14 | מדידת טבלה לעימוד = **רוחב עמודות שווה** (חלוקת `contentWidth`/N פחות שולי תא 108tw), לא autofit אמיתי. שבירת מקטע `continuous` ממשיכה באותו עמוד עם הגאומטריה הקודמת (שינוי טורים = חלק I) | autofit אמיתי = חלק F; כאן רק מדידת גובה לאריזת עמודים. רוחב שווה = קירוב טוב דיו לשבירת עמוד | D/F/I | בינונית |
 | 15 | ה‑`Paginator` נשאר טהור+סינכרוני לבדיקות, אך **time‑slicing אסינכרוני (§4.4), streaming display של עמודים נולדים + placeholder בגובה‑עמוד (§D.2.9/§D.3), ובנייה עצלה פר‑עמוד (`buildPageWidget` ב‑`ListView.builder`) — מומשו ✅**. נשאר: מדידת תקציבי §2.2/§2.3 על מסמך ייחוס (profile) + אימות ידני מול Word — דורשים מכשיר/fixtures (לא בר‑מדידה ב‑test harness) | D/M | נמוכה |
 | 16 | בזמן streaming, `NUMPAGES`/`SECTIONPAGES`/`PAGEREF` בכותרת/תחתית מציגים ערך **זמני** (סך העמודים/הסימניות שנולדו עד כה) ומתייצבים לערך הסופי ברגע שהעימוד מסתיים — כמו ספירת העמודים החיה של Word. `PAGE` (העמוד הנוכחי) נכון מיד. אין באג עימוד — רק הצגת שדה שמתעדכנת | D | נמוכה |
+| 17 | גבולות עמוד: סגנונות `dashed`/`dotted`/`triple` מצוירים כקו `single` רגיל; `w:zOrder="back"` מצויר בחזית (front); גבול בצבע theme נופל לצבע ברירת מחדל | מימוש dash/triple ב‑CustomPaint + theme‑color resolution לקליפה = עלות גבוהה לפיצ'ר נדיר; single/double/thick (הנפוצים, כולל ה‑DoD) מלאים | E | נמוכה |
+| 18 | יישור אנכי דרך `PageBody` (RenderObject ייעודי): גובה טבעי → יישור → clip, **ללא overflow‑assert בשום מצב** (כולל `both` — justify רק כשנכנס, אחרת clip). **telltale ב‑debug** (`debugPrint`) מזהיר כשהגוף חורג מהאזור (מדידה≠פריסה) — קריטי למסמכי קודש, אחרת חיתוך טקסט **שקט** תחת גובה‑עמוד קבוע | מענה לסקירה; release חותך, debug מזהיר+נבדק | E | נמוכה |
+| 19 | קליפת העמוד נשארה ב‑`_buildPageContainer` (לא פוצלה ל‑`page_widget.dart` כב‑§E.1.1); סימן מים (§E.1.5, תלוי רינדור צורות H) ומספור שורות (§E.1.6) נדחו | פיצול הקובץ = ארגוני בלבד (אותה התנהגות); סימן מים "יוצא בחינם" כשצורות ה‑header ירונדרו ב‑H; מספור שורות = עדיפות נמוכה מפורשת | E/H | נמוכה |
+| 20 | `hebrew2` מעבר ל‑22 אותיות = רצף בייקטיבי בסיס‑22 (23→אא), כמו `\* ALPHABETIC` הלטיני. **לא אומת מול Word** (שבו ALPHABETIC חוזר AA/BB/CC) — לנעול golden ממסמך hebrew2 >22 עמ' לפני הסתמכות. `hebrew1` (גימטריה) ≥1000 → ספרות (אין geresh). 1..22 ו‑1..999 מדויקים | אין מסמך ייחוס לקצוות; הנפוצים מדויקים | E | נמוכה |
 
 ---
 
@@ -815,7 +819,7 @@ N (verification) — אחרון
 | B | מנוע סגנונות | ✅ הושלם 2026-06-11 | `DocxStyleResolver` **מחווט לייצור**; 379 בדיקות + אומת על Word אמיתי; auto‑color+perf סגורים (מנוע פי ~5.6 מהיר). סטיות מודעות מתועדות (§8.2 #4–6). שאריות nice‑to‑have: golden ל‑#1, אימוץ helpers ב‑viewer |
 | C | מדידה/טאבים/BiDi | ✅ הושלם 2026-06-11 | `SpanFactory` (מקור אמת אחד), `TextMeasurer` (LRU+מטמון, parity ±0.5px, **StrutStyle** ל‑exact/atLeast, baseline), טבלת BiDi C.4, `TabEngine`+`TabbedLineRenderer`, **דילוג vanish**. **97 בדיקות ירוקות** (≈36 חדשות). #7/#8 נסגרו (יומן 2026‑06‑11 "סגירת פערים"). שאריות דחויות = §8.2 **#9–11** (charScale/position, wrapping של tab+decimal+ירושת stops, golden‑image) — נדירים/לא חוסמים את D, parity נשמר |
 | D | מנוע עימוד | 🟨 קוד הושלם — נשאר רק אימות על מכשיר | **מנוע+חיווט+§D.2.5+async+streaming הושלמו** (129 בדיקות בחבילה ירוקות): מילוי מבוסס‑מדידה, פיצול פסקה (widow/orphan), פיצול טבלה (חזרת כותרת+cantSplit), מקטעים+evenPage blank, keepNext, פיצול שבירת‑עמוד אמצע‑פסקה (§D.2.5), מפות bookmark/footnote. **ההיוריסטי נמחק** — נתיב יחיד. `PageContext` אמיתי (PAGE/NUMPAGES/SECTIONPAGES/PAGEREF, even/odd, multi‑section); חיפוש מיושר לפרוסות. **time‑slicing אסינכרוני** + **streaming display** — עמודים מוצגים ככל שנולדים (`paginateStreaming`/`onPage`), בנייה עצלה פר‑עמוד (`buildPageWidget`) ב‑`ListView.builder`, placeholder בגובה‑עמוד לזנב (§D.2.9/§D.3/§4.4); חיפוש ממתין לסיום עימוד ואז עובר ל‑keyed list. ריווח ברירת‑מחדל הודק 1.5→1.15; אומת מול Word 7=7 ב‑formatting-demo. **נשאר (דורש מכשיר/fixtures, לא בר‑הרצה ב‑harness):** מדידת תקציבי §2.2/§2.3 על מסמך ייחוס ב‑profile + אימות ידני מול Word (3 מסמכים, ±שורה). יומן 2026‑06‑11/12 |
-| E | קליפת עמוד | ⬜ לא התחיל | |
+| E | קליפת עמוד | 🟨 בעבודה — נשאר סימן מים + מספור שורות | **רינדור הושלם:** גובה עמוד **קבוע** (`SizedBox`+clip, §E.2), **vAlign** top/center/bottom/both (§E.1.3), **גבולות עמוד** `w:pgBorders` (`PageBorderPainter` — single/double/thick, offsetFrom text/page, display all/first/notFirst, §E.1.4), **רקע מקטע** `backgroundColor` (§E.1.1), **מספרי עמוד עבריים** hebrew1=גימטריה/hebrew2=אותיות מקצה‑לקצה (enum+`NumberFormatter`+reader, §E.2 — קריטי למסמכי קודש). 6 בדיקות E + 3 ב‑docx_creator. **נשאר:** סימן מים (§E.1.5 — תלוי רינדור צורות H), מספור שורות (§E.1.6, עדיפות נמוכה), פיצול `page_widget.dart` (ארגוני), golden‑image. סטיות §8.2 #17–19. יומן 2026‑06‑12 |
 | F | טבלאות 1:1 | ⬜ לא התחיל | |
 | G | רשימות 1:1 | ⬜ לא התחיל | |
 | H | ציורים ועטיפה | ⬜ לא התחיל | |
@@ -1142,3 +1146,33 @@ N (verification) — אחרון
 - **נדחה (מתועד):** #8 (batching של setState פר‑slice במקום פר‑עמוד) — Flutter מאחד dirty‑marks פר‑frame, מיקרו‑אופטימיזציה; #7 (שינוי התנהגות: מסמך ריק ב‑paged מרנדר עמוד‑ריק במקום הודעת "Empty document") — **מכוון** (נאמן ל‑Word), ננעל בבדיקה.
 
 **בדיקות:** [paginator_test.dart](../packages/docx_file_viewer/test/paginator_test.dart) +2 (`shouldContinue=false` עוצר מוקדם; `maxPages` חוסם+מסמן `truncated`). [streaming_pagination_test.dart](../packages/docx_file_viewer/test/streaming_pagination_test.dart) +1 (מסמך ריק ב‑paged → עמוד‑ריק יחיד בר‑רינדור, §7). `docx_file_viewer`: **132 ירוקות** (129→132), `flutter analyze` נקי, `dart format` הורץ. אותן 4 golden נכשלות על fixtures חסרים (קדם‑קיים).
+
+### 2026-06-12 — חלק E (קליפת עמוד) — 🟨 בעבודה: רינדור הקליפה הושלם
+**בוצע:** מומשו פיצ'רי הרינדור המרכזיים של "קליפת העמוד" (§E.1). **חבילות:** בעיקר `docx_file_viewer`; מספרי עמוד עבריים גם ב‑`docx_creator` (core).
+- **מספרי עמוד עבריים (§E.2 — קריטי למסמכי קודש):** `DocxPageNumberFormat` קיבל `hebrew1`/`hebrew2` ([enums.dart](../packages/docx_creator/lib/src/core/enums.dart)). `NumberFormatter.formatPage` ([number_formatter.dart](../packages/docx_creator/lib/src/core/number_formatter.dart)): hebrew1→`hebrew(n)` (גימטריה, כבר היה), hebrew2→`hebrewAlpha(n)` חדש (בייקטיבי בסיס‑22 על 22 האותיות). הקורא ([section_parser.dart](../packages/docx_creator/lib/src/reader/docx_reader/parsers/section_parser.dart) `mapPageNumberFormat`) ממפה `w:fmt="hebrew1"/"hebrew2"`; ה‑switch ב‑`_formatSwitch` ([docx_section.dart](../packages/docx_creator/lib/src/ast/docx_section.dart)) טופל (Hebrew→ללא `\*` switch). **מקצה‑לקצה ב‑viewer**: `FieldSubstitution`→`formatPage`→עמוד 1 בכותרת תחתונה = "א".
+- **גובה עמוד קבוע (§E.2/§D.2.6):** `_buildPageContainer` ([docx_widget_generator.dart](../packages/docx_file_viewer/lib/src/widget_generator/docx_widget_generator.dart)) עבר מ‑`minHeight` ל‑`height: pageHeight` קבוע + `Clip.hardEdge` — תוכן שנמדד מעט גבוה נחתך במקום למתוח את העמוד.
+- **vAlign (§E.1.3):** top/center/bottom עוטפים `OverflowBox` (יישור אנכי ללא overflow‑assert, נחתך לעמוד); both = `Column` עם `spaceBetween`. הגוף ב‑`Positioned`(שוליים)+`ClipRect`.
+- **גבולות עמוד (§E.1.4):** [page_chrome.dart](../packages/docx_file_viewer/lib/src/widgets/page_chrome.dart) חדש — `PageBorderPainter` (CustomPainter): מסגרת לפי `offsetFrom` text/page, `w:space` פר‑צד, סגנונות single/double/thick, רוחב מ‑`w:sz` (eighths‑pt). מגודר ב‑`display` (all/first/notFirst) דרך `isFirstPage`. `resolveDocxColor` helper.
+- **רקע מקטע (§E.1.1):** `section.backgroundColor` → צבע ה‑paper (מתחת ל‑behindDoc + body).
+- **header/footer פר‑עמוד + שדות חיים:** כבר חווט ב‑D (PageContext אמיתי). אומת.
+
+**בדיקות:** [page_chrome_test.dart](../packages/docx_file_viewer/test/page_chrome_test.dart) חדש — 6: גובה קבוע 600px; מיפוי vAlign→`OverflowBox`; `PageBorderPainter` קיים/חסר; גבול firstPage‑only מגודר פר‑עמוד; רקע מקטע אדום; מספר עמוד עברי "א" בכותרת תחתונה. `docx_creator`: number_formatter +2 (`hebrewAlpha`, `formatPage` routing), section_page_numbering +2 asserts → **381 ירוקות**. `docx_file_viewer`: **138 ירוקות** (132→138), `flutter analyze` נקי בשתי החבילות, `dart format` הורץ. אותן 4 golden נכשלות על fixtures חסרים (קדם‑קיים).
+
+**החלטות/סטיות (§8.2 #17–19):**
+1. גבולות dashed/dotted/triple→single, zOrderBack→front, theme‑color→fallback (§8.2 #17). single/double/thick (כולל ה‑DoD) מלאים.
+2. `vAlign="both"` = spaceBetween; overflow נדיר asserts ב‑debug בלבד (§8.2 #18).
+3. **לא פוצל ל‑`page_widget.dart`** (§E.1.1) — מומש in‑place ב‑`_buildPageContainer` (ארגוני בלבד, אותה התנהגות, נבדק). **סימן מים (§E.1.5) נדחה** — תלוי רינדור צורות (rotation+opacity) של חלק H; "יוצא בחינם" כשה‑header ירונדר מלא. **מספור שורות (§E.1.6) נדחה** — עדיפות נמוכה מפורשת. (§8.2 #19)
+4. הקורא כבר פענח `w:vAlign`/`w:pgBorders` ל‑AST בחלק A — חלק E רק צורך אותם ברינדור.
+
+**נשאר ל‑E (✅):** סימן מים (אחרי H), מספור שורות (אופציונלי), golden‑image (כשיסופקו fixtures). DoD §E.2: גובה‑קבוע ✅, עברי ✅, golden ⬜ (תלוי fixtures).
+**ל‑AI הבא:** חלק F (טבלאות 1:1) — autofit/קונפליקט גבולות/bidiVisual/חזרת שורת כותרת. או השלמת אימות‑מכשיר של D (תקציבי §2 + Word) כשהמשתמש יספק מסמכים.
+
+### 2026-06-12 — חלק E — מענה לסקירת קוד (חיתוך שקט + vAlign both + עקביות)
+**בוצע:** טופלה סקירה חיצונית של חלק E (ללא ממצאי 🔴 קורסים). תוקן/הוחלט:
+- **🟡 #1 — חיתוך טקסט שקט תחת גובה קבוע (קריטי למסמכי קודש).** המעבר ל‑`height` קבוע + `Clip.hardEdge` חתך תוכן בשקט בכל סטיית מדידה≠פריסה. נבנה **`PageBody`** ([page_chrome.dart](../packages/docx_file_viewer/lib/src/widgets/page_chrome.dart)) — `RenderObject` שמפרס את הגוף בגובהו הטבעי, מיישר (vAlign), חותך לאזור, ו**מזהיר ב‑debug** (`debugPrint`) כשהגוף חורג (telltale; release חותך). מחליף את `OverflowBox`+`ClipRect`.
+- **🟡 #2 — `vAlign="both"` היה הענף היחיד שעלול ל‑overflow‑assert.** עכשיו `both` עובר דרך אותו `PageBody` עם `stretch:true`: justify (spaceBetween על מלוא הגובה) **רק כשהתוכן נכנס**, אחרת נופל לגובה טבעי+clip ללא assert — עקבי עם top/center/bottom.
+- **🟢 עקביות fallback** — `NumberFormatter._alpha(n<=0)` שונה מ‑`''` ל‑`'$n'` (כמו `hebrew`/`hebrewAlpha`).
+- **🟢 #3 (hebrew2 מעבר ל‑22) ו‑#5 (8‑hex) — תועדו** ב‑docstrings: hebrew2>22 = בייקטיבי בסיס‑22 **לא‑מאומת מול Word** (§8.2 #20); 8‑hex מטופל כ‑AARRGGBB (הגנתי; DOCX הוא RGB).
+- **נדחה (מתועד):** `shouldRepaint` משווה borders ב‑`!=` — ה‑AST קבוע ומשותף ב‑reference, אז אין repaint מיותר (נכון כפי שהוא). `hebrew1`≥1000→ספרות (קדם‑קיים, §8.2 #20).
+
+**בדיקות:** [page_chrome_test.dart](../packages/docx_file_viewer/test/page_chrome_test.dart) — `vAlign` עודכן ל‑`PageBody` + מקרה `both`; בדיקה חדשה: פסקת‑`keepLines` ענקית → clip ללא assert + telltale נורה. `docx_file_viewer`: **139 ירוקות** (+1), analyze נקי. `docx_creator`: **381 ירוקות** (`_alpha` לא שבר numbering), analyze נקי. `dart format` הורץ. אותן 4 golden נכשלות על fixtures חסרים (קדם‑קיים).

@@ -38,5 +38,22 @@ void main() {
       // Outside 1..999 falls back to decimal.
       expect(NumberFormatter.hebrew(1000), '1000');
     });
+
+    test('hebrewAlpha is bijective base-22 over the alphabet (hebrew2)', () {
+      expect(NumberFormatter.hebrewAlpha(1), 'א');
+      expect(NumberFormatter.hebrewAlpha(22), 'ת');
+      expect(NumberFormatter.hebrewAlpha(23), 'אא');
+      expect(NumberFormatter.hebrewAlpha(44), 'את');
+      expect(NumberFormatter.hebrewAlpha(45), 'בא');
+      expect(NumberFormatter.hebrewAlpha(0), '0'); // non-positive → decimal
+    });
+
+    test('formatPage routes the Hebrew page-number formats (§E.2)', () {
+      // hebrew1 = gematria value; hebrew2 = alphabet ordinal.
+      expect(
+          NumberFormatter.formatPage(15, DocxPageNumberFormat.hebrew1), 'טו');
+      expect(NumberFormatter.formatPage(3, DocxPageNumberFormat.hebrew2), 'ג');
+      expect(NumberFormatter.formatPage(7, DocxPageNumberFormat.decimal), '7');
+    });
   });
 }

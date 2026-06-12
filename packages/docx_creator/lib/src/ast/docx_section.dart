@@ -848,6 +848,11 @@ String _formatSwitch(DocxPageNumberFormat? format) {
       return r' \* alphabetic';
     case DocxPageNumberFormat.decimal:
       return r' \* Arabic';
+    case DocxPageNumberFormat.hebrew1:
+    case DocxPageNumberFormat.hebrew2:
+      // Hebrew numbering has no `\*` field-switch mnemonic; it is carried by the
+      // section's `w:pgNumType w:fmt`, so the field instruction adds nothing.
+      return '';
     case null:
       return '';
   }

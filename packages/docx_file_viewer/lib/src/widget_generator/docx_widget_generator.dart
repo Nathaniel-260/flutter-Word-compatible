@@ -12,6 +12,7 @@ import '../search/docx_search_controller.dart';
 import '../theme/docx_view_theme.dart';
 import '../utils/block_index_counter.dart';
 import '../utils/docx_units.dart';
+import '../widgets/page_chrome.dart';
 import 'image_builder.dart';
 import 'list_builder.dart';
 import 'paragraph_builder.dart';
@@ -538,12 +539,55 @@ class DocxWidgetGenerator {
     final headerDist = DocxUnits.twipsToPixels(section?.marginHeader ?? 720);
     final footerDist = DocxUnits.twipsToPixels(section?.marginFooter ?? 720);
 
+    // Page background (`w:background`/section): a section background colour fills
+    // the paper, drawn under behindDoc images and the body (Plan §E.1.1 layer 1).
+    final paperColor = theme.backgroundColor ?? Colors.white;
+    final sectionBg = section?.backgroundColor == null
+        ? null
+        : resolveDocxColor(section!.backgroundColor!, paperColor);
+
+    // Page borders (`w:pgBorders`, §E.1.4): gated by display (all/first/notFirst).
+    final pageBorders = section?.pageBorders;
+    final drawBorder = pageBorders != null &&
+        pageBorders.hasAnySide &&
+        switch (pageBorders.display) {
+          DocxPageBorderDisplay.allPages => true,
+          DocxPageBorderDisplay.firstPage => isFirstPage,
+          DocxPageBorderDisplay.notFirstPage => !isFirstPage,
+        };
+
+    // Vertical alignment of the body within the fixed content region (`w:vAlign`,
+    // §E.1.3). PageBody lays the body out at natural height, aligns it, clips
+    // overflow, and warns in debug if it exceeds the region. `both` justifies
+    // (space between blocks) only when the content fits.
+    final vAlign = section?.vAlign ?? DocxSectionVAlign.top;
+    final bool stretch = vAlign == DocxSectionVAlign.both;
+    final Alignment bodyAlignment = switch (vAlign) {
+      DocxSectionVAlign.center => Alignment.center,
+      DocxSectionVAlign.bottom => Alignment.bottomCenter,
+      DocxSectionVAlign.top || DocxSectionVAlign.both => Alignment.topCenter,
+    };
+    final Widget bodyRegion = PageBody(
+      alignment: bodyAlignment,
+      stretch: stretch,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: stretch ? MainAxisSize.max : MainAxisSize.min,
+        mainAxisAlignment:
+            stretch ? MainAxisAlignment.spaceBetween : MainAxisAlignment.start,
+        children: content,
+      ),
+    );
+
     return Container(
       width: pageWidth,
-      constraints: BoxConstraints(minHeight: pageHeight),
+      // Fixed page height (Plan §D.2.6/§E.2): content is measured to fit, and any
+      // small overshoot is clipped rather than stretching the page.
+      height: pageHeight,
       margin: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+      clipBehavior: Clip.hardEdge,
       decoration: BoxDecoration(
-        color: theme.backgroundColor ?? Colors.white,
+        color: sectionBg ?? paperColor,
         // תמונת "מאחורי הטקסט" (behindDoc, למשל מסגרת/עיטור עמוד-שער) מצוירת
         // כרקע של העמוד כולו, מתחת לטקסט — כך הטקסט מופיע *בתוכה*.
         image: backgroundImages.isNotEmpty
@@ -562,23 +606,16 @@ class DocxWidgetGenerator {
           )
         ],
       ),
-      // Stack של 3 אזורים נאמן ל-Word: גוף בין השוליים, header באזור העליון,
-      // footer באזור התחתון — כל אחד במרחק הנכון מקצה העמוד. ה-ConstrainedBox
-      // על הגוף מבטיח שה-Stack בגובה העמוד (כך ה-Positioned bottom של ה-footer
-      // יושב בתחתית העמוד גם כשהתוכן קצר), אך גמיש כלפי מעלה (לא חותך תוכן ארוך).
+      // Stack נאמן ל-Word: גוף בין השוליים (עם יישור אנכי), header/footer באזורי
+      // השוליים, ומסגרת עמוד מעל (front, ברירת המחדל של Word).
       child: Stack(
         children: [
-          ConstrainedBox(
-            constraints: BoxConstraints(minHeight: pageHeight),
-            child: Padding(
-              padding:
-                  EdgeInsets.fromLTRB(padLeft, padTop, padRight, padBottom),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: content,
-              ),
-            ),
+          Positioned(
+            left: padLeft,
+            top: padTop,
+            right: padRight,
+            bottom: padBottom,
+            child: bodyRegion,
           ),
           if (headerCol.isNotEmpty)
             Positioned(
@@ -600,6 +637,19 @@ class DocxWidgetGenerator {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: footerCol,
+              ),
+            ),
+          if (drawBorder)
+            Positioned.fill(
+              child: CustomPaint(
+                painter: PageBorderPainter(
+                  borders: pageBorders,
+                  padLeft: padLeft,
+                  padTop: padTop,
+                  padRight: padRight,
+                  padBottom: padBottom,
+                  defaultColor: theme.defaultTextStyle.color ?? Colors.black,
+                ),
               ),
             ),
         ],
