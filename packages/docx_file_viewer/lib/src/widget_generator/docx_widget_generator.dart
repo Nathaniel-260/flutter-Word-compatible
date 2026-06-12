@@ -2,8 +2,12 @@ import 'package:docx_creator/docx_creator.dart';
 import 'package:flutter/material.dart';
 
 import '../docx_view_config.dart';
+import '../layout/span_factory.dart';
+import '../layout/text_measurer.dart';
 import '../pagination/field_substitution.dart';
 import '../pagination/page_context.dart';
+import '../pagination/page_model.dart';
+import '../pagination/paginator.dart';
 import '../search/docx_search_controller.dart';
 import '../theme/docx_view_theme.dart';
 import '../utils/block_index_counter.dart';
@@ -44,8 +48,17 @@ class DocxWidgetGenerator {
   /// Store the last used counter to access widget keys after generation.
   BlockIndexCounter? _lastCounter;
 
+  /// The last paged-mode pagination result. Shared with [extractTextForSearch]
+  /// so search indices line up with the rendered slice order even across
+  /// paragraph/table splits (Plan §D).
+  PaginationResult? _lastPagination;
+
   /// Block keys for navigation.
   Map<int, GlobalKey> get keys => _lastCounter?.keyRegistry ?? {};
+
+  /// The last pagination result (null until [generateWidgets] runs in paged
+  /// mode). Exposes the bookmark→page / footnote→page maps to the host.
+  PaginationResult? get lastPagination => _lastPagination;
 
   DocxWidgetGenerator({
     required this.config,
@@ -167,163 +180,74 @@ class DocxWidgetGenerator {
     return widgets;
   }
 
-  /// Generate widgets grouped into Pages with content-aware pagination.
+  /// Generate one page widget per [PageModel] using the measurement-based
+  /// [Paginator] (Plan §D). Replaces the old `~8px/char` heuristic: page breaks,
+  /// paragraph/table splitting, multi-section numbering and the bookmark map all
+  /// come from the engine, so `PAGE`/`NUMPAGES`/`PAGEREF` and the page breaks
+  /// match what Word produces.
   List<Widget> _generatePagedWidgets(DocxBuiltDocument doc) {
-    final pages = <List<Widget>>[];
-    var currentPageContent = <Widget>[];
-    // תמונות "מאחורי הטקסט" (behindDoc) לכל עמוד — מרונדרות כשכבת רקע ב-Stack.
-    final pageBgs = <List<DocxInlineImage>>[];
-    final currentBgs = <DocxInlineImage>[];
+    // Lay the document out. The measurer's recycled TextPainter is only needed
+    // during pagination — release it before rendering (which uses its own).
+    final spanFactory = SpanFactory(
+      theme: theme,
+      config: config,
+      docxTheme: doc.theme,
+    );
+    final measurer = TextMeasurer(spanFactory: spanFactory);
+    final pagination =
+        Paginator(measurer: measurer, config: config).paginate(doc);
+    measurer.dispose();
+    _lastPagination = pagination;
+
+    // One counter shared across all pages' body widgets so search keys stay in
+    // document order; extractTextForSearch walks the same slice order.
     final counter = BlockIndexCounter();
     _lastCounter = counter;
 
-    // Page dimensions — נלקחות מהמסמך (w:sectPr→w:pgSz) ולא מ-A4 קבוע, כדי
-    // לכבד את גודל העמוד המקורי של ה-Word (ראו WORD_FIDELITY_VIEWER_PLAN.md).
-    final pageSection = doc.section;
-    final pageWidth = config.pageWidth ??
-        (pageSection != null
-            ? DocxUnits.twipsToPixels(pageSection.effectiveWidth)
-            : 794);
-    final pageHeight = config.pageHeight ??
-        (pageSection != null
-            ? DocxUnits.twipsToPixels(pageSection.effectiveHeight)
-            : pageWidth * 1.414);
-    final pagePadding = pageSection != null
-        ? DocxUnits.twipsToPixels(
-            pageSection.marginTop + pageSection.marginBottom)
-        : 96.0;
-    const headerFooterEstimate = 100.0;
-    // clamp להגנה: מסמך עם שוליים גדולים מאוד / עמוד קטן עלול לתת ערך שלילי,
-    // מה שהיה שובר את העימוד (עמוד נפרד לכל בלוק). 200px = מינימום שמיש סביר.
-    final availableHeight = (pageHeight - pagePadding - headerFooterEstimate)
-        .clamp(200.0, double.infinity);
-
-    double currentPageHeight = 0;
-
-    void startNewPage() {
-      if (currentPageContent.isNotEmpty) {
-        pages.add(List.from(currentPageContent));
-        pageBgs.add(List.from(currentBgs));
-        currentPageContent.clear();
-        currentBgs.clear();
-        currentPageHeight = 0;
-      }
-    }
-
-    // Pre-calculate Header widgets for the first page (title-page variant when
-    // w:titlePg is set), sharing the block counter for search keys.
+    // The document's first-page header (title-page variant) is pre-built with
+    // the shared counter so its search keys come first (matching the search
+    // index). Other pages rebuild their header inside _buildPageContainer.
     List<Widget>? firstPageHeaderWidgets;
     final firstHeader = doc.section?.headerFor(isFirstPage: true);
     if (firstHeader != null) {
-      firstPageHeaderWidgets = _generateBlockWidgets(
-        firstHeader.children,
-        counter: counter,
-      );
+      firstPageHeaderWidgets =
+          _generateBlockWidgets(firstHeader.children, counter: counter);
     }
 
-    // Batch elements between page breaks, then generate widgets for each batch
-    List<DocxNode> currentBatch = [];
-
-    double estimateBatchHeight(List<DocxNode> batch) {
-      double height = 0;
-      for (var element in batch) {
-        height += _estimateElementHeight(element, pageWidth);
-      }
-      return height;
+    // SECTIONPAGES: pages per section index.
+    final sectionPageCounts = <int, int>{};
+    for (final page in pagination.pages) {
+      sectionPageCounts.update(page.sectionIndex, (n) => n + 1,
+          ifAbsent: () => 1);
     }
 
-    void flushBatch() {
-      if (currentBatch.isNotEmpty) {
-        final batchHeight = estimateBatchHeight(currentBatch);
+    final widgets = <Widget>[];
+    for (final page in pagination.pages) {
+      final sliceBlocks = [for (final s in page.slices) s.block];
+      final content = _generateBlockWidgets(sliceBlocks, counter: counter);
+      final backgroundImages = _collectBehindTextImages(sliceBlocks);
 
-        // Check if batch would overflow current page
-        if (currentPageHeight + batchHeight > availableHeight &&
-            currentPageContent.isNotEmpty) {
-          startNewPage();
-        }
-
-        // Generate widgets for the batch (preserves floating element grouping)
-        final widgets = _generateBlockWidgets(currentBatch, counter: counter);
-        currentPageContent.addAll(widgets);
-        currentBgs.addAll(_collectBehindTextImages(currentBatch));
-        currentPageHeight += batchHeight;
-        currentBatch.clear();
-      }
-    }
-
-    for (var element in doc.elements) {
-      // Check for explicit page breaks
-      bool isPageBreak = false;
-      if (element is DocxSectionBreakBlock) {
-        isPageBreak = true;
-      } else if (element is DocxParagraph && element.pageBreakBefore) {
-        isPageBreak = true;
-      }
-
-      // מעבר עמוד inline (w:br w:type="page") בתוך פסקה — שובר *אחרי* הפסקה.
-      final bool hasInlinePageBreak = element is DocxParagraph &&
-          element.children.any((c) => c is DocxLineBreak && c.isPageBreak);
-
-      if (isPageBreak) {
-        flushBatch();
-        startNewPage();
-        if (element is! DocxSectionBreakBlock) {
-          currentBatch.add(element);
-        }
-      } else {
-        currentBatch.add(element);
-
-        if (hasInlinePageBreak) {
-          // הפסקה שייכת לעמוד הנוכחי; השבירה מתחילה עמוד חדש אחריה.
-          flushBatch();
-          startNewPage();
-        } else {
-          // Check if we should flush (content getting too tall)
-          // But don't flush right after adding a floating table - let it group with next paragraphs
-          bool lastWasFloatingTable =
-              element is DocxTable && element.position != null;
-
-          if (!lastWasFloatingTable) {
-            final batchHeight = estimateBatchHeight(currentBatch);
-            if (batchHeight > availableHeight) {
-              flushBatch();
-            }
-          }
-        }
-      }
-    }
-
-    flushBatch();
-    startNewPage();
-
-    if (pages.isEmpty) {
-      pages.add([]);
-      pageBgs.add([]);
-    }
-
-    // Page-number context: total = page count, start offset from the section's
-    // w:pgNumType w:start. Single section for now (multi-section is milestone M6).
-    final totalPages = pages.length;
-    final startAt = doc.section?.pageNumberStart ?? 1;
-    final sectionFormat =
-        doc.section?.pageNumberFormat ?? DocxPageNumberFormat.decimal;
-
-    return pages.asMap().entries.map((entry) {
-      final index = entry.key;
-      final content = entry.value;
-      final isFirstPage = index == 0;
-      final headerWidgets = isFirstPage ? firstPageHeaderWidgets : null;
       final pageContext = PageContext(
-        pageNumber: startAt + index,
-        totalPages: totalPages,
-        sectionFormat: sectionFormat,
+        pageNumber: page.pageNumber,
+        totalPages: pagination.pageCount,
+        sectionPages:
+            sectionPageCounts[page.sectionIndex] ?? pagination.pageCount,
+        sectionFormat: page.section.pageNumberFormat,
+        bookmarkPages: pagination.bookmarkPages,
       );
-      return _buildPageContainer(content, doc,
-          headerWidgets: headerWidgets,
-          isFirstPage: isFirstPage,
-          pageContext: pageContext,
-          backgroundImages: pageBgs[index]);
-    }).toList();
+
+      widgets.add(_buildPageContainer(
+        content,
+        doc,
+        sectionOverride: page.section,
+        headerWidgets: page.absoluteIndex == 0 ? firstPageHeaderWidgets : null,
+        isFirstPage: page.isFirstPageOfSection,
+        isEvenPage: doc.evenAndOddHeaders && page.isEvenPage,
+        pageContext: pageContext,
+        backgroundImages: backgroundImages,
+      ));
+    }
+    return widgets;
   }
 
   /// אוסף תמונות "מאחורי הטקסט" (behindDoc) מתוך רצף בלוקים — מרונדרות
@@ -342,43 +266,6 @@ class DocxWidgetGenerator {
       }
     }
     return result;
-  }
-
-  /// Estimate the height of a document element for pagination.
-  double _estimateElementHeight(DocxNode element, double pageWidth) {
-    const lineHeight = 24.0; // Approximate line height
-    const paragraphSpacing = 16.0;
-
-    if (element is DocxParagraph) {
-      // Estimate based on text content
-      int totalChars = 0;
-      for (var child in element.children) {
-        if (child is DocxText) {
-          totalChars += child.content.length;
-        }
-      }
-      // Estimate characters per line based on page width
-      final charsPerLine = ((pageWidth - 96) / 8).floor(); // ~8px per char
-      final lines = (totalChars / charsPerLine).ceil().clamp(1, 100);
-      return (lines * lineHeight) + paragraphSpacing;
-    } else if (element is DocxTable) {
-      // Simple row-based estimate - more accurate for most tables
-      final rowCount = element.rows.length;
-      return (rowCount * 30.0) + 16.0; // ~30px per row + margins
-    } else if (element is DocxList) {
-      // Estimate based on item count
-      return element.items.length * 30.0 + 10.0;
-    } else if (element is DocxImage) {
-      // Use actual dimensions if available
-      final height = element.height > 0 ? element.height.toDouble() : 200.0;
-      return height + 16.0;
-    } else if (element is DocxShapeBlock) {
-      return 100.0; // Default shape height
-    } else if (element is DocxDropCap) {
-      return 80.0; // Drop cap height
-    }
-
-    return lineHeight + paragraphSpacing; // Default
   }
 
   Widget _buildNoteWidget(int id, List<DocxNode> content) {
@@ -406,11 +293,14 @@ class DocxWidgetGenerator {
       bool isFirstPage = false,
       PageContext? pageContext,
       bool isEvenPage = false,
+      DocxSectionDef? sectionOverride,
       List<DocxInlineImage> backgroundImages = const []}) {
-    final section = doc.section;
-    // Variant selection: the first page of the document uses the title-page
-    // header/footer when w:titlePg is set; even-page variant is wired by the
-    // paginator (M6) once real numbering exists.
+    // The page's own section (multi-section docs); falls back to the document
+    // default. Drives geometry and header/footer variant selection.
+    final section = sectionOverride ?? doc.section;
+    // Variant selection: a section's first page uses the title-page header/footer
+    // when w:titlePg is set; the even-page variant applies when the document's
+    // evenAndOddHeaders setting is on and this page number is even.
     final activeHeader =
         section?.headerFor(isFirstPage: isFirstPage, isEvenPage: isEvenPage);
     final activeFooter =
@@ -860,8 +750,19 @@ class DocxWidgetGenerator {
       _extractFromBlocks(doc.section!.header!.children, texts, counter);
     }
 
-    // Body
-    _extractFromBlocks(doc.elements, texts, counter);
+    // Body. In paged mode the rendered widgets come from the paginator's slices
+    // (a split paragraph/table is two slices), so the search index must walk the
+    // same slice order — otherwise the per-block keys would drift after a split.
+    final pagination = _lastPagination;
+    if (config.pageMode == DocxPageMode.paged && pagination != null) {
+      final sliceBlocks = <DocxNode>[
+        for (final page in pagination.pages)
+          for (final slice in page.slices) slice.block,
+      ];
+      _extractFromBlocks(sliceBlocks, texts, counter);
+    } else {
+      _extractFromBlocks(doc.elements, texts, counter);
+    }
 
     // Footer
     if (doc.section?.footer != null) {

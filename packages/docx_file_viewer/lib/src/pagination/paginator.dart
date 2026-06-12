@@ -280,11 +280,38 @@ class Paginator {
       _newPage();
     }
 
+    // Inline page break (`w:br w:type="page"`): split the paragraph at the first
+    // break so the remainder starts a new page (Plan §D.2.5). The break inline
+    // itself is dropped; an empty pre-break part does not waste a page.
+    if (block is DocxParagraph) {
+      final bi =
+          block.children.indexWhere((c) => c is DocxLineBreak && c.isPageBreak);
+      if (bi >= 0) {
+        final pre = block.children.sublist(0, bi);
+        final post = block.children.sublist(bi + 1);
+        if (pre.isNotEmpty) {
+          _placeBlock(block.copyWith(
+            children: pre,
+            spacingAfter: 0,
+            pageBreakBefore: false,
+          ));
+        }
+        if (_used > 0) _closePage(); // only break when content sits above it
+        if (post.isNotEmpty) {
+          _placeBlock(block.copyWith(
+            children: post,
+            spacingBefore: 0,
+            pageBreakBefore: false,
+          ));
+        }
+        return;
+      }
+    }
+
     final height = _measureBlock(block, _geo.contentWidth);
 
     if (height <= _remaining) {
       _addWhole(block, height);
-      _afterPlace(block);
       return;
     }
 
@@ -304,7 +331,6 @@ class Paginator {
     // Not splittable. On a fresh page, clamp (place anyway, overflow tolerated).
     if (_used == 0) {
       _addWhole(block, height);
-      _afterPlace(block);
       return;
     }
 
@@ -318,18 +344,6 @@ class Paginator {
     _used += height;
     _recordAnchors(block);
   }
-
-  /// Post-placement hooks: an inline page break ends the current page.
-  void _afterPlace(DocxNode block) {
-    if (block is DocxParagraph && _hasInlinePageBreak(block)) {
-      // M3: the break is honoured at the block boundary (place the paragraph,
-      // then start a new page). Mid-paragraph splitting at the break is M4.
-      _closePage();
-    }
-  }
-
-  bool _hasInlinePageBreak(DocxParagraph p) =>
-      p.children.any((c) => c is DocxLineBreak && c.isPageBreak);
 
   /// Records bookmark/footnote anchors found in [block] against the open page.
   void _recordAnchors(DocxNode block) {

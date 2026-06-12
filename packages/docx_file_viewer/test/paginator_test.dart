@@ -104,6 +104,37 @@ void main() {
     expect(res.pages.length, 2);
   });
 
+  test('mid-paragraph page break splits the paragraph (§D.2.5)', () {
+    final res = paginator.paginate(DocxBuiltDocument(elements: [
+      DocxParagraph(children: [
+        DocxText('before'),
+        const DocxLineBreak(isPageBreak: true),
+        DocxText('after'),
+      ]),
+    ]));
+    expect(res.pages.length, 2);
+    expect(res.pages[0].slices.single.block, isA<DocxParagraph>());
+    String text(PageModel p) => p.slices
+        .expand((s) => (s.block as DocxParagraph).children)
+        .whereType<DocxText>()
+        .map((t) => t.content)
+        .join();
+    expect(text(res.pages[0]), 'before');
+    expect(text(res.pages[1]), 'after');
+  });
+
+  test('a break-only paragraph does not create a blank page', () {
+    // A paragraph whose only content is a page break must not waste a page: it
+    // ends the current page, and the next block opens the next one (not a third).
+    final res = paginator.paginate(DocxBuiltDocument(elements: [
+      para('a'),
+      DocxParagraph(children: const [DocxLineBreak(isPageBreak: true)]),
+      para('b'),
+    ]));
+    expect(res.pages.length, 2);
+    expect(res.pages.every((p) => p.slices.isNotEmpty), isTrue);
+  });
+
   test('section break (nextPage) starts a new page and section index', () {
     final res = paginator.paginate(DocxBuiltDocument(elements: [
       para('section one'),

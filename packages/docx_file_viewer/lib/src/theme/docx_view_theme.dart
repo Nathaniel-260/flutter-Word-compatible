@@ -37,10 +37,15 @@ class DocxViewTheme {
 
   const DocxViewTheme({
     this.backgroundColor,
+    // Default line height for paragraphs without explicit `w:spacing`. 1.15
+    // approximates Word's "single" line spacing for Arial/Calibri; the previous
+    // 1.5 was far looser than Word and inflated page counts (Plan §D, 2026-06-12
+    // formatting-demo validation). Paragraphs that carry their own line spacing
+    // override this via SpanFactory.
     this.defaultTextStyle = const TextStyle(
       fontSize: 14,
       color: Colors.black87,
-      height: 1.5,
+      height: 1.15,
     ),
     this.headingStyles = const {},
     this.codeBlockBackground = const Color(0xFFF5F5F5),
@@ -67,7 +72,7 @@ class DocxViewTheme {
       defaultTextStyle: const TextStyle(
         fontSize: 14,
         color: Colors.black87,
-        height: 1.5,
+        height: 1.15,
       ),
       headingStyles: {
         1: const TextStyle(
@@ -93,7 +98,7 @@ class DocxViewTheme {
       defaultTextStyle: const TextStyle(
         fontSize: 14,
         color: Colors.white70,
-        height: 1.5,
+        height: 1.15,
       ),
       headingStyles: {
         1: const TextStyle(

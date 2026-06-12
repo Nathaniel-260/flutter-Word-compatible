@@ -766,7 +766,7 @@ N (verification) — אחרון
 | פסקה | tab stops + leaders | 🟨 מנוע `TabEngine` + `TabbedLineRenderer` (C): left/center/right/leaders/RTL/bar; נתיב מחווט לפסקאות עם tabStops מפורשים+טקסט בלבד. נדחה: wrapping, decimal מדויק, ירושת stops מסגנון | C |
 | פסקה | keep rules / widow‑orphan | 🟨 נקראים ל‑AST (A); אכיפה בעימוד D | A,D |
 | סגנונות | basedOn מלא + toggle + theme colors/fonts + tblStylePr | ✅ מנוע `DocxStyleResolver` (docDefaults+סדר שכבות+toggle XOR בין רמות+flatten עם תקרת עומק/מעגל) **מחווט לייצור** דרך `parseRun`/`parseChildren`; rPrDefault+מעגלי basedOn+קריאת w:val ב‑toggles תוקנו; cnfStyle/tblStylePr עובד ב‑table_parser; theme colors ב‑viewer (tint/shade שקול ל‑B.3). אומת על Word אמיתי | B |
-| עימוד | מבוסס מדידה + פיצול פסקה/טבלה | 🟨 מנוע `Paginator` בנוי+נבדק (16 בדיקות: M3 מילוי, M4 פיצול פסקה+widow/orphan, M5 פיצול טבלה+חזרת כותרת, מקטעים+evenPage blank, keepNext/keepLines, מפות bookmark/footnote). **טרם מחווט ל‑viewer** — ההיוריסטי עדיין פעיל בייצור | D |
+| עימוד | מבוסס מדידה + פיצול פסקה/טבלה | 🟨 מנוע `Paginator` **מחווט לייצור** (21 בדיקות; ההיוריסטי נמחק — נתיב יחיד). M3 מילוי, M4 פיצול פסקה+widow/orphan, M5 פיצול טבלה+חזרת כותרת, מקטעים+evenPage blank, keepNext/keepLines, מפות bookmark/footnote. נשאר: async time‑slicing (§4.4) + אימות Word על מכשיר | D |
 | עמוד | גודל/שוליים/gutter מהמסמך | ✅ קיים | — |
 | עמוד | header/footer וריאנטים + שדות PAGE/NUMPAGES חיים | 🟨 קיים, ממתין לעימוד אמיתי | D,E |
 | עמוד | vAlign/גבולות עמוד/סימן מים/רקע | 🟨 vAlign/pgBorders נקראים ל‑AST (A); רינדור ב‑E | A,E |
@@ -813,7 +813,7 @@ N (verification) — אחרון
 | A | השלמת Reader | ✅ הושלם 2026-06-10 | A.1–A.6 מפוענחים + round‑trip; פירוט ביומן |
 | B | מנוע סגנונות | ✅ הושלם 2026-06-11 | `DocxStyleResolver` **מחווט לייצור**; 379 בדיקות + אומת על Word אמיתי; auto‑color+perf סגורים (מנוע פי ~5.6 מהיר). סטיות מודעות מתועדות (§8.2 #4–6). שאריות nice‑to‑have: golden ל‑#1, אימוץ helpers ב‑viewer |
 | C | מדידה/טאבים/BiDi | ✅ הושלם 2026-06-11 | `SpanFactory` (מקור אמת אחד), `TextMeasurer` (LRU+מטמון, parity ±0.5px, **StrutStyle** ל‑exact/atLeast, baseline), טבלת BiDi C.4, `TabEngine`+`TabbedLineRenderer`, **דילוג vanish**. **97 בדיקות ירוקות** (≈36 חדשות). #7/#8 נסגרו (יומן 2026‑06‑11 "סגירת פערים"). שאריות דחויות = §8.2 **#9–11** (charScale/position, wrapping של tab+decimal+ירושת stops, golden‑image) — נדירים/לא חוסמים את D, parity נשמר |
-| D | מנוע עימוד | 🟨 בעבודה — מנוע בנוי+נבדק; חסר חיווט ל‑DocxView | **מנוע ה‑Paginator (M3+M4+M5) הושלם ונבדק** (16 בדיקות): מילוי מבוסס‑מדידה, פיצול פסקה (שורות+widow/orphan), פיצול טבלה (חזרת כותרת+cantSplit), ריבוי מקטעים+evenPage/oddPage blank, keepNext/keepLines, מפות bookmark→עמוד/footnote→עמוד. **נשאר:** חיווט ל‑`DocxView` + רינדור פרוסות + מחיקת ההיוריסטי + time‑slicing אסינכרוני (§4.4) + השוואת Word ידנית (דורש fixtures). פירוט ביומן 2026‑06‑11 |
+| D | מנוע עימוד | 🟨 בעבודה — מנוע+חיווט הושלמו; חסר async+אימות Word | **מנוע ה‑Paginator (M3+M4+M5) +חיווט לייצור הושלמו** (21 בדיקות): מילוי מבוסס‑מדידה, פיצול פסקה (widow/orphan), פיצול טבלה (חזרת כותרת+cantSplit), מקטעים+evenPage/oddPage blank, keepNext/keepLines, מפות bookmark/footnote. **ההיוריסטי נמחק** (`_estimateElementHeight`+batching) — נתיב יחיד. ה‑viewer מרנדר פרוסות עם `PageContext` אמיתי (PAGE/NUMPAGES/SECTIONPAGES/PAGEREF, even/odd, multi‑section); חיפוש מיושר לסדר הפרוסות. אומת end‑to‑end על `formatting-demo.docx` (עברית/RTL, 89 בלוקים). **נשאר:** time‑slicing אסינכרוני (§4.4)+תקציבי §2.2/§2.3; אימות מול Word על מכשיר (harness משתמש בפונט Ahem→10 עמ' מול 7 ב‑Word; פונטים אמיתיים יתכנסו). יומן 2026‑06‑11/12 |
 | E | קליפת עמוד | ⬜ לא התחיל | |
 | F | טבלאות 1:1 | ⬜ לא התחיל | |
 | G | רשימות 1:1 | ⬜ לא התחיל | |
@@ -1053,3 +1053,35 @@ N (verification) — אחרון
 **נדחה במכוון:** #5 (מדידה כפולה ב‑`_placeGroup`+`_placeBlock`) — קורה רק לקבוצות keepNext (length>1, נדיר), והמדידה השנייה **ממוטמנת** (פסקאות/תאים לפי זהות), כך שאין layout כפול בפועל. `.gitattributes` ל‑LF — מחוץ להיקף (ישנה renormalization לכל הריפו).
 
 **בדיקות:** [paginator_test.dart](../packages/docx_file_viewer/test/paginator_test.dart) — **19 ירוקות** (+3: widow‑guard, split‑bookmark, clamp). `docx_file_viewer`: **118 ירוקות**, `flutter analyze` נקי, `dart format` הורץ. אותן 4 golden נכשלות על fixtures חסרים (קדם‑קיים).
+
+### 2026-06-12 — חלק D — חיווט המנוע לייצור + מחיקת ההיוריסטי + אימות על מסמך אמיתי
+**בוצע:** מנוע ה‑Paginator **חובר ל‑`DocxWidgetGenerator`** והחליף את העימוד ההיוריסטי:
+- **`_generatePagedWidgets`** ([docx_widget_generator.dart](../packages/docx_file_viewer/lib/src/widget_generator/docx_widget_generator.dart)) נכתב מחדש: בונה `SpanFactory`+`TextMeasurer` (מאותם theme/config/docxTheme של ה‑`ParagraphBuilder` → מדידה≡רינדור), מריץ `Paginator.paginate(doc)`, משחרר את ה‑measurer, ומרנדר עמוד‑עמוד מהפרוסות דרך `_generateBlockWidgets(page.slices.map((s)=>s.block))` + `_buildPageContainer`.
+- **`PageContext` אמיתי פר‑עמוד:** `pageNumber`/`totalPages`(=pageCount)/`sectionPages`(ספירה פר‑מקטע)/`sectionFormat` מהמקטע של העמוד/`bookmarkPages` מהמנוע → PAGE/NUMPAGES/SECTIONPAGES/PAGEREF חיים. `isEvenPage = evenAndOddHeaders && page.isEvenPage`, `isFirstPage = page.isFirstPageOfSection` (וריאנט title‑page). `_buildPageContainer` קיבל `sectionOverride` → גאומטריה+כותרות פר‑מקטע (multi‑section).
+- **ההיוריסטי נמחק:** `_estimateElementHeight` + לולאת ה‑batching הוסרו לגמרי — **נתיב עימוד יחיד** בייצור (DoD: "אין שני מסלולים").
+- **חיפוש מיושר לסדר הפרוסות:** `extractTextForSearch` במצב paged עובר על `_lastPagination.pages→slices` באותו סדר שבו מרונדרים ה‑widgets, כך שמפתחות ה‑`BlockIndexCounter` נשארים מיושרים **גם אחרי פיצול** פסקה/טבלה (פיצול = 2 פרוסות = 2 רשומות חיפוש + 2 מפתחות; match בזנב גולל לעמוד הזנב). מצב continuous לא השתנה (נתיב doc‑based). הדגשת החיפוש (per‑block) עובדת ללא תלות.
+
+**אימות end‑to‑end על `formatting-demo.docx`** (שסופק ב‑`.tmp_docx/`, עברית/RTL, A4, 89 בלוקים, header/footer, drop‑cap, רשימות, highlights): נטען דרך `DocxReader` → המנוע מייצר **10 עמודים**, מזהה **1 סימנייה + 2 הערות שוליים**, ו‑`generateWidgets` מפיק 10 widget‑עמודים ללא קריסה. **מבנה תואם** לרינדורי Word (`word_ref/ref1‑7.png`): עמוד שער דליל → עמודי תוכן צפופים, RTL, כותרות ממוספרות.
+
+**פער 10 מול 7 עמודים של Word — מקור: פונט ה‑harness.** `flutter test` משתמש בפונט Ahem (כל גליף = ריבוע em ברוחב fontSize), רחב ~פי‑2 מפונט אמיתי → יותר שבירות שורה → ~40% יותר עמודים. **אין כאן באג עימוד** (גובה הגוף ≈931px ל‑A4 נכון; המבנה תואם). פונטים אמיתיים על מכשיר יתכנסו ל‑~7. אימות העמודים המדויק מול Word = שלב ידני (DoD §D.4) על האפליקציה האמיתית.
+
+**בדיקות:** `docx_file_viewer`: **118 ירוקות** (page_number_render, paged_footer_repro, widget_test/search — כולם עוברים עם המנוע המחווט), `flutter analyze` נקי, `dart format` הורץ. אותן 4 golden נכשלות על fixtures חסרים (קדם‑קיים).
+
+**החלטות/סטיות:**
+1. **חיפוש נגזר מהעימוד (slice‑aligned) במקום doc‑aligned** — פתרון נקי יותר מהמודל הישן: גם המדידה (extract) וגם הרינדור עוברים על אותן פרוסות באותו סדר, כך שאין drift של מפתחות אחרי פיצול. (החלפת מנגנון ה‑GlobalKey פר‑בלוק כולו = חלק M; כאן רק שמרתי יישור.)
+2. **העימוד עדיין סינכרוני** — רץ בתוך `generateWidgets` (כמו ההיוריסטי הקודם). אין רגרסיה, אבל time‑slicing (§4.4) ותקציבי §2.2/§2.3 טרם מומשו → חלק M / השלמת D.
+
+**ל‑AI הבא (השלמת D ל‑✅):** (1) time‑slicing אסינכרוני — `Stream<PageModel>`/callback, מנות ≤8ms, placeholder לעמודים שטרם עומדו, מדידת תקציבי §2 על מסמך הייחוס. (2) אימות ידני מול Word על מכשיר עם פונטים אמיתיים (formatting-demo + 2 מסמכים נוספים), ±שורה. (3) שאריות: פיצול `w:br` אמצע‑פסקה, autofit טבלה (F), continuous עם שינוי גאומטריה (I).
+
+### 2026-06-12 — חלק D — אימות מול Word אמיתי (formatting-demo) + תיקון §D.2.5
+**אימות עם פונטים אמיתיים:** נטענו Arial+David (מ‑`C:\Windows\Fonts`) ל‑`FontLoader` בבדיקה, ועומד `formatting-demo.docx` (7 העמודים של Word ב‑`word_ref/ref1‑7.png`). **תוצאה: המנוע מייצר בדיוק 7 עמודים** עם Arial + ריווח שורה צמוד (h=1.0, קרוב ל‑single של Word). אבחון מלא:
+- **הפונט אינו הגורם** לפער: גובה כולל זהה Ahem מול Arial (3567 מול 3565px) — התוכן כמעט לא עוטף שורות (פסקאות עברית קצרות ברוחב 602px). פסילת ההשערה הקודמת ש‑Ahem מנפח פי‑2.
+- **מבנה המסמך:** מקטע יחיד, 0 `pageBreakBefore`, **5 שבירות `w:br type="page"`**, 4 טבלאות קטנות, 6 רשימות.
+- **הפער 9→7 היה באג §D.2.5:** טיפול בשבירת‑עמוד inline ברמת‑בלוק (place‑then‑close) יצר **3 עמודים תת‑מלאים** (p2=182px, p6=53px, p9=400px). פסקת‑שבירה בודדת בזבזה עמוד.
+
+**תיקון §D.2.5 — פיצול אמצע‑פסקה בנקודת ה‑break** ([paginator.dart](../packages/docx_file_viewer/lib/src/pagination/paginator.dart) `_placeBlock`): פסקה עם `w:br type="page"` מפוצלת ב‑inline הראשון — `pre` נשאר בעמוד, סוגרים עמוד (**רק אם יש תוכן מעל** — פסקת‑שבירה ריקה לא מבזבזת עמוד), `post` ממשיך בעמוד הבא (רקורסיבי לשבירות נוספות). הוסר ה‑`_afterPlace` הישן. תוצאה: 9→7 ב‑h=1.0.
+
+**הפער שנשאר (9 עמ' בברירת‑המחדל של ה‑viewer) = ריווח שורה, לא העימוד:** `DocxViewTheme.light().defaultTextStyle.height=1.5` רופף מ‑Word (~1.0‑1.08); 77/78 פסקאות בלי `w:spacing` מפורש → נופלות ל‑1.5. **זו סטיית רינדור (ברירת‑מחדל theme), לא באג במנוע** — המנוע אורז נכון את מה שנמדד. תיקון אמיתי: או שמנוע הסגנונות (B) יאפה ריווח מ‑`pPrDefault`, או ברירת‑מחדל Word‑דמוית ב‑theme. **מחוץ להיקף D** (להחלטת המשתמש — שינוי גלובלי שמשפיע על goldens).
+
+**בדיקות:** 2 בדיקות חדשות (§D.2.5: פיצול אמצע‑פסקה + פסקת‑שבירה ללא עמוד ריק). `docx_file_viewer`: **120 ירוקות**, analyze נקי, format הורץ. בדיקת ה‑real‑font הייתה מקומית (תלויה בפונטי Windows + `.tmp_docx`) — לא נשמרה (תיכנס ל‑corpus של חלק N).
+**מסקנה:** **המנוע תואם ל‑Word (±0) בהינתן מטריקות Word** (פונט+ריווח). הפער היחיד הוא ברירת‑מחדל ריווח השורה של ה‑viewer.
