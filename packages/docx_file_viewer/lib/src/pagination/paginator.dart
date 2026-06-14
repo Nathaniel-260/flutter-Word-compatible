@@ -2,6 +2,7 @@ import 'package:docx_creator/docx_creator.dart';
 import 'package:flutter/widgets.dart';
 
 import '../docx_view_config.dart';
+import '../layout/table_layout.dart';
 import '../layout/text_measurer.dart';
 import '../utils/docx_units.dart';
 import '../utils/text_direction_detector.dart';
@@ -73,7 +74,7 @@ class Paginator {
   bool _openIsBlank = false;
   List<BlockSlice> _slices = [];
   double _used = 0;
-  _Geometry _geo = const _Geometry.empty();
+  PageGeometry _geo = PageGeometry.zero;
   DocxSectionDef _pageSection = const DocxSectionDef();
   int _pageSectionIndex = 0;
   bool _pageIsFirstOfSection = false;
@@ -279,6 +280,7 @@ class Paginator {
       section: _pageSection,
       slices: List.unmodifiable(_slices),
       usedHeight: _used,
+      geometry: _geo,
       isFirstPageOfSection: _pageIsFirstOfSection,
       isEvenPage: _openDisplayNumber.isEven,
       isBlank: _openIsBlank,
@@ -405,6 +407,17 @@ class Paginator {
         }
         return;
       }
+    }
+
+    // Word suppresses a paragraph's "space before" when it lands at the top of a
+    // page: the first block hugs the top margin instead of being pushed down by
+    // its before-spacing. Mirror that here (after any page break above, so a
+    // pageBreakBefore/heading paragraph also sits at the new page top). Storing
+    // the suppressed copy as the slice keeps measurement ≡ rendering.
+    if (_used == 0 &&
+        block is DocxParagraph &&
+        (block.spacingBefore ?? 0) != 0) {
+      block = block.copyWith(spacingBefore: 0);
     }
 
     final height = _measureBlock(block, _geo.contentWidth);
@@ -579,13 +592,15 @@ class Paginator {
     final bodyRows = rows.sublist(headerCount);
     if (bodyRows.length <= 1) return null; // nothing to split between
 
-    final cellWidth = _tableCellContentWidth(table, _geo.contentWidth);
-    final headerHeight = _measureRows(headerRows, cellWidth);
+    final cols =
+        resolveTableColumnWidths(table, availableWidth: _geo.contentWidth)
+            .columns;
+    final headerHeight = _measureRows(headerRows, table, cols);
 
     var used = headerHeight;
     var fitBody = 0;
     for (final row in bodyRows) {
-      final rh = _measureRow(row, cellWidth);
+      final rh = _measureRow(row, table, cols);
       if (used + rh <= remaining + 0.5) {
         used += rh;
         fitBody++;
@@ -599,7 +614,7 @@ class Paginator {
       // oversized row and continue; otherwise move the whole table down.
       if (atPageStart && bodyRows.length > 1) {
         fitBody = 1;
-        used = headerHeight + _measureRow(bodyRows.first, cellWidth);
+        used = headerHeight + _measureRow(bodyRows.first, table, cols);
       } else {
         return null;
       }
@@ -632,8 +647,6 @@ class Paginator {
   static const double _unknownBlockHeightPx = 24.0; // one conservative line
   static const double _minRowHeightPx = 18.0;
   static const double _listLevelIndentPx = 24.0; // per nesting level (~0.25")
-  static const double _cellSideMarginPx =
-      108 / 15.0; // Word default 108tw → 7.2px
   static const double _minContentWidthPx = 8.0;
 
   /// Measures the full vertical footprint of [block] at [width] pixels.
@@ -673,44 +686,51 @@ class Paginator {
       ? TextDirection.rtl
       : TextDirectionDetector.fromInlines(p.children);
 
-  /// Estimates a table's height by measuring each row at an equal column-width
-  /// split. Real column-width resolution (autofit) is Part F; this is a
-  /// best-effort measurement good enough for page packing (Plan §6.5).
+  /// Measures a table's height with the real per-column widths resolved by Part
+  /// F's [resolveTableColumnWidths] (Plan §F.1), so the page-packing height
+  /// matches the painted table (no longer an equal-column approximation).
   double _measureTable(DocxTable table, double width) {
     if (table.rows.isEmpty) return 0;
-    return _measureRows(table.rows, _tableCellContentWidth(table, width));
+    final cols = resolveTableColumnWidths(table, availableWidth: width).columns;
+    return _measureRows(table.rows, table, cols);
   }
 
-  /// The per-cell content width for a table at [width], using an equal column
-  /// split minus Word's default 108tw cell margins (refined by Part F).
-  double _tableCellContentWidth(DocxTable table, double width) {
-    var colCount = 1;
-    for (final row in table.rows) {
-      if (row.cells.length > colCount) colCount = row.cells.length;
-    }
-    final colWidth = width / colCount;
-    return (colWidth - _cellSideMarginPx * 2).clamp(_minContentWidthPx, width);
-  }
-
-  double _measureRows(List<DocxTableRow> rows, double cellContentWidth) {
+  double _measureRows(
+      List<DocxTableRow> rows, DocxTable table, List<double> cols) {
     var total = 0.0;
     for (final row in rows) {
-      total += _measureRow(row, cellContentWidth);
+      total += _measureRow(row, table, cols);
     }
     return total;
   }
 
-  double _measureRow(DocxTableRow row, double cellContentWidth) {
+  double _measureRow(DocxTableRow row, DocxTable table, List<double> cols) {
     var rowHeight = 0.0;
+    // Walk the row's cells across the grid, honouring `w:gridBefore` and each
+    // cell's `w:gridSpan`, so every cell is measured at its true content width.
+    var gridIndex = row.gridBefore;
     for (final cell in row.cells) {
-      var cellHeight = 0.0;
+      final span = cell.colSpan > 0 ? cell.colSpan : 1;
+      final margins = resolveCellMargins(table, cell);
+      final cellWidth = cellContentWidthPx(cols, gridIndex, span, margins)
+          .clamp(_minContentWidthPx, double.infinity);
+      var cellHeight = margins.top + margins.bottom;
       for (final block in cell.children) {
-        cellHeight += _measureBlock(block, cellContentWidth);
+        cellHeight += _measureBlock(block, cellWidth);
       }
       if (cellHeight > rowHeight) rowHeight = cellHeight;
+      gridIndex += span;
     }
-    // Minimum visible row height so empty rows still occupy space.
-    return rowHeight < _minRowHeightPx ? _minRowHeightPx : rowHeight;
+    // `w:trHeight` rule: `exact` fixes the row height (content is clipped);
+    // `atLeast` is a floor (content may grow it); `auto` ignores the value.
+    if (row.height != null && row.heightRule == DocxTableRowHeightRule.exact) {
+      return row.height! * kTwipsToPx;
+    }
+    final floor =
+        (row.height != null && row.heightRule == DocxTableRowHeightRule.atLeast)
+            ? row.height! * kTwipsToPx
+            : _minRowHeightPx;
+    return rowHeight < floor ? floor : rowHeight;
   }
 
   double _measureList(DocxList list, double width) {
@@ -741,7 +761,7 @@ class Paginator {
   // Geometry
   // ===========================================================================
 
-  _Geometry _computeGeometry(
+  PageGeometry _computeGeometry(
     DocxSectionDef section, {
     required bool isFirstOfSection,
     required bool isEven,
@@ -763,9 +783,10 @@ class Paginator {
         (pageWidth - padLeft - padRight).clamp(16.0, pageWidth);
 
     // Header/footer measured height for the page's variant (Plan §D.2.1): a tall
-    // header pushes the body down. For the common case (a short header sitting
-    // in the top margin) headerDist + headerHeight ≈ padTop, so the body region
-    // equals the renderer's content padding.
+    // header/footer pushes the body inward so it never overlaps the chrome. For
+    // the common case (short chrome inside the margin) `dist + chromeHeight ≤
+    // margin`, so the body region equals the raw margins. The renderer reuses
+    // this exact geometry (via PageModel.geometry), so packed area ≡ painted.
     final header =
         section.headerFor(isFirstPage: isFirstOfSection, isEvenPage: isEven);
     final footer =
@@ -780,14 +801,18 @@ class Paginator {
     final bodyBottom = padBottom > footerDist + footerHeight
         ? padBottom
         : footerDist + footerHeight;
-    final bodyHeight =
-        (pageHeight - bodyTop - bodyBottom).clamp(40.0, pageHeight);
 
-    return _Geometry(
+    return PageGeometry(
       pageWidth: pageWidth,
       pageHeight: pageHeight,
-      contentWidth: contentWidth,
-      bodyHeight: bodyHeight,
+      padLeft: padLeft,
+      padRight: padRight,
+      padTop: padTop,
+      padBottom: padBottom,
+      bodyTop: bodyTop,
+      bodyBottom: bodyBottom,
+      headerDist: headerDist,
+      footerDist: footerDist,
     );
   }
 }
@@ -805,25 +830,4 @@ class _Split {
   const _Split({this.head, required this.tail});
   final BlockSlice? head;
   final DocxNode tail;
-}
-
-/// Resolved page geometry for one page variant.
-class _Geometry {
-  const _Geometry({
-    required this.pageWidth,
-    required this.pageHeight,
-    required this.contentWidth,
-    required this.bodyHeight,
-  });
-
-  const _Geometry.empty()
-      : pageWidth = 0,
-        pageHeight = 0,
-        contentWidth = 0,
-        bodyHeight = 0;
-
-  final double pageWidth;
-  final double pageHeight;
-  final double contentWidth;
-  final double bodyHeight;
 }

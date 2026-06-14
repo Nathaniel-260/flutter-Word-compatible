@@ -635,6 +635,14 @@ class DocxTableRow extends DocxNode {
   /// Row height in twips (null = auto).
   final int? height;
 
+  /// How [height] is interpreted (`w:trHeight w:hRule`): [DocxTableRowHeightRule.exact]
+  /// clips content to the height, [atLeast] treats it as a minimum.
+  ///
+  /// Defaults to [DocxTableRowHeightRule.exact] so a height set programmatically
+  /// is enforced (issue #74). The reader sets this explicitly from `w:hRule`,
+  /// mapping a bare `w:trHeight` (no rule) to [atLeast] — Word's default.
+  final DocxTableRowHeightRule heightRule;
+
   /// Whether this row is a header row (repeats on new pages).
   final bool isHeader;
 
@@ -659,6 +667,7 @@ class DocxTableRow extends DocxNode {
   const DocxTableRow({
     required this.cells,
     this.height,
+    this.heightRule = DocxTableRowHeightRule.exact,
     this.isHeader = false,
     this.cnfStyle,
     this.cantSplit = false,
@@ -672,6 +681,7 @@ class DocxTableRow extends DocxNode {
   DocxTableRow copyWith({
     List<DocxTableCell>? cells,
     int? height,
+    DocxTableRowHeightRule? heightRule,
     bool? isHeader,
     String? cnfStyle,
     bool? cantSplit,
@@ -683,6 +693,7 @@ class DocxTableRow extends DocxNode {
     return DocxTableRow(
       cells: cells ?? this.cells,
       height: height ?? this.height,
+      heightRule: heightRule ?? this.heightRule,
       isHeader: isHeader ?? this.isHeader,
       cnfStyle: cnfStyle ?? this.cnfStyle,
       cantSplit: cantSplit ?? this.cantSplit,
@@ -766,7 +777,7 @@ class DocxTableRow extends DocxNode {
                   'w:trHeight',
                   nest: () {
                     builder.attribute('w:val', height.toString());
-                    builder.attribute('w:hRule', 'exact');
+                    builder.attribute('w:hRule', heightRule.xmlValue);
                   },
                 );
               }

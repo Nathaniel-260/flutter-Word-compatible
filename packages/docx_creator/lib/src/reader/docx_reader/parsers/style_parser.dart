@@ -112,6 +112,7 @@ class StyleParser {
       final pPr = styleElem.getElement('w:pPr');
       final rPr = styleElem.getElement('w:rPr');
       final tcPr = styleElem.getElement('w:tcPr');
+      final tblPr = styleElem.getElement('w:tblPr');
 
       // Parse conditional table styles
       final tableConditionals = <String, DocxStyle>{};
@@ -138,6 +139,7 @@ class StyleParser {
         pPr: pPr,
         rPr: rPr,
         tcPr: tcPr,
+        tblPr: tblPr,
         tableConditionals: tableConditionals,
       );
     }

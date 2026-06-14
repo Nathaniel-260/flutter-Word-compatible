@@ -206,6 +206,7 @@ class TableParser {
         bool isHeader = false;
         String? cnfStyle;
         int? height;
+        DocxTableRowHeightRule heightRule = DocxTableRowHeightRule.atLeast;
         bool cantSplit = false;
         int gridBefore = 0;
         int gridAfter = 0;
@@ -222,10 +223,12 @@ class TableParser {
           if (cs != null) {
             cnfStyle = cs.getAttribute('w:val');
           }
-          // Parse row height
+          // Parse row height + rule (atLeast/exact/auto)
           final trHeight = trPr.getElement('w:trHeight');
           if (trHeight != null) {
             height = int.tryParse(trHeight.getAttribute('w:val') ?? '');
+            heightRule = DocxTableRowHeightRuleExtension.fromXml(
+                trHeight.getAttribute('w:hRule'));
           }
           cantSplit = readOnOff(trPr.getElement('w:cantSplit'));
           gridBefore = int.tryParse(
@@ -253,6 +256,7 @@ class TableParser {
             isHeader: isHeader,
             cnfStyle: cnfStyle,
             height: height,
+            heightRule: heightRule,
             cantSplit: cantSplit,
             gridBefore: gridBefore,
             gridAfter: gridAfter,
@@ -269,6 +273,21 @@ class TableParser {
 
     // Resolve Table Style from context
     final resolvedTableStyle = context.resolveStyle(styleId);
+
+    // Inherit table borders from the table style (styles.xml — e.g. the built-in
+    // "Table Grid") when the table has no inline `w:tblBorders`. Without this a
+    // table whose borders live only in its style renders borderless (Plan §F).
+    final styleBorders = resolvedTableStyle.tableBorders;
+    if (styleBorders != null) {
+      style = style.copyWith(
+        borderTop: style.borderTop ?? styleBorders.borderTop,
+        borderBottom: style.borderBottom ?? styleBorders.borderBottom,
+        borderLeft: style.borderLeft ?? styleBorders.borderLeft,
+        borderRight: style.borderRight ?? styleBorders.borderRight,
+        borderInsideH: style.borderInsideH ?? styleBorders.borderInsideH,
+        borderInsideV: style.borderInsideV ?? styleBorders.borderInsideV,
+      );
+    }
 
     final rowCount = grid.length;
     final int colCount =
@@ -325,6 +344,7 @@ class TableParser {
         isHeader: isHeaderRow,
         cnfStyle: rowCnfStyle,
         height: rawRow?.height,
+        heightRule: rawRow?.heightRule ?? DocxTableRowHeightRule.atLeast,
         cantSplit: rawRow?.cantSplit ?? false,
         gridBefore: rawRow?.gridBefore ?? 0,
         gridAfter: rawRow?.gridAfter ?? 0,
@@ -836,6 +856,7 @@ class _TempRow {
   final bool isHeader;
   final String? cnfStyle;
   final int? height;
+  final DocxTableRowHeightRule heightRule;
   final bool cantSplit;
   final int gridBefore;
   final int gridAfter;
@@ -847,6 +868,7 @@ class _TempRow {
     this.isHeader = false,
     this.cnfStyle,
     this.height,
+    this.heightRule = DocxTableRowHeightRule.atLeast,
     this.cantSplit = false,
     this.gridBefore = 0,
     this.gridAfter = 0,

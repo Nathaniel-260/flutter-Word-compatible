@@ -515,9 +515,14 @@ class ParagraphBuilder {
     }
     double rightPadding = ((paragraph.indentRight ?? 0) * twipsToPixels)
         .clamp(0, double.infinity);
-    double topPadding = ((paragraph.spacingBefore ?? 80) * twipsToPixels)
+    // Default 0 (OOXML spec) when nothing is resolved — must mirror
+    // [TextMeasurer._spacingBefore/_spacingAfter]. The StyleEngine already folds
+    // docDefaults + the style chain into spacingBefore/After, so a null means the
+    // document asks for no spacing; the old guessed 80tw inflated every body
+    // paragraph and broke page-break parity with Word.
+    double topPadding = ((paragraph.spacingBefore ?? 0) * twipsToPixels)
         .clamp(0, double.infinity);
-    double bottomPadding = ((paragraph.spacingAfter ?? 80) * twipsToPixels)
+    double bottomPadding = ((paragraph.spacingAfter ?? 0) * twipsToPixels)
         .clamp(0, double.infinity);
 
     // Heading detection

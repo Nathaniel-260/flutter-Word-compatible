@@ -2,6 +2,81 @@ import 'package:docx_creator/docx_creator.dart';
 
 import 'block_slice.dart';
 
+/// The resolved pixel geometry of one page (Plan §D.2.1 / §E.1.3).
+///
+/// This is the **single source of truth** for a page's layout, computed once by
+/// the [Paginator] and reused verbatim by the renderer — so the area the
+/// paginator packs content into is exactly the area the renderer draws it in.
+/// Splitting this computation across the two used to let the body run *under*
+/// the footer: the paginator reserved `max(margin, dist + chromeHeight)` for the
+/// header/footer, while the renderer only inset by the raw margin, so a footer
+/// taller than its margin overpainted the body's last line.
+///
+/// Vertical model (mirrors Word): the header sits at [headerDist] from the top
+/// edge and the footer at [footerDist] from the bottom edge, each inside the
+/// margin band. The body region is inset by [bodyTop]/[bodyBottom], which are
+/// the larger of the raw margin and the chrome's outer edge — so a tall
+/// header/footer pushes the body inward instead of overlapping it. Page borders
+/// (`offsetFrom="text"`) are positioned from the raw margins [padTop]/[padBottom].
+class PageGeometry {
+  const PageGeometry({
+    required this.pageWidth,
+    required this.pageHeight,
+    required this.padLeft,
+    required this.padRight,
+    required this.padTop,
+    required this.padBottom,
+    required this.bodyTop,
+    required this.bodyBottom,
+    required this.headerDist,
+    required this.footerDist,
+  });
+
+  /// Full page size in pixels (`w:pgSz`, or the config override).
+  final double pageWidth;
+  final double pageHeight;
+
+  /// Horizontal body/header/footer insets (`w:left` + gutter, and `w:right`).
+  final double padLeft;
+  final double padRight;
+
+  /// Raw vertical margins (`w:top`/`w:bottom`). Used to position page borders
+  /// (`offsetFrom="text"`), not the body — the body uses [bodyTop]/[bodyBottom].
+  final double padTop;
+  final double padBottom;
+
+  /// Body region vertical insets: `max(rawMargin, chromeDist + chromeHeight)`,
+  /// so the body never overlaps the header/footer.
+  final double bodyTop;
+  final double bodyBottom;
+
+  /// Distance of the header/footer from the top/bottom page edge (`w:header`/
+  /// `w:footer`).
+  final double headerDist;
+  final double footerDist;
+
+  /// Content width available to body blocks (clamped to a sane minimum).
+  double get contentWidth =>
+      (pageWidth - padLeft - padRight).clamp(16.0, pageWidth);
+
+  /// Body height available for content packing (clamped to a sane minimum).
+  double get bodyHeight =>
+      (pageHeight - bodyTop - bodyBottom).clamp(40.0, pageHeight);
+
+  static const PageGeometry zero = PageGeometry(
+    pageWidth: 0,
+    pageHeight: 0,
+    padLeft: 0,
+    padRight: 0,
+    padTop: 0,
+    padBottom: 0,
+    bodyTop: 0,
+    bodyBottom: 0,
+    headerDist: 0,
+    footerDist: 0,
+  );
+}
+
 /// A single laid-out page: a thin list of [BlockSlice]s plus the metadata the
 /// renderer needs to draw its chrome (Plan §D.1 / §4.2).
 ///
@@ -16,10 +91,16 @@ class PageModel {
     required this.section,
     required this.slices,
     required this.usedHeight,
+    this.geometry = PageGeometry.zero,
     this.isFirstPageOfSection = false,
     this.isEvenPage = false,
     this.isBlank = false,
   });
+
+  /// The resolved pixel geometry of this page (size, margins, body region,
+  /// header/footer positions). Computed by the paginator and reused verbatim by
+  /// the renderer so packed area ≡ painted area.
+  final PageGeometry geometry;
 
   /// 1-based display number for this page, after the section's
   /// `w:pgNumType w:start` offset/restart (what `PAGE` renders).

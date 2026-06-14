@@ -432,6 +432,7 @@ class DocxWidgetGenerator {
     return _buildPageContainer(
       content,
       doc,
+      geometry: page.geometry,
       sectionOverride: page.section,
       headerWidgets: firstPageHeaderWidgets,
       isFirstPage: page.isFirstPageOfSection,
@@ -480,7 +481,8 @@ class DocxWidgetGenerator {
   }
 
   Widget _buildPageContainer(List<Widget> content, DocxBuiltDocument doc,
-      {List<Widget>? headerWidgets,
+      {required PageGeometry geometry,
+      List<Widget>? headerWidgets,
       bool isFirstPage = false,
       PageContext? pageContext,
       bool isEvenPage = false,
@@ -512,32 +514,30 @@ class DocxWidgetGenerator {
           _generateBlockWidgets(resolve(activeHeader.children)));
     }
 
-    // כותרת תחתונה — באזור השוליים התחתונים (במרחק w:footer מהקצה).
+    // כותרת תחתונה — באזור השוליים התחתונים (במרחק w:footer מהקצה). אין מזריקים
+    // Divider מלאכותי: וורד אינו מוסיף קו כזה, והפוטר עצמו נושא את הגבול שלו
+    // (w:pBdr) כשהוגדר. ה-Divider הקודם ניפח את גובה הפוטר עד שדרס את השורה
+    // האחרונה של הגוף ("הטקסט מסתתר מתחת לפוטר").
     final List<Widget> footerCol = [];
     if (activeFooter != null) {
-      footerCol.add(const Divider());
       footerCol.addAll(_generateBlockWidgets(resolve(activeFooter.children)));
     }
 
-    // מידות העמוד מהמסמך (w:pgSz / w:pgMar), לא A4 קבוע.
-    final pageWidth = config.pageWidth ??
-        (section != null
-            ? DocxUnits.twipsToPixels(section.effectiveWidth)
-            : 794.0);
-    final pageHeight = config.pageHeight ??
-        (section != null
-            ? DocxUnits.twipsToPixels(section.effectiveHeight)
-            : pageWidth * 1.414);
-    // gutter (מרווח כריכה) מתווסף לשוליים השמאליים (ברירת המחדל של Word).
-    final gutter = DocxUnits.twipsToPixels(section?.gutter ?? 0);
-    final padLeft =
-        DocxUnits.twipsToPixels(section?.marginLeft ?? 1440) + gutter;
-    final padRight = DocxUnits.twipsToPixels(section?.marginRight ?? 1440);
-    final padTop = DocxUnits.twipsToPixels(section?.marginTop ?? 1440);
-    final padBottom = DocxUnits.twipsToPixels(section?.marginBottom ?? 1440);
+    // מידות העמוד והשוליים — מתוך [PageGeometry] שחושב פעם אחת ב-Paginator
+    // (מקור-אמת יחיד), כך שאזור-הצביעה זהה בדיוק לאזור-האריזה.
+    final pageWidth = geometry.pageWidth;
+    final pageHeight = geometry.pageHeight;
+    final padLeft = geometry.padLeft; // כולל gutter
+    final padRight = geometry.padRight;
+    final padTop = geometry.padTop; // שוליים גולמיים — למיקום גבולות-עמוד
+    final padBottom = geometry.padBottom;
+    // אזור-הגוף שמור מפני הכותרות: max(שוליים, מרחק-כותרת + גובה-כותרת), כך
+    // שכותרת/פוטר גבוהים דוחפים את הגוף פנימה במקום לדרוס אותו (כמו Word).
+    final bodyTop = geometry.bodyTop;
+    final bodyBottom = geometry.bodyBottom;
     // מרחקי הכותרות מקצה העמוד — מציבים אותן *באזור השוליים*, לא בגוף.
-    final headerDist = DocxUnits.twipsToPixels(section?.marginHeader ?? 720);
-    final footerDist = DocxUnits.twipsToPixels(section?.marginFooter ?? 720);
+    final headerDist = geometry.headerDist;
+    final footerDist = geometry.footerDist;
 
     // Page background (`w:background`/section): a section background colour fills
     // the paper, drawn under behindDoc images and the body (Plan §E.1.1 layer 1).
@@ -612,9 +612,9 @@ class DocxWidgetGenerator {
         children: [
           Positioned(
             left: padLeft,
-            top: padTop,
+            top: bodyTop,
             right: padRight,
-            bottom: padBottom,
+            bottom: bodyBottom,
             child: bodyRegion,
           ),
           if (headerCol.isNotEmpty)

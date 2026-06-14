@@ -43,6 +43,12 @@ class DocxStyle {
   final DocxBorderSide? borderBetween;
   final DocxBorder? borderBottom;
 
+  /// Table-level borders from a table style's `w:tblPr/w:tblBorders` (styles.xml,
+  /// e.g. the built-in "Table Grid"). Held as a [DocxTableStyle] so the viewer
+  /// can inherit a table's borders from its style when the table has no inline
+  /// `w:tblBorders` (Plan §F).
+  final DocxTableStyle? tableBorders;
+
   // Run Properties
   final DocxFontWeight? fontWeight;
   final DocxFontStyle? fontStyle;
@@ -100,6 +106,7 @@ class DocxStyle {
     this.borderRight,
     this.borderBetween,
     this.borderBottom,
+    this.tableBorders,
     this.fontWeight,
     this.fontStyle,
     this.decorations = const [],
@@ -135,6 +142,7 @@ class DocxStyle {
     XmlElement? pPr,
     XmlElement? rPr,
     XmlElement? tcPr,
+    XmlElement? tblPr,
     Map<String, DocxStyle>? tableConditionals,
   }) {
     final pProps = _parseParagraphProperties(pPr);
@@ -166,6 +174,7 @@ class DocxStyle {
       borderRight: pProps.borderRight ?? rProps.borderRight,
       borderBetween: pProps.borderBetween,
       borderBottom: pProps.borderBottom,
+      tableBorders: _parseTableBorders(tblPr),
       // R Props (merged)
       fontWeight: rProps.fontWeight,
       fontStyle: rProps.fontStyle,
@@ -219,6 +228,7 @@ class DocxStyle {
       borderRight: other.borderRight ?? borderRight,
       borderBetween: other.borderBetween ?? borderBetween,
       borderBottom: other.borderBottom ?? borderBottom,
+      tableBorders: _mergeTableBorders(tableBorders, other.tableBorders),
       // R props
       fontWeight: other.fontWeight ?? fontWeight,
       fontStyle: other.fontStyle ?? fontStyle,
@@ -245,6 +255,37 @@ class DocxStyle {
       tableConditionals: other.tableConditionals.isNotEmpty
           ? other.tableConditionals
           : tableConditionals,
+    );
+  }
+
+  /// Parses a table style's `w:tblPr/w:tblBorders` into a [DocxTableStyle]
+  /// carrying the six table border sides, or null when absent.
+  static DocxTableStyle? _parseTableBorders(XmlElement? tblPr) {
+    final tb = tblPr?.getElement('w:tblBorders');
+    if (tb == null) return null;
+    return DocxTableStyle(
+      borderTop: _parseBorderSide(tb.getElement('w:top')),
+      borderBottom: _parseBorderSide(tb.getElement('w:bottom')),
+      borderLeft: _parseBorderSide(tb.getElement('w:left')),
+      borderRight: _parseBorderSide(tb.getElement('w:right')),
+      borderInsideH: _parseBorderSide(tb.getElement('w:insideH')),
+      borderInsideV: _parseBorderSide(tb.getElement('w:insideV')),
+    );
+  }
+
+  /// Per-side merge of table borders along a `basedOn` chain ([other] overrides
+  /// [base] side by side), so a style inherits the sides its parent defines.
+  static DocxTableStyle? _mergeTableBorders(
+      DocxTableStyle? base, DocxTableStyle? other) {
+    if (base == null) return other;
+    if (other == null) return base;
+    return base.copyWith(
+      borderTop: other.borderTop ?? base.borderTop,
+      borderBottom: other.borderBottom ?? base.borderBottom,
+      borderLeft: other.borderLeft ?? base.borderLeft,
+      borderRight: other.borderRight ?? base.borderRight,
+      borderInsideH: other.borderInsideH ?? base.borderInsideH,
+      borderInsideV: other.borderInsideV ?? base.borderInsideV,
     );
   }
 
@@ -453,7 +494,8 @@ class DocxStyle {
         // `w:val="none"` explicitly disables the underline.
         if (val != 'none' && parsedStyle != DocxUnderlineStyle.none) {
           decorations.add(DocxTextDecoration.underline);
-          underlineStyle = parsedStyle; // null (unknown token) → treated as single
+          underlineStyle =
+              parsedStyle; // null (unknown token) → treated as single
           final themeColor = uElem.getAttribute('w:themeColor');
           final colorVal = uElem.getAttribute('w:color');
           if ((colorVal != null && colorVal != 'auto') || themeColor != null) {

@@ -2,6 +2,7 @@ import 'package:docx_creator/docx_creator.dart';
 import 'package:flutter/material.dart';
 
 import '../docx_view_config.dart';
+import '../font_loader/font_metrics_registry.dart';
 import '../theme/docx_view_theme.dart';
 
 /// The canonical paragraph [InlineSpan] plus the [PlaceholderDimensions] for
@@ -323,7 +324,13 @@ class SpanFactory {
       fontSize: fontSize,
       fontFamily: fontFamily,
       fontFamilyFallback: config.customFontFallbacks,
-      height: lineHeight ?? theme.defaultTextStyle.height,
+      // Single spacing → the run font's own line-height ratio (what Word uses),
+      // so density matches Word per-font instead of a fixed multiplier. Explicit
+      // multiples (1.5/double) keep their value; unknown fonts fall back to the
+      // theme default. See [FontMetricsRegistry].
+      height: lineHeight ??
+          FontMetricsRegistry.lineHeightFor(fontFamily) ??
+          theme.defaultTextStyle.height,
       shadows: shadows,
       fontFeatures: fontFeatures,
     );

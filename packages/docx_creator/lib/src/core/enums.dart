@@ -553,6 +553,30 @@ enum DocxVerticalAlign { top, center, bottom }
 
 enum DocxWidthType { auto, dxa, pct }
 
+/// Row-height rule (`w:trHeight w:hRule`, ST_HeightRule). [exact] fixes the row
+/// height (taller content is clipped); [atLeast] treats the height as a minimum
+/// (content may grow the row); [auto] ignores the height value (sizes to
+/// content).
+enum DocxTableRowHeightRule { auto, atLeast, exact }
+
+extension DocxTableRowHeightRuleExtension on DocxTableRowHeightRule {
+  String get xmlValue => name;
+
+  /// Parses a `w:hRule` token. An absent rule maps to [atLeast] (Word writes a
+  /// bare `w:trHeight w:val` for a minimum row height; `auto` is explicit).
+  static DocxTableRowHeightRule fromXml(String? val) {
+    switch (val) {
+      case 'exact':
+        return DocxTableRowHeightRule.exact;
+      case 'auto':
+        return DocxTableRowHeightRule.auto;
+      case 'atLeast':
+      default:
+        return DocxTableRowHeightRule.atLeast;
+    }
+  }
+}
+
 /// Table sizing algorithm (`w:tblLayout w:type`): [fixed] uses the grid/`tcW`
 /// widths verbatim; [autofit] sizes columns to content.
 enum DocxTableLayout { autofit, fixed }

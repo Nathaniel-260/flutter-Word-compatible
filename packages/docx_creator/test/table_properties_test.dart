@@ -87,6 +87,80 @@ void main() {
       expect(out, contains('<w:wBefore'));
       expect(out, contains('<w:wAfter'));
     });
+
+    test('trHeight hRule (exact / default atLeast) round-trips', () {
+      final t = parseTable('''
+        <w:tblGrid><w:gridCol w:w="5000"/></w:tblGrid>
+        <w:tr><w:trPr><w:trHeight w:val="600" w:hRule="exact"/></w:trPr>
+          $_cell</w:tr>''');
+      final exact = t.rows.single;
+      expect(exact.height, 600);
+      expect(exact.heightRule, DocxTableRowHeightRule.exact);
+      expect(buildXml(t), contains('w:hRule="exact"'));
+
+      // A bare trHeight (no hRule) defaults to atLeast (Word's minimum height).
+      final bare = parseTable('''
+        <w:tblGrid><w:gridCol w:w="5000"/></w:tblGrid>
+        <w:tr><w:trPr><w:trHeight w:val="400"/></w:trPr>$_cell</w:tr>''')
+          .rows
+          .single;
+      expect(bare.heightRule, DocxTableRowHeightRule.atLeast);
+    });
+  });
+
+  group('F: table borders inherited from the table style', () {
+    test('a table with only a style (Table Grid) gets the style borders', () {
+      final ctx = ReaderContext(Archive());
+      // "ae" = Table Grid (single borders), basedOn "a1" (no borders) — the exact
+      // shape Word emits for an inserted table.
+      final aeTblPr = XmlDocument.parse('<w:style $_ns w:type="table" '
+              'w:styleId="ae"><w:tblPr><w:tblBorders>'
+              '<w:top w:val="single" w:sz="4"/><w:left w:val="single" w:sz="4"/>'
+              '<w:bottom w:val="single" w:sz="4"/><w:right w:val="single" w:sz="4"/>'
+              '<w:insideH w:val="single" w:sz="4"/>'
+              '<w:insideV w:val="single" w:sz="4"/>'
+              '</w:tblBorders></w:tblPr></w:style>')
+          .rootElement
+          .getElement('w:tblPr');
+      ctx.styles['a1'] = const DocxStyle(id: 'a1', type: 'table');
+      ctx.styles['ae'] =
+          DocxStyle.fromXml('ae', type: 'table', basedOn: 'a1', tblPr: aeTblPr);
+
+      final parser = TableParser(ctx, InlineParser(ctx));
+      final doc = XmlDocument.parse('<w:tbl $_ns>'
+          '<w:tblPr><w:tblStyle w:val="ae"/></w:tblPr>'
+          '<w:tblGrid><w:gridCol w:w="3000"/></w:tblGrid>'
+          '<w:tr>$_cell</w:tr></w:tbl>');
+      final t = parser.parse(doc.rootElement);
+
+      // No inline w:tblBorders, yet the table now carries the style's borders.
+      expect(t.style.borderTop, isNotNull);
+      expect(t.style.borderInsideH, isNotNull);
+      expect(t.style.borderInsideV, isNotNull);
+      expect(t.style.borderTop!.style, DocxBorder.single);
+    });
+
+    test('an inline w:tblBorders still wins over the style', () {
+      final ctx = ReaderContext(Archive());
+      final aeTblPr = XmlDocument.parse('<w:style $_ns w:type="table" '
+              'w:styleId="ae"><w:tblPr><w:tblBorders>'
+              '<w:insideV w:val="single" w:sz="4"/>'
+              '</w:tblBorders></w:tblPr></w:style>')
+          .rootElement
+          .getElement('w:tblPr');
+      ctx.styles['ae'] = DocxStyle.fromXml('ae', type: 'table', tblPr: aeTblPr);
+
+      final parser = TableParser(ctx, InlineParser(ctx));
+      final doc = XmlDocument.parse('<w:tbl $_ns>'
+          '<w:tblPr><w:tblStyle w:val="ae"/><w:tblBorders>'
+          '<w:top w:val="double" w:sz="12"/></w:tblBorders></w:tblPr>'
+          '<w:tblGrid><w:gridCol w:w="3000"/></w:tblGrid>'
+          '<w:tr>$_cell</w:tr></w:tbl>');
+      final t = parser.parse(doc.rootElement);
+
+      expect(t.style.borderTop!.style, DocxBorder.double); // inline wins
+      expect(t.style.borderInsideV, isNotNull); // filled from the style
+    });
   });
 
   group('A.4 cell-level properties', () {
@@ -129,7 +203,9 @@ void main() {
   test('A.4 defaults: a plain table omits the new optional elements', () {
     final out = buildXml(const DocxTable(rows: [
       DocxTableRow(cells: [
-        DocxTableCell(children: [DocxParagraph(children: [DocxText('x')])]),
+        DocxTableCell(children: [
+          DocxParagraph(children: [DocxText('x')])
+        ]),
       ]),
     ]));
     expect(out, isNot(contains('w:bidiVisual')));

@@ -42,6 +42,8 @@ class DocxViewTheme {
     // 1.5 was far looser than Word and inflated page counts (Plan §D, 2026-06-12
     // formatting-demo validation). Paragraphs that carry their own line spacing
     // override this via SpanFactory.
+    // NOTE: a fixed multiplier can only approximate one font; the document-driven
+    // line height (per-font OS/2 typo metrics, what Word uses) is the real fix.
     this.defaultTextStyle = const TextStyle(
       fontSize: 14,
       color: Colors.black87,

@@ -6,8 +6,11 @@ import 'package:flutter/material.dart';
 
 import 'docx_view_config.dart';
 import 'font_loader/embedded_font_loader.dart';
+import 'font_loader/system_font_metrics_io.dart'
+    if (dart.library.js_interop) 'font_loader/system_font_metrics_web.dart';
 import 'pagination/page_model.dart';
 import 'search/docx_search_controller.dart';
+import 'utils/page_fit.dart';
 import 'theme/docx_view_theme.dart';
 import 'widget_generator/docx_widget_generator.dart';
 
@@ -200,6 +203,16 @@ class _DocxViewState extends State<DocxView> {
           obfuscationKey: font.obfuscationKey,
         );
       }
+
+      // Record real line metrics for the *system* fonts this document uses
+      // (Arial/David/… are not embedded), so single-spaced text lays out at
+      // Word's per-font line height. Best-effort + desktop-only (web no-ops);
+      // embedded fonts were already registered above from their bytes.
+      final families = <String>{...widget.config.customFontFallbacks};
+      _collectFontFamilies(doc.elements, families);
+      _collectFontFamilies(doc.section?.header?.children ?? const [], families);
+      _collectFontFamilies(doc.section?.footer?.children ?? const [], families);
+      await registerSystemFonts(families);
 
       // Pre-process notes for quick lookup
       final footnoteMap = {for (var f in doc.footnotes ?? []) f.footnoteId: f};
@@ -520,8 +533,8 @@ class _DocxViewState extends State<DocxView> {
               ? Center(child: _buildPagePlaceholder())
               : _buildTruncationNotice();
         }
-        return Center(
-          child: _generator.buildPageWidget(_doc!, _pages, i,
+        return _pageSlot(
+          _generator.buildPageWidget(_doc!, _pages, i,
               finalResult: _pagination),
         );
       }
@@ -550,14 +563,14 @@ class _DocxViewState extends State<DocxView> {
               padding: widget.config.padding,
               itemCount: widgets.length,
               itemBuilder: (context, i) =>
-                  isPaged ? Center(child: widgets[i]) : widgets[i],
+                  isPaged ? _pageSlot(widgets[i]) : widgets[i],
             )
           : SingleChildScrollView(
               padding: widget.config.padding,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: widgets.map((child) {
-                  if (isPaged) return Center(child: child);
+                  if (isPaged) return _pageSlot(child);
                   return child;
                 }).toList(),
               ),
@@ -610,6 +623,34 @@ class _DocxViewState extends State<DocxView> {
     }
 
     return content;
+  }
+
+  /// Wraps a fixed-size paged page so it scales **down** to fit the viewport
+  /// width when narrower than the page ([DocxViewConfig.fitPageToWidth]). This
+  /// is visual zoom only: the page widget is already laid out at the real page
+  /// width, so line and page breaks are unchanged — only the whole page shrinks
+  /// to stay fully visible. A page that fits is shown at 100%, centered.
+  Widget _pageSlot(Widget page) {
+    if (!widget.config.fitPageToWidth) return Center(child: page);
+    final pageW = _generator.pageDisplayWidth(_doc?.section);
+    final pageH = _generator.pageDisplayHeight(_doc?.section);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxW =
+            constraints.maxWidth.isFinite ? constraints.maxWidth : pageW;
+        final scale = pageFitScale(maxW, pageW);
+        return Container(
+          width: maxW,
+          height: pageH * scale,
+          alignment: Alignment.topCenter,
+          child: SizedBox(
+            width: pageW * scale,
+            height: pageH * scale,
+            child: FittedBox(fit: BoxFit.fill, child: page),
+          ),
+        );
+      },
+    );
   }
 }
 
@@ -747,5 +788,43 @@ class _DocxViewWithSearchState extends State<DocxViewWithSearch> {
         ),
       ],
     );
+  }
+}
+
+/// Collects every font family the document's runs reference (`w:rFonts`
+/// ascii/hAnsi/cs/eastAsia + the legacy `fontFamily`) into [out], walking
+/// paragraphs, table cells and list items. Used to register those families'
+/// real line metrics. Best-effort: node kinds without text are skipped.
+void _collectFontFamilies(Iterable<DocxNode> nodes, Set<String> out) {
+  for (final node in nodes) {
+    if (node is DocxParagraph) {
+      _collectFromInlines(node.children, out);
+    } else if (node is DocxTable) {
+      for (final row in node.rows) {
+        for (final cell in row.cells) {
+          _collectFontFamilies(cell.children, out);
+        }
+      }
+    } else if (node is DocxList) {
+      for (final item in node.items) {
+        _collectFromInlines(item.children, out);
+      }
+    }
+  }
+}
+
+void _collectFromInlines(Iterable<DocxInline> inlines, Set<String> out) {
+  void add(String? f) {
+    if (f != null && f.trim().isNotEmpty) out.add(f);
+  }
+
+  for (final inline in inlines) {
+    if (inline is DocxText) {
+      add(inline.fontFamily);
+      add(inline.fonts?.ascii);
+      add(inline.fonts?.hAnsi);
+      add(inline.fonts?.cs);
+      add(inline.fonts?.eastAsia);
+    }
   }
 }

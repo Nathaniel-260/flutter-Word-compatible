@@ -3,6 +3,7 @@ import 'package:docx_file_viewer/src/utils/block_index_counter.dart';
 import 'package:flutter/material.dart';
 
 import '../docx_view_config.dart';
+import '../layout/table_layout.dart';
 import '../theme/docx_view_theme.dart';
 import 'image_builder.dart';
 import 'list_builder.dart';
@@ -18,9 +19,6 @@ class TableBuilder {
   final ImageBuilder imageBuilder;
   final ShapeBuilder shapeBuilder;
   final DocxTheme? docxTheme;
-
-  // Constants
-  static const double _twipsToPx = 1 / 15.0;
 
   TableBuilder({
     required this.theme,
@@ -41,84 +39,22 @@ class TableBuilder {
   /// returning intrinsic dimensions". So for nested tables we skip the
   /// autofit/scroll wrapper and return the intrinsic-friendly table content
   /// directly (the cell already bounds its width).
-  Widget build(DocxTable table, {BlockIndexCounter? counter, bool nested = false}) {
+  Widget build(DocxTable table,
+      {BlockIndexCounter? counter, bool nested = false}) {
     if (table.rows.isEmpty) {
       return const SizedBox.shrink();
     }
-// ... (rest of build method unchanged until we hit _buildCell logic, but imports and class def are change)
-// Wait, I cannot use '...' in replacement content safely if I am replacing the top of the file.
-// I need to provide the full content for the replaced section.
 
-    // 1. Resolve Grid Columns (Widths)
-    final gridCols = table.resolvedGridColumns;
-    List<double> colWidths = [];
-
-    if (gridCols.isNotEmpty) {
-      colWidths = gridCols.map((w) => w * _twipsToPx).toList();
-    } else {
-      // Fallback: If no grid, distribute evenly based on first row
-      final firstRowCells = table.rows.first.cells.length;
-      if (firstRowCells > 0) {
-        // Assume page width 800 roughly, just for fallback
-        final w = 800.0 / firstRowCells;
-        colWidths = List.filled(firstRowCells, w);
-      }
-    }
-
-    // Initialize skip counts for vertical merges.
-    // skipCounts[i]: remaining rows to skip at grid column i.
-    final skipCounts = List<int>.filled(colWidths.length, 0);
-    // skipColSpans[i]: column-span of the merge group whose leader starts at i.
-    //   > 0 → group leader spanning that many columns.
-    //   -1  → subsumed by the leader to the left (do not render separately).
-    final skipColSpans = List<int>.filled(colWidths.length, 1);
-
-    // 2. Build Rows with table-level context
-    final rowWidgets = <Widget>[];
-    for (int r = 0; r < table.rows.length; r++) {
-      rowWidgets.add(_buildRow(
-        table.rows[r],
-        colWidths,
-        skipCounts,
-        skipColSpans,
-        table: table,
-        rowIndex: r,
-        totalRows: table.rows.length,
-        counter: counter,
-      ));
-    }
-
-    // 3. Build table content
-    // mainAxisSize.min: this Column sits inside a horizontal SingleChildScrollView,
-    // whose cross axis (vertical) constraint is passed through unchanged. In paged
-    // mode the page is laid out by a ListView with an *unbounded* main-axis height,
-    // so without min the Column would try to expand to infinite height → it is left
-    // unsized → the sliver's `child.hasSize` assertion fires and the whole page
-    // fails to paint (the "RenderBox was not laid out" cascade).
-    Widget tableContent = Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: rowWidgets,
-    );
-
-    // Apply Table-level background if exists
-    final tableFill = _resolveColor(table.style.fill, null, null, null);
-    if (tableFill != null) {
-      tableContent = DecoratedBox(
-          decoration: BoxDecoration(
-            color: tableFill,
-          ),
-          child: tableContent);
-    }
-
-    // טבלה מקוננת (בתוך תא): נמצאת בתוך ה-IntrinsicHeight של שורת-האב, שמבקש
-    // intrinsic dimensions. ה-LayoutBuilder של ה-autofit *זורק* על בקשה כזו,
-    // ולכן מדלגים עליו ומחזירים את התוכן ישירות ברוחבו הטבעי (התא כבר חוסם את
-    // הרוחב). כך נמנעת הקריסה "LayoutBuilder does not support returning
-    // intrinsic dimensions" שמפילה את כל העמוד.
-    final tableTotalWidth = colWidths.fold<double>(0.0, (a, b) => a + b);
+    // Nested table (inside a cell): the parent row's IntrinsicHeight queries
+    // intrinsic dimensions, which a LayoutBuilder cannot answer. So we skip the
+    // autofit/scroll wrapper and lay the table out at its grid width verbatim —
+    // the enclosing cell already bounds it (Plan §F.1: infinite available width
+    // ⇒ grid honoured as-is).
     if (nested) {
-      Widget nestedTable = SizedBox(width: tableTotalWidth, child: tableContent);
+      final layout =
+          resolveTableColumnWidths(table, availableWidth: double.infinity);
+      final content = _buildTableContent(table, layout.columns, counter);
+      Widget nestedTable = SizedBox(width: layout.totalWidth, child: content);
       if (table.alignment == DocxAlign.center) {
         return Center(child: nestedTable);
       } else if (table.alignment == DocxAlign.right) {
@@ -127,25 +63,33 @@ class TableBuilder {
       return nestedTable;
     }
 
-    // טיפול בטבלה רחבה מהמרחב הזמין: במקום לחתוך (ה-clip של הדף), מכווצים
-    // פרופורציונלית — בדומה ל-AutoFit של Word — אחרת מציגים בגודל הטבעי עם
-    // גלילה אופקית. מונע אובדן עמודות בדף A4 צר.
+    // Top-level table: resolve column widths against the *real* available width
+    // (the page body), through the same Part F engine the paginator measures
+    // with — so the painted table matches the measured one. A table wider than
+    // the page is scaled down proportionally (Word-like autofit) rather than
+    // clipped; an equal-or-narrower one keeps its width with horizontal scroll.
     Widget scrollableTable = Padding(
       padding: const EdgeInsets.symmetric(vertical: 8.0),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          if (constraints.maxWidth.isFinite &&
-              constraints.maxWidth > 0 &&
-              tableTotalWidth > constraints.maxWidth) {
+          final hasBound =
+              constraints.maxWidth.isFinite && constraints.maxWidth > 0;
+          final layout = resolveTableColumnWidths(
+            table,
+            availableWidth: hasBound ? constraints.maxWidth : double.infinity,
+          );
+          final content = _buildTableContent(table, layout.columns, counter);
+          final totalWidth = layout.totalWidth;
+          if (hasBound && totalWidth > constraints.maxWidth) {
             return FittedBox(
               fit: BoxFit.scaleDown,
               alignment: Alignment.topCenter,
-              child: SizedBox(width: tableTotalWidth, child: tableContent),
+              child: SizedBox(width: totalWidth, child: content),
             );
           }
           return SingleChildScrollView(
             scrollDirection: Axis.horizontal,
-            child: tableContent,
+            child: content,
           );
         },
       ),
@@ -161,11 +105,67 @@ class TableBuilder {
     return scrollableTable;
   }
 
+  /// Builds the table body (rows) at the resolved [colWidths], plus the
+  /// table-level background. Shared by the nested and top-level paths so both
+  /// render identically.
+  Widget _buildTableContent(
+      DocxTable table, List<double> colWidths, BlockIndexCounter? counter) {
+    // Vertical-merge bookkeeping (rebuilt per call — it is consumed top-to-bottom
+    // as rows are emitted).
+    // skipCounts[i]: remaining rows to skip at grid column i.
+    final skipCounts = List<int>.filled(colWidths.length, 0);
+    // skipColSpans[i]: column-span of the merge group whose leader starts at i.
+    //   > 0 → group leader spanning that many columns.
+    //   -1  → subsumed by the leader to the left (do not render separately).
+    final skipColSpans = List<int>.filled(colWidths.length, 1);
+    // skipFill[i]: the leader cell's resolved background, so the continuation
+    // placeholders of a vertical merge paint the same colour as the merged cell
+    // (otherwise a shaded merged cell shows a white gap below — looks un-merged).
+    final skipFill = List<Color?>.filled(colWidths.length, null);
+
+    final rowWidgets = <Widget>[];
+    for (int r = 0; r < table.rows.length; r++) {
+      rowWidgets.add(_buildRow(
+        table.rows[r],
+        colWidths,
+        skipCounts,
+        skipColSpans,
+        skipFill,
+        table: table,
+        rowIndex: r,
+        totalRows: table.rows.length,
+        counter: counter,
+      ));
+    }
+
+    // mainAxisSize.min: this Column sits inside a horizontal SingleChildScrollView,
+    // whose cross axis (vertical) constraint is passed through unchanged. In paged
+    // mode the page is laid out by a ListView with an *unbounded* main-axis height,
+    // so without min the Column would try to expand to infinite height → it is left
+    // unsized → the sliver's `child.hasSize` assertion fires and the whole page
+    // fails to paint (the "RenderBox was not laid out" cascade).
+    Widget tableContent = Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: rowWidgets,
+    );
+
+    final tableFill = _resolveColor(table.style.fill, null, null, null);
+    if (tableFill != null) {
+      tableContent = DecoratedBox(
+        decoration: BoxDecoration(color: tableFill),
+        child: tableContent,
+      );
+    }
+    return tableContent;
+  }
+
   Widget _buildRow(
     DocxTableRow row,
     List<double> colWidths,
     List<int> skipCounts,
-    List<int> skipColSpans, {
+    List<int> skipColSpans,
+    List<Color?> skipFill, {
     required DocxTable table,
     required int rowIndex,
     required int totalRows,
@@ -261,10 +261,23 @@ class TableBuilder {
     int gridIndex = 0;
     int cellIndex = 0; // Index in row.cells
 
+    // Leading skipped grid columns (`w:gridBefore`): emit one spacer covering
+    // their combined width and start the cell walk past them, so the row's first
+    // real cell sits in the right grid column (mirrors the paginator's
+    // measurement, which also starts at `row.gridBefore`).
+    if (row.gridBefore > 0 && colWidths.isNotEmpty) {
+      double lead = 0;
+      final upto = row.gridBefore.clamp(0, colWidths.length);
+      for (int k = 0; k < upto; k++) {
+        lead += colWidths[k];
+      }
+      if (lead > 0) cells.add(SizedBox(width: lead));
+      gridIndex = upto;
+    }
+
     while (gridIndex < colWidths.length) {
       // Determine column conditions
       final isFirstColumn = gridIndex == 0 && look.firstColumn;
-      final isLastColumn = gridIndex >= totalColumns - 1 && look.lastColumn;
 
       if (skipCounts[gridIndex] > 0) {
         // --- CONTINUED CELL (Merged Placeholder) ---
@@ -289,23 +302,28 @@ class TableBuilder {
           }
           final isLastRowOfMerge = remainingSkips == 0;
 
-          cells.add(_buildCell(
-            null, // No content
-            width,
-            drawTop: false,
-            drawBottom: isLastRowOfMerge,
-            isEmpty: true,
+          final border = _resolveCellBorder(
+            cell: null,
             tableStyle: effectiveTableStyle,
-            tableLook: look,
-            rowBackground: rowBackground,
-            isHeaderRow: isHeaderRow,
-            isLastRow: isLastRow,
-            isFirstColumn: isFirstColumn,
-            isLastColumn: isLastColumn,
+            rowCondStyle: null,
+            colCondStyle: null,
+            drawTop: false, // internal to the vertical merge → no rule
+            drawBottom: isLastRowOfMerge,
             isFirstRowActual: rowIndex == 0,
             isLastRowActual: rowIndex == totalRows - 1,
             isFirstColumnActual: gridIndex == 0,
             isLastColumnActual: gridIndex + groupSpan - 1 >= totalColumns - 1,
+          );
+          cells.add(_buildCell(
+            null, // No content
+            width,
+            table: table,
+            border: border,
+            isEmpty: true,
+            // Continue the merged cell's fill so the merge reads as one block.
+            rowBackground: skipFill[gridIndex] ?? rowBackground,
+            isHeaderRow: isHeaderRow,
+            isFirstColumn: isFirstColumn,
           ));
 
           gridIndex += groupSpan;
@@ -328,12 +346,18 @@ class TableBuilder {
           final rowSpan = cell.rowSpan > 1 ? cell.rowSpan : 1;
 
           if (rowSpan > 1) {
+            // The merged cell's own fill (cell shading → row background), so its
+            // continuation placeholders below paint the same colour.
+            final leaderFill = _resolveColor(cell.shadingFill, cell.themeFill,
+                    cell.themeFillTint, cell.themeFillShade) ??
+                rowBackground;
             for (int k = 0; k < span; k++) {
               final idx = gridIndex + k;
               if (idx < skipCounts.length) {
                 skipCounts[idx] = rowSpan - 1;
                 // Mark the first column as group leader; the rest are subsumed.
                 skipColSpans[idx] = k == 0 ? span : -1;
+                skipFill[idx] = leaderFill;
               }
             }
           }
@@ -352,25 +376,30 @@ class TableBuilder {
             colCondStyle = namedStyle?.tableConditionals['lastColumn'];
           }
 
-          cells.add(_buildCell(
-            cell,
-            width,
-            drawTop: true,
-            drawBottom: !hasVMerge,
-            isEmpty: false,
-            tableStyle: effectiveTableStyle, // Pass effective style
-            tableLook: look,
-            rowBackground: rowBackground,
+          final border = _resolveCellBorder(
+            cell: cell,
+            tableStyle: effectiveTableStyle,
             rowCondStyle: rowCondStyle,
             colCondStyle: colCondStyle,
-            isHeaderRow: isHeaderRow,
-            isLastRow: isLastRow,
-            isFirstColumn: isFirstColumn,
-            isLastColumn: cellIsLastColumn,
+            drawTop: true,
+            drawBottom:
+                !hasVMerge, // a merge leader leaves its bottom to the tail
             isFirstRowActual: rowIndex == 0,
             isLastRowActual: rowIndex == totalRows - 1,
             isFirstColumnActual: gridIndex == 0,
             isLastColumnActual: (gridIndex + span - 1) >= totalColumns - 1,
+          );
+          cells.add(_buildCell(
+            cell,
+            width,
+            table: table,
+            border: border,
+            isEmpty: false,
+            rowBackground: rowBackground,
+            rowCondStyle: rowCondStyle,
+            colCondStyle: colCondStyle,
+            isHeaderRow: isHeaderRow,
+            isFirstColumn: isFirstColumn,
           ));
 
           gridIndex += span;
@@ -386,16 +415,44 @@ class TableBuilder {
 
     Widget rowWidget = IntrinsicHeight(
       child: Row(
+        // `w:bidiVisual`: mirror the *visual* column order (first logical cell on
+        // the right) without touching the merge/width logic — Flutter lays the
+        // children out right-to-left. Null inherits the ambient direction.
+        textDirection: table.bidiVisual ? TextDirection.rtl : null,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: cells,
       ),
     );
 
     if (row.height != null) {
-      rowWidget = ConstrainedBox(
-        constraints: BoxConstraints(minHeight: row.height! * _twipsToPx),
-        child: rowWidget,
-      );
+      final hPx = row.height! * kTwipsToPx;
+      if (row.heightRule == DocxTableRowHeightRule.exact) {
+        // `exact`: fix the row to its height and clip taller content (Plan §F.3).
+        // The row sits in a horizontal scroll view (unbounded width), so bound
+        // the OverflowBox to the row's natural width (sum of the columns) — only
+        // the vertical overflow is what we mean to clip.
+        final rowWidth = colWidths.fold<double>(0.0, (a, b) => a + b);
+        rowWidget = SizedBox(
+          width: rowWidth,
+          height: hPx,
+          child: ClipRect(
+            child: OverflowBox(
+              alignment: Alignment.topLeft,
+              minHeight: 0,
+              maxHeight: double.infinity,
+              maxWidth: rowWidth,
+              child: rowWidget,
+            ),
+          ),
+        );
+      } else if (row.heightRule == DocxTableRowHeightRule.atLeast) {
+        // `atLeast`: a floor; content may grow the row.
+        rowWidget = ConstrainedBox(
+          constraints: BoxConstraints(minHeight: hPx),
+          child: rowWidget,
+        );
+      }
+      // `auto`: the height value is ignored (row sizes to content).
     }
 
     return rowWidget;
@@ -404,142 +461,18 @@ class TableBuilder {
   Widget _buildCell(
     DocxTableCell? cell,
     double width, {
-    required bool drawTop,
-    required bool drawBottom,
+    required DocxTable table,
+    required Border border,
     required bool isEmpty,
-    required DocxTableStyle tableStyle,
-    DocxTableLook? tableLook,
     Color? rowBackground,
     bool isHeaderRow = false,
-    bool isLastRow = false,
     bool isFirstColumn = false,
-    bool isLastColumn = false,
-    bool isFirstRowActual = false,
-    bool isLastRowActual = false,
-    bool isFirstColumnActual = false,
-    bool isLastColumnActual = false,
     DocxStyle? rowCondStyle,
     DocxStyle? colCondStyle,
     BlockIndexCounter? counter,
   }) {
-    // Helper to get side with proper merging of cell and table-level borders
-    BorderSide getSide(
-      DocxBorderSide? cellSide,
-      DocxBorderSide? tableSide, {
-      DocxBorderSide? rowSide,
-      DocxBorderSide? colSide,
-      bool forceSkip = false,
-      bool prioritizeCol = false,
-    }) {
-      if (forceSkip) return BorderSide.none;
-
-      // Determine effective side based on precedence:
-      // Cell > Primary Conditional > Secondary Conditional > Table
-      DocxBorderSide? effectiveSide = cellSide;
-
-      if (effectiveSide == null) {
-        if (prioritizeCol) {
-          effectiveSide = colSide ?? rowSide;
-        } else {
-          effectiveSide = rowSide ?? colSide;
-        }
-      }
-
-      effectiveSide ??= tableSide;
-
-      // If no border defined at any level, return none
-      if (effectiveSide == null) {
-        return BorderSide.none;
-      }
-
-      // If border style is explicitly none, return none
-      if (effectiveSide.style == DocxBorder.none) {
-        return BorderSide.none;
-      }
-
-      // Determine effective color
-      Color? borderColor;
-
-      // Try theme color first (takes priority)
-      if (effectiveSide.themeColor != null) {
-        borderColor = _resolveColor(
-            effectiveSide.color.hex,
-            effectiveSide.themeColor,
-            effectiveSide.themeTint,
-            effectiveSide.themeShade);
-      }
-
-      // Fall back to direct hex color if no theme color
-      if (borderColor == null && effectiveSide.color.hex != 'auto') {
-        borderColor = _resolveColor(effectiveSide.color.hex, null, null, null);
-      }
-
-      // Fall back to table's default border color
-      borderColor ??= _resolveColor(tableStyle.borderColor, null, null, null);
-
-      // Final fallback: If color is still null (e.g. 'auto'), use Black for visible borders
-      borderColor ??= Colors.black;
-
-      // Determine effective width
-      double borderWidth;
-      if (effectiveSide.size > 0) {
-        borderWidth = (effectiveSide.size / 8.0).clamp(0.5, 5.0);
-      } else {
-        borderWidth = (tableStyle.borderWidth / 8.0).clamp(0.5, 5.0);
-      }
-
-      return BorderSide(
-        color: borderColor,
-        width: borderWidth,
-        style: effectiveSide.style == DocxBorder.dotted ||
-                effectiveSide.style == DocxBorder.dashed
-            ? BorderStyle.none
-            : BorderStyle.solid,
-      );
-    }
-
-    // Determine which table-level border to use based on position
-    // - Outer edges: use borderTop/borderBottom/borderLeft/borderRight
-    // - Inner edges: use borderInsideH (horizontal inner) / borderInsideV (vertical inner)
-
-    // Get table-level borders with default fallback
-    final topTableBorder =
-        isFirstRowActual ? tableStyle.borderTop : tableStyle.borderInsideH;
-    final bottomTableBorder =
-        isLastRowActual ? tableStyle.borderBottom : tableStyle.borderInsideH;
-    final leftTableBorder =
-        isFirstColumnActual ? tableStyle.borderLeft : tableStyle.borderInsideV;
-    final rightTableBorder =
-        isLastColumnActual ? tableStyle.borderRight : tableStyle.borderInsideV;
-
-    Border sideBorder = Border(
-      top: getSide(
-        cell?.borderTop,
-        topTableBorder,
-        rowSide: rowCondStyle?.borderTop,
-        colSide: colCondStyle?.borderTop,
-      ),
-      bottom: getSide(
-        cell?.borderBottom,
-        bottomTableBorder,
-        rowSide: rowCondStyle?.borderBottomSide,
-        colSide: colCondStyle?.borderBottomSide,
-      ),
-      left: getSide(
-        cell?.borderLeft,
-        leftTableBorder,
-        rowSide: rowCondStyle?.borderLeft,
-        colSide: colCondStyle?.borderLeft,
-        prioritizeCol: true,
-      ),
-      right: getSide(
-        cell?.borderRight,
-        rightTableBorder,
-        rowSide: rowCondStyle?.borderRight,
-        colSide: colCondStyle?.borderRight,
-        prioritizeCol: true,
-      ),
-    );
+    // Borders are resolved once per edge in _buildRow (Plan §F.2 conflict
+    // resolution + single-owner de-duplication) and passed in ready to paint.
 
     // Background: Cell shading takes priority, then row background
     Color? color;
@@ -558,7 +491,8 @@ class TableBuilder {
         if (child is DocxParagraph) {
           children.add(paragraphBuilder.build(child, counter: counter));
         } else if (child is DocxTable) {
-          children.add(build(child, counter: counter, nested: true)); // Recursive
+          children
+              .add(build(child, counter: counter, nested: true)); // Recursive
         } else if (child is DocxList) {
           children.add(listBuilder.build(child, counter: counter));
         } else if (child is DocxImage) {
@@ -667,21 +601,140 @@ class TableBuilder {
           child: contentWidget,
         );
       }
+
+      // Rotated cell text (`w:textDirection`): tbRl = top→bottom (90° CW),
+      // btLr = bottom→top (270° CW). The rotation wraps the cell's content only.
+      switch (cell.textDirection) {
+        case DocxCellTextDirection.tbRl:
+        case DocxCellTextDirection.tbRlV:
+          contentWidget = RotatedBox(quarterTurns: 1, child: contentWidget);
+          break;
+        case DocxCellTextDirection.btLr:
+        case DocxCellTextDirection.tbLrV:
+          contentWidget = RotatedBox(quarterTurns: 3, child: contentWidget);
+          break;
+        case DocxCellTextDirection.lrTb:
+        case DocxCellTextDirection.lrTbV:
+        case null:
+          break;
+      }
     }
 
-    // Use cellPadding from style if available, otherwise default to 4.0
-    final cellPaddingPx = tableStyle.cellPadding != null
-        ? (tableStyle.cellPadding! * _twipsToPx).clamp(2.0, 20.0)
-        : 4.0;
+    // Effective cell margins (`w:tcMar`/`w:tblCellMar`, Word default 108tw sides /
+    // 0 top-bottom) — the same widths the paginator measured the content at.
+    final margins = resolveCellMargins(table, cell);
 
     return Container(
       width: width,
       decoration: BoxDecoration(
         color: color,
-        border: sideBorder,
+        border: border,
       ),
-      padding: EdgeInsets.all(cellPaddingPx),
+      padding: EdgeInsets.fromLTRB(
+          margins.left, margins.top, margins.right, margins.bottom),
       child: contentWidget,
+    );
+  }
+
+  /// Resolves the [Border] to paint for one cell (Plan §F.2/§F.3).
+  ///
+  /// Left/right are always drawn so a table never loses its outer side borders —
+  /// crucially in **RTL** tables, where the grid-first column sits visually on
+  /// the right (Flutter's `Border.left`/`right` are physical, not directional).
+  /// Top/bottom are gated by [drawTop]/[drawBottom] so a vertical-merge leader
+  /// (`drawBottom: false`) and its continuation placeholders (`drawTop: false`)
+  /// show no internal horizontal rule — the merged cell reads as one block.
+  ///
+  /// (A table-wide "strong border wins" conflict resolution with single-owner
+  /// de-duplication needs a direction-aware grid render object to be correct in
+  /// RTL; deferred — see §8.2 #22.)
+  Border _resolveCellBorder({
+    required DocxTableCell? cell,
+    required DocxTableStyle tableStyle,
+    required DocxStyle? rowCondStyle,
+    required DocxStyle? colCondStyle,
+    required bool drawTop,
+    required bool drawBottom,
+    required bool isFirstRowActual,
+    required bool isLastRowActual,
+    required bool isFirstColumnActual,
+    required bool isLastColumnActual,
+  }) {
+    // Table-level default per edge: outer edges use the table border; inner edges
+    // use insideH (horizontal) / insideV (vertical).
+    final topTable =
+        isFirstRowActual ? tableStyle.borderTop : tableStyle.borderInsideH;
+    final bottomTable =
+        isLastRowActual ? tableStyle.borderBottom : tableStyle.borderInsideH;
+    final leftTable =
+        isFirstColumnActual ? tableStyle.borderLeft : tableStyle.borderInsideV;
+    final rightTable =
+        isLastColumnActual ? tableStyle.borderRight : tableStyle.borderInsideV;
+
+    final effTop = _effectiveSource(cell?.borderTop, topTable,
+        rowSide: rowCondStyle?.borderTop, colSide: colCondStyle?.borderTop);
+    final effBottom = _effectiveSource(cell?.borderBottom, bottomTable,
+        rowSide: rowCondStyle?.borderBottomSide,
+        colSide: colCondStyle?.borderBottomSide);
+    final effLeft = _effectiveSource(cell?.borderLeft, leftTable,
+        rowSide: rowCondStyle?.borderLeft,
+        colSide: colCondStyle?.borderLeft,
+        prioritizeCol: true);
+    final effRight = _effectiveSource(cell?.borderRight, rightTable,
+        rowSide: rowCondStyle?.borderRight,
+        colSide: colCondStyle?.borderRight,
+        prioritizeCol: true);
+
+    return Border(
+      top: drawTop ? _convertSide(effTop, tableStyle) : BorderSide.none,
+      bottom:
+          drawBottom ? _convertSide(effBottom, tableStyle) : BorderSide.none,
+      left: _convertSide(effLeft, tableStyle),
+      right: _convertSide(effRight, tableStyle),
+    );
+  }
+
+  /// Effective *source* border for an edge by precedence (cell > conditional >
+  /// table), before neighbour conflict. Conditional precedence prefers the column
+  /// style for vertical edges ([prioritizeCol]) and the row style otherwise.
+  DocxBorderSide? _effectiveSource(
+    DocxBorderSide? cellSide,
+    DocxBorderSide? tableSide, {
+    DocxBorderSide? rowSide,
+    DocxBorderSide? colSide,
+    bool prioritizeCol = false,
+  }) {
+    var eff = cellSide;
+    eff ??= prioritizeCol ? (colSide ?? rowSide) : (rowSide ?? colSide);
+    return eff ?? tableSide;
+  }
+
+  /// Converts a resolved source border to a Flutter [BorderSide] (colour/width).
+  /// Dashed/dotted collapse to a hairline-suppressed solid (no native dashes).
+  BorderSide _convertSide(DocxBorderSide? eff, DocxTableStyle tableStyle) {
+    if (eff == null || eff.style == DocxBorder.none) return BorderSide.none;
+
+    Color? borderColor;
+    if (eff.themeColor != null) {
+      borderColor = _resolveColor(
+          eff.color.hex, eff.themeColor, eff.themeTint, eff.themeShade);
+    }
+    if (borderColor == null && eff.color.hex != 'auto') {
+      borderColor = _resolveColor(eff.color.hex, null, null, null);
+    }
+    borderColor ??= _resolveColor(tableStyle.borderColor, null, null, null);
+    borderColor ??= Colors.black;
+
+    final borderWidth = eff.size > 0
+        ? (eff.size / 8.0).clamp(0.5, 5.0)
+        : (tableStyle.borderWidth / 8.0).clamp(0.5, 5.0);
+
+    return BorderSide(
+      color: borderColor,
+      width: borderWidth,
+      style: eff.style == DocxBorder.dotted || eff.style == DocxBorder.dashed
+          ? BorderStyle.none
+          : BorderStyle.solid,
     );
   }
 

@@ -54,6 +54,8 @@ void main() {
         rows: [
           DocxTableRow(
             height: rowHeightTwips,
+            heightRule:
+                DocxTableRowHeightRule.atLeast, // floor → ConstrainedBox
             cells: [
               DocxTableCell(children: [
                 DocxParagraph(children: [DocxText('Constrained')])

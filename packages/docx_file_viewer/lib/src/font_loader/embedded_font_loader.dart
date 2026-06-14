@@ -1,5 +1,7 @@
 import 'package:flutter/services.dart';
 
+import 'font_metrics_registry.dart';
+
 /// Loads embedded fonts from DOCX files.
 class EmbeddedFontLoader {
   static final Map<String, bool> _loadedFonts = {};
@@ -22,6 +24,10 @@ class EmbeddedFontLoader {
     if (obfuscationKey != null && obfuscationKey.isNotEmpty) {
       fontBytes = _deobfuscateFont(fontData, obfuscationKey);
     }
+
+    // Record the font's real line metrics (from the de-obfuscated program) so
+    // single-spaced text using it lays out at Word's per-font line height.
+    FontMetricsRegistry.register(familyName, fontBytes);
 
     try {
       // Load font using FontLoader

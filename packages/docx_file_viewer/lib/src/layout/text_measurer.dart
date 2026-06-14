@@ -290,14 +290,21 @@ class TextMeasurer {
 
   // Paragraph spacing, mirroring [ParagraphBuilder._wrapWithParagraphStyle] so
   // the measured footprint matches the rendered block (twips → px at 96 DPI).
+  //
+  // The default when nothing is resolved is **0** (the OOXML spec default), not
+  // a guessed 80tw: the StyleEngine already folds docDefaults + the named-style
+  // chain into `spacingBefore/After`, so a null here means the document truly
+  // asks for no spacing (e.g. a file with no `Normal` style, like Word's own
+  // blank-template body). Injecting 80tw per paragraph inflated the page count
+  // (~10px × every body paragraph) and broke 1:1 page-break parity with Word.
   double _spacingBefore(DocxParagraph p) {
-    var top = ((p.spacingBefore ?? 80) / 15.0).clamp(0.0, double.infinity);
+    var top = ((p.spacingBefore ?? 0) / 15.0).clamp(0.0, double.infinity);
     if (_isHeading(p)) top = top.clamp(16.0, double.infinity);
     return top;
   }
 
   double _spacingAfter(DocxParagraph p) {
-    var bottom = ((p.spacingAfter ?? 80) / 15.0).clamp(0.0, double.infinity);
+    var bottom = ((p.spacingAfter ?? 0) / 15.0).clamp(0.0, double.infinity);
     if (_isHeading(p)) bottom = bottom.clamp(8.0, double.infinity);
     return bottom;
   }

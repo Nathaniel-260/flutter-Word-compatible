@@ -63,6 +63,15 @@ class DocxViewConfig {
   /// If null, defaults to page width * 1.414 (A4 ratio).
   final double? pageHeight;
 
+  /// Paged mode only: scale each page down to fit the viewport width when the
+  /// window is narrower than the page, so the whole page is visible instead of
+  /// being clipped. Crucially this is **purely visual zoom** — the document is
+  /// still paginated and line-broken at the real page width, so line/page breaks
+  /// stay identical to Word regardless of window size (a page that fits is shown
+  /// at 100%, never enlarged). Set false to keep the page at its native pixel
+  /// size (the caller then scrolls/zooms it themselves).
+  final bool fitPageToWidth;
+
   const DocxViewConfig({
     this.enableSearch = true,
     this.enableZoom = true,
@@ -80,6 +89,7 @@ class DocxViewConfig {
     this.pageWidth,
     this.pageHeight,
     this.pageMode = DocxPageMode.paged,
+    this.fitPageToWidth = true,
   });
 
   DocxViewConfig copyWith({
@@ -97,6 +107,9 @@ class DocxViewConfig {
     Color? searchHighlightColor,
     Color? currentSearchHighlightColor,
     double? pageWidth,
+    double? pageHeight,
+    DocxPageMode? pageMode,
+    bool? fitPageToWidth,
   }) {
     return DocxViewConfig(
       enableSearch: enableSearch ?? this.enableSearch,
@@ -114,6 +127,9 @@ class DocxViewConfig {
       currentSearchHighlightColor:
           currentSearchHighlightColor ?? this.currentSearchHighlightColor,
       pageWidth: pageWidth ?? this.pageWidth,
+      pageHeight: pageHeight ?? this.pageHeight,
+      pageMode: pageMode ?? this.pageMode,
+      fitPageToWidth: fitPageToWidth ?? this.fitPageToWidth,
     );
   }
 }
