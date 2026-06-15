@@ -1,5 +1,6 @@
 import 'package:docx_creator/docx_creator.dart';
 
+import '../layout/float_layout.dart';
 import 'block_slice.dart';
 
 /// The resolved pixel geometry of one page (Plan §D.2.1 / §E.1.3).
@@ -95,6 +96,7 @@ class PageModel {
     this.isFirstPageOfSection = false,
     this.isEvenPage = false,
     this.isBlank = false,
+    this.floats = const [],
   });
 
   /// The resolved pixel geometry of this page (size, margins, body region,
@@ -131,6 +133,12 @@ class PageModel {
   /// True for a forced-empty page inserted to satisfy an `evenPage`/`oddPage`
   /// section break (Plan §D.2.4). It still consumes a page number.
   final bool isBlank;
+
+  /// Floating drawings anchored to blocks on this page, resolved to body
+  /// coordinates (Plan §H.2). The renderer paints them as `Positioned` layers
+  /// over/under the body in z-order; they hold no widgets, only a reference to
+  /// the AST drawing plus its rectangle.
+  final List<PlacedFloat> floats;
 }
 
 /// Output of [Paginator.paginate]: the page list plus the lookup maps that

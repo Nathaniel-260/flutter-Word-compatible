@@ -1,9 +1,13 @@
+import 'dart:math' as math;
+
 import 'package:docx_creator/docx_creator.dart';
 import 'package:flutter/material.dart';
 
 import '../docx_view_config.dart';
 
-/// Builds Flutter [Image] widgets from [DocxImage] elements.
+/// Builds Flutter [Image] widgets from [DocxImage]/[DocxInlineImage] elements,
+/// applying the drawing transform (rotation / mirror / crop, Plan §H.3) and
+/// decoding at display resolution to bound RAM (§2.4 rule 2).
 class ImageBuilder {
   final DocxViewConfig config;
 
@@ -11,14 +15,9 @@ class ImageBuilder {
 
   /// Build a block-level image widget.
   Widget buildBlockImage(DocxImage image) {
-    Widget imageWidget = Image.memory(
-      image.bytes,
-      width: image.width,
-      height: image.height,
-      fit: BoxFit.contain,
-      errorBuilder: (context, error, stackTrace) =>
-          _buildErrorPlaceholder(image),
-    );
+    final inline = image.asInline;
+    final Widget imageWidget =
+        _transformed(inline, onError: () => _blockError(image));
 
     // Apply alignment
     Alignment alignment;
@@ -40,34 +39,99 @@ class ImageBuilder {
     );
   }
 
-  /// Build an inline image widget.
-  Widget buildInlineImage(DocxInlineImage image) {
-    Widget imageWidget = Image.memory(
-      image.bytes,
-      width: image.width,
-      height: image.height,
-      fit: BoxFit.contain,
-      errorBuilder: (context, error, stackTrace) =>
-          _buildInlineErrorPlaceholder(image),
-    );
+  /// Build an inline (or floating-as-inline) image widget with its transform.
+  Widget buildInlineImage(DocxInlineImage image) =>
+      _transformed(image, onError: () => _inlineError(image));
 
-    // If it's a floating image, we might want to wrap it or handle alignment
-    // For inline context (inside a span), we can't do much about absolute positioning
-    // without breaking the text flow.
-    // However, we can respect simple alignment or wrapping properties if they translate to inline behavior.
+  // ---------------------------------------------------------------------------
+  // Transform stack (Plan §H.3): crop → mirror → rotate, mirroring how Word
+  // composes `a:srcRect` then `a:xfrm` (flip then rot) about the shape centre.
+  // ---------------------------------------------------------------------------
 
-    // For floating images that are actually inline in the DOM order:
-    if (image.positionMode == DocxDrawingPosition.floating) {
-      // If floating, wrapping logic is handled by ParagraphBuilder's Row application.
-      // However, we can add some internal padding here if needed, or
-      // if we want to support 'center' float which ParagraphBuilder doesn't yet do fully.
-      // For now, return as is, letting ParagraphBuilder handle the layout wrapper.
+  Widget _transformed(DocxInlineImage image,
+      {required Widget Function() onError}) {
+    Widget w = _cropped(image, onError);
+
+    if (image.flipH || image.flipV) {
+      w = Transform(
+        alignment: Alignment.center,
+        transform: Matrix4.diagonal3Values(
+          image.flipH ? -1.0 : 1.0,
+          image.flipV ? -1.0 : 1.0,
+          1.0,
+        ),
+        child: w,
+      );
     }
-
-    return imageWidget;
+    if (image.rotation != 0) {
+      w = Transform.rotate(
+        angle: image.rotation * math.pi / 180.0,
+        child: w,
+      );
+    }
+    return w;
   }
 
-  Widget _buildErrorPlaceholder(DocxImage image) {
+  /// The base image, cropped to `a:srcRect` when present. Without a crop this is
+  /// a plain decoded image; with one, the full image is scaled up so the visible
+  /// window equals the display box, then clipped (no whole-image decode waste —
+  /// `cacheWidth` still tracks the scaled size).
+  Widget _cropped(DocxInlineImage image, Widget Function() onError) {
+    final w = image.width;
+    final h = image.height;
+    if (!image.hasCrop) {
+      return _decoded(image, w, h, BoxFit.contain, onError);
+    }
+    final visW = 1 - image.cropLeft - image.cropRight;
+    final visH = 1 - image.cropTop - image.cropBottom;
+    if (visW <= 0.01 || visH <= 0.01) {
+      // Degenerate crop — fall back to the uncropped image rather than nothing.
+      return _decoded(image, w, h, BoxFit.contain, onError);
+    }
+    final fullW = w / visW;
+    final fullH = h / visH;
+    return ClipRect(
+      child: SizedBox(
+        width: w,
+        height: h,
+        child: OverflowBox(
+          alignment: Alignment.topLeft,
+          minWidth: fullW,
+          maxWidth: fullW,
+          minHeight: fullH,
+          maxHeight: fullH,
+          child: Transform.translate(
+            offset: Offset(-image.cropLeft * fullW, -image.cropTop * fullH),
+            child: _decoded(image, fullW, fullH, BoxFit.fill, onError),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Decodes [image] at the displayed size × devicePixelRatio (`cacheWidth`/
+  /// `cacheHeight`), so a large source bitmap shown small never decodes at native
+  /// resolution (§2.4 rule 2). The size is known from the AST — no decode needed
+  /// to learn it.
+  Widget _decoded(DocxInlineImage image, double w, double h, BoxFit fit,
+      Widget Function() onError) {
+    return Builder(builder: (context) {
+      final dpr = MediaQuery.maybeDevicePixelRatioOf(context) ?? 1.0;
+      final cw = (w * dpr).ceil();
+      final ch = (h * dpr).ceil();
+      return Image.memory(
+        image.bytes,
+        width: w,
+        height: h,
+        fit: fit,
+        cacheWidth: cw > 0 ? cw : null,
+        cacheHeight: ch > 0 ? ch : null,
+        errorBuilder: (context, error, stackTrace) => onError(),
+      );
+    });
+  }
+
+  Widget _blockError(DocxImage image) {
     return Container(
       width: image.width,
       height: image.height,
@@ -86,7 +150,7 @@ class ImageBuilder {
     );
   }
 
-  Widget _buildInlineErrorPlaceholder(DocxInlineImage image) {
+  Widget _inlineError(DocxInlineImage image) {
     return Container(
       width: image.width,
       height: image.height,

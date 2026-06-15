@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../docx_view_config.dart';
 import '../font_loader/font_metrics_registry.dart';
 import '../theme/docx_view_theme.dart';
+import 'float_layout.dart';
 
 /// The canonical paragraph [InlineSpan] plus the [PlaceholderDimensions] for
 /// any [WidgetSpan]s it contains, in span order.
@@ -447,9 +448,24 @@ class SpanFactory {
         ));
         seg(2, inline);
       } else if (inline is DocxInlineImage) {
-        addImage(inline.width, inline.height, inline);
+        // A float that the renderer takes *out of flow* — a full-width
+        // (`topAndBottom`) band reserved by the paginator, or a back/front layer
+        // (`behindText`/`inFront`/`none`) — must not add inline height here, or
+        // the measured paragraph would be taller than what the renderer lays
+        // out. A *side* float (`square`/`tight`/`through`) is rendered in-flow
+        // beside the text (`paragraph_builder._buildFloatingLayout`), so it is
+        // measured in-flow too (measure ≡ render until band-aware reflow lands).
+        if (_isOutOfFlowFloat(inline)) {
+          anchorSeg(inline); // zero-width anchor for split bookkeeping
+        } else {
+          addImage(inline.width, inline.height, inline);
+        }
       } else if (inline is DocxShape) {
-        addImage(inline.width, inline.height, inline);
+        if (_isOutOfFlowFloat(inline)) {
+          anchorSeg(inline);
+        } else {
+          addImage(inline.width, inline.height, inline);
+        }
       } else if (inline is DocxFootnoteRef || inline is DocxEndnoteRef) {
         // Superscript reference mark; same size factor as the renderer.
         final id = inline is DocxFootnoteRef
@@ -691,4 +707,15 @@ class SpanFactory {
         return null;
     }
   }
+}
+
+/// True when [inline] is a floating drawing the renderer positions **out of the
+/// text flow**: a full-width (`topAndBottom`) band — whose vertical space the
+/// paginator reserves in `_recordFloats` — or a back/front layer
+/// (`behindText`/`inFront`/`none`). A *side* float (`square`/`tight`/`through`)
+/// is rendered in-flow beside the text, so it is measured in-flow (returns
+/// false). Inline (non-floating) drawings return false (also in-flow).
+bool _isOutOfFlowFloat(DocxInline inline) {
+  final flow = floatPlacementOf(inline)?.flow;
+  return flow != null && flow != FloatFlow.side;
 }

@@ -91,6 +91,32 @@ class DocxInlineImage extends DocxInline {
   /// Optional border/outline for the image.
   final DocxBorderSide? border;
 
+  // ==========================================================================
+  // Drawing transform (Plan §H.3): rotation, mirror, and crop.
+  // ==========================================================================
+
+  /// Rotation in degrees, clockwise (`a:xfrm@rot`, stored in the file as
+  /// 1/60000 of a degree). 0 = upright.
+  final double rotation;
+
+  /// Horizontal mirror (`a:xfrm@flipH`).
+  final bool flipH;
+
+  /// Vertical mirror (`a:xfrm@flipV`).
+  final bool flipV;
+
+  /// Crop insets as fractions of the source image (`a:srcRect@l/t/r/b`, stored
+  /// in the file as 1/1000 of a percent → fraction = val / 100000). 0 = no crop;
+  /// e.g. [cropLeft] 0.1 trims 10% off the left edge.
+  final double cropLeft;
+  final double cropTop;
+  final double cropRight;
+  final double cropBottom;
+
+  /// True when any crop inset is non-zero.
+  bool get hasCrop =>
+      cropLeft != 0 || cropTop != 0 || cropRight != 0 || cropBottom != 0;
+
   // Internal: Set by the exporter when processing
   String? _relationshipId;
   int? _uniqueId;
@@ -125,6 +151,13 @@ class DocxInlineImage extends DocxInline {
     this.effectExtentB = 0,
     this.anchorExtensions,
     this.border,
+    this.rotation = 0,
+    this.flipH = false,
+    this.flipV = false,
+    this.cropLeft = 0,
+    this.cropTop = 0,
+    this.cropRight = 0,
+    this.cropBottom = 0,
     super.id,
   });
 
@@ -388,6 +421,27 @@ class DocxInlineImage extends DocxInline {
                         );
                       },
                     );
+                    // Crop (`a:srcRect`) — fraction → 1/1000 of a percent.
+                    if (hasCrop) {
+                      builder.element('a:srcRect', nest: () {
+                        if (cropLeft != 0) {
+                          builder.attribute(
+                              'l', (cropLeft * 100000).round().toString());
+                        }
+                        if (cropTop != 0) {
+                          builder.attribute(
+                              't', (cropTop * 100000).round().toString());
+                        }
+                        if (cropRight != 0) {
+                          builder.attribute(
+                              'r', (cropRight * 100000).round().toString());
+                        }
+                        if (cropBottom != 0) {
+                          builder.attribute(
+                              'b', (cropBottom * 100000).round().toString());
+                        }
+                      });
+                    }
                     builder.element(
                       'a:stretch',
                       nest: () {
@@ -403,6 +457,12 @@ class DocxInlineImage extends DocxInline {
                     builder.element(
                       'a:xfrm',
                       nest: () {
+                        if (rotation != 0) {
+                          builder.attribute(
+                              'rot', (rotation * 60000).round().toString());
+                        }
+                        if (flipH) builder.attribute('flipH', '1');
+                        if (flipV) builder.attribute('flipV', '1');
                         builder.element(
                           'a:off',
                           nest: () {

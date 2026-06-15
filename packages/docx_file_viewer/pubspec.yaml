@@ -13,8 +13,11 @@ screenshots:
   - description: "Example of view"
     path: example.gif
 environment:
-  sdk: ^3.0.0
-  flutter: ">=3.0.0"
+  sdk: ^3.6.0
+  # Floor reflects the newest framework APIs actually used: Color.withValues and
+  # MediaQuery.maybeDevicePixelRatioOf (both Flutter 3.27 / Dart 3.6). The old
+  # ">=3.0.0" was stale — pub-get would have succeeded on SDKs that cannot compile.
+  flutter: ">=3.27.0"
   
 
 dependencies:

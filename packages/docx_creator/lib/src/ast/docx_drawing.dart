@@ -207,8 +207,14 @@ class DocxShape extends DocxInline {
   /// Whether the shape should be behind the text.
   final bool behindDocument;
 
-  /// Rotation angle in degrees.
+  /// Rotation angle in degrees, clockwise (`a:xfrm@rot`).
   final double rotation;
+
+  /// Horizontal mirror (`a:xfrm@flipH`).
+  final bool flipH;
+
+  /// Vertical mirror (`a:xfrm@flipV`).
+  final bool flipV;
 
   // Internal: Set by the exporter when processing
   int? _shapeId;
@@ -231,6 +237,8 @@ class DocxShape extends DocxInline {
     this.textWrap = DocxTextWrap.square,
     this.behindDocument = false,
     this.rotation = 0,
+    this.flipH = false,
+    this.flipV = false,
     super.id,
   });
 
@@ -652,6 +660,8 @@ class DocxShape extends DocxInline {
           if (rotation != 0) {
             builder.attribute('rot', (rotation * 60000).toInt().toString());
           }
+          if (flipH) builder.attribute('flipH', '1');
+          if (flipV) builder.attribute('flipV', '1');
           builder.element('a:off', nest: () {
             builder.attribute('x', '0');
             builder.attribute('y', '0');

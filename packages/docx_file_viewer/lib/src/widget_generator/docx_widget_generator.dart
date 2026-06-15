@@ -2,6 +2,7 @@ import 'package:docx_creator/docx_creator.dart';
 import 'package:flutter/material.dart';
 
 import '../docx_view_config.dart';
+import '../layout/float_layout.dart';
 import '../layout/numbering_resolver.dart';
 import '../layout/span_factory.dart';
 import '../layout/text_measurer.dart';
@@ -440,7 +441,16 @@ class DocxWidgetGenerator {
     List<Widget>? firstPageHeaderWidgets,
   }) {
     final sliceBlocks = [for (final s in page.slices) s.block];
-    final content = _generateBlockWidgets(sliceBlocks, counter: counter);
+    // Floats rendered as a positioned layer (Plan §H.2 step 4): topAndBottom +
+    // front (wrapNone/inFront). Side floats stay on the in-flow Row path and
+    // behindText stays on the page-background path, so neither is layered here.
+    final layerFloats = [
+      for (final pf in page.floats)
+        if (_isLayerFloat(pf.drawing)) pf
+    ];
+    final stripSet = <DocxInline>{for (final pf in layerFloats) pf.drawing};
+    final bodyBlocks = _stripFloats(sliceBlocks, stripSet);
+    final content = _generateBlockWidgets(bodyBlocks, counter: counter);
     final backgroundImages = _collectBehindTextImages(sliceBlocks);
 
     final pageContext = PageContext(
@@ -461,6 +471,72 @@ class DocxWidgetGenerator {
       isEvenPage: doc.evenAndOddHeaders && page.isEvenPage,
       pageContext: pageContext,
       backgroundImages: backgroundImages,
+      floats: layerFloats,
+    );
+  }
+
+  /// A float drawn as a positioned layer (not in flow, not page background):
+  /// `topAndBottom` (space reserved by the paginator) and the front modes
+  /// (`wrapNone`/`inFront`). Side floats (square/tight, left/right) remain on the
+  /// in-flow Row path; `behindText` is the page background — neither is layered.
+  bool _isLayerFloat(DocxInline d) {
+    final wrap = _wrapOf(d);
+    return wrap == DocxTextWrap.topAndBottom ||
+        wrap == DocxTextWrap.none ||
+        wrap == DocxTextWrap.inFrontOfText;
+  }
+
+  DocxTextWrap _wrapOf(DocxInline d) {
+    if (d is DocxInlineImage) return d.textWrap;
+    if (d is DocxShape) {
+      return d.behindDocument ? DocxTextWrap.behindText : d.textWrap;
+    }
+    return DocxTextWrap.none;
+  }
+
+  /// Returns [blocks] with every inline in [strip] removed from its paragraph,
+  /// sharing all surviving children by reference (§2.4). Used to keep layered
+  /// floats out of the in-flow body so they are not also rendered there.
+  List<DocxNode> _stripFloats(List<DocxNode> blocks, Set<DocxInline> strip) {
+    if (strip.isEmpty) return blocks;
+    final out = <DocxNode>[];
+    for (final b in blocks) {
+      if (b is DocxParagraph && b.children.any(strip.contains)) {
+        out.add(b.copyWith(
+          children: [
+            for (final c in b.children)
+              if (!strip.contains(c)) c
+          ],
+        ));
+      } else {
+        out.add(b);
+      }
+    }
+    return out;
+  }
+
+  /// Builds the widget for a layered float, sized to its resolved rectangle
+  /// ([FloatRect] is in display px; the drawing builders work in points, so the
+  /// `FittedBox` scales the drawing to fill the rect — keeping geometry ≡ render).
+  ///
+  /// Limitation (§8.2): the rect is the drawing's *unrotated* extent. A float
+  /// rotated by a non-180° angle has a different axis-aligned bounding box, so
+  /// the in-builder `Transform.rotate` (paint-only) can overflow/under-fill the
+  /// box — a minor distortion for the rare rotated float. Left as-is until a
+  /// rotated-extent fixture is available to verify against Word.
+  Widget _buildFloatDrawing(DocxInline drawing, FloatRect rect) {
+    Widget inner;
+    if (drawing is DocxInlineImage) {
+      inner = _imageBuilder.buildInlineImage(drawing);
+    } else if (drawing is DocxShape) {
+      inner = _shapeBuilder.buildInlineShape(drawing);
+    } else {
+      return const SizedBox.shrink();
+    }
+    return SizedBox(
+      width: rect.width,
+      height: rect.height,
+      child: FittedBox(fit: BoxFit.fill, child: inner),
     );
   }
 
@@ -509,7 +585,8 @@ class DocxWidgetGenerator {
       PageContext? pageContext,
       bool isEvenPage = false,
       DocxSectionDef? sectionOverride,
-      List<DocxInlineImage> backgroundImages = const []}) {
+      List<DocxInlineImage> backgroundImages = const [],
+      List<PlacedFloat> floats = const []}) {
     // The page's own section (multi-section docs); falls back to the document
     // default. Drives geometry and header/footer variant selection.
     final section = sectionOverride ?? doc.section;
@@ -639,6 +716,19 @@ class DocxWidgetGenerator {
             bottom: bodyBottom,
             child: bodyRegion,
           ),
+          // Floating drawings layer (Plan §H.2): topAndBottom + front floats,
+          // positioned in page coordinates from their body-relative rect, painted
+          // over the body in z-order (`relativeHeight`).
+          for (final pf
+              in (floats.toList()
+                ..sort((a, b) => a.rect.zOrder.compareTo(b.rect.zOrder))))
+            Positioned(
+              left: padLeft + pf.rect.left,
+              top: bodyTop + pf.rect.top,
+              width: pf.rect.width,
+              height: pf.rect.height,
+              child: _buildFloatDrawing(pf.drawing, pf.rect),
+            ),
           if (headerCol.isNotEmpty)
             Positioned(
               top: headerDist,

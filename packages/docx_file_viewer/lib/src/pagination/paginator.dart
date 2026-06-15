@@ -2,6 +2,7 @@ import 'package:docx_creator/docx_creator.dart';
 import 'package:flutter/widgets.dart';
 
 import '../docx_view_config.dart';
+import '../layout/float_layout.dart';
 import '../layout/list_layout.dart';
 import '../layout/table_layout.dart';
 import '../layout/table_min_widths.dart';
@@ -81,6 +82,7 @@ class Paginator {
   bool _hasOpenPage = false;
   bool _openIsBlank = false;
   List<BlockSlice> _slices = [];
+  List<PlacedFloat> _floats = [];
   double _used = 0;
   PageGeometry _geo = PageGeometry.zero;
   DocxSectionDef _pageSection = const DocxSectionDef();
@@ -168,6 +170,7 @@ class Paginator {
     _absoluteIndex = 0;
     _hasOpenPage = false;
     _slices = [];
+    _floats = [];
     _used = 0;
     _pendingFirstOfSection = true;
     _onPage = null;
@@ -258,6 +261,7 @@ class Paginator {
     final isFirst = blank ? false : _pendingFirstOfSection;
     _geo = _computeGeometry(section, isFirstOfSection: isFirst, isEven: isEven);
     _slices = [];
+    _floats = [];
     _used = 0;
     _pageSection = section;
     _pageSectionIndex = sectionIndex;
@@ -292,6 +296,7 @@ class Paginator {
       isFirstPageOfSection: _pageIsFirstOfSection,
       isEvenPage: _openDisplayNumber.isEven,
       isBlank: _openIsBlank,
+      floats: List.unmodifiable(_floats),
     );
     _pages.add(page);
     _displayNumber++;
@@ -444,9 +449,11 @@ class Paginator {
     final split = _trySplit(block, _remaining, atPageStart: _used == 0);
     if (split != null) {
       if (split.head != null) {
+        final top = _used;
         _slices.add(split.head!);
         _used += split.head!.height;
         _recordAnchors(split.head!.block);
+        _recordFloats(split.head!.block, top);
       }
       _newPage();
       _placeBlock(split.tail);
@@ -465,9 +472,39 @@ class Paginator {
   }
 
   void _addWhole(DocxNode block, double height) {
+    final top = _used;
     _slices.add(BlockSlice(block, height));
     _used += height;
     _recordAnchors(block);
+    _recordFloats(block, top);
+  }
+
+  /// Resolves any floating drawings anchored in [block] (a top-level paragraph)
+  /// to body-coordinate rectangles for the open page (Plan §H.2). [anchorTop] is
+  /// the y at which the block was placed, used for paragraph/line-relative
+  /// vertical placement. A `topAndBottom` float additionally reserves vertical
+  /// space — the bottom of its exclusion box becomes the new content cursor — so
+  /// following blocks clear it (text above/below, none beside). Side and layered
+  /// floats are recorded for rendering without changing the flow here (side
+  /// wrapping is the next step; layered floats never affect flow).
+  void _recordFloats(DocxNode block, double anchorTop) {
+    if (block is! DocxParagraph) return;
+    for (final inline in block.children) {
+      final placement = floatPlacementOf(inline);
+      if (placement == null) continue;
+      final rect = resolveFloatRect(
+        placement,
+        geo: _geo,
+        anchorTopPx: anchorTop,
+        pageIsRtl: block.isRtl,
+      );
+      _floats.add(PlacedFloat(drawing: inline, rect: rect));
+      if (placement.flow == FloatFlow.fullWidth) {
+        final clearedTo =
+            rect.exBottom.clamp(_used, _geo.bodyHeight).toDouble();
+        if (clearedTo > _used) _used = clearedTo;
+      }
+    }
   }
 
   /// Records bookmark/footnote anchors found in [block] against the open page.

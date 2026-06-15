@@ -13,6 +13,7 @@ import '../layout/tab_engine.dart';
 import '../theme/docx_view_theme.dart';
 import '../widgets/drop_cap_text.dart';
 import '../widgets/tabbed_line.dart';
+import 'image_builder.dart';
 
 /// Builds Flutter widgets from [DocxParagraph] elements.
 class ParagraphBuilder {
@@ -31,6 +32,12 @@ class ParagraphBuilder {
   /// [TableBuilder]'s content-width floor) measure with the *same* span
   /// construction the paginator's measurer uses — keeping measure ≡ render.
   SpanFactory get spanFactory => _spanFactory;
+
+  /// Renders inline and in-flow (side/center) images through the same transform
+  /// stack (crop → flip → rotate, Plan §H.3) and display-resolution decode as
+  /// block/layered images, so every image path bounds RAM and honours crop. Only
+  /// needs [config]; created lazily so test instantiations need not pass one.
+  late final ImageBuilder _imageBuilder = ImageBuilder(config: config);
 
   // Used for search highlighting
 
@@ -304,12 +311,7 @@ class ParagraphBuilder {
 
         Widget centerWidget;
         if (child is DocxInlineImage) {
-          centerWidget = Image.memory(
-            child.bytes,
-            width: child.width,
-            height: child.height,
-            fit: BoxFit.contain,
-          );
+          centerWidget = _imageBuilder.buildInlineImage(child);
         } else if (child is DocxShape) {
           centerWidget = _buildInlineShape(child);
         } else {
@@ -445,12 +447,7 @@ class ParagraphBuilder {
     Widget? buildFloatWidget(DocxInline? element) {
       if (element == null) return null;
       if (element is DocxInlineImage) {
-        return Image.memory(
-          element.bytes,
-          width: element.width,
-          height: element.height,
-          fit: BoxFit.contain,
-        );
+        return _imageBuilder.buildInlineImage(element);
       } else if (element is DocxShape) {
         return _buildInlineShape(element);
       }
@@ -696,21 +693,13 @@ class ParagraphBuilder {
         spans.add(_buildCheckboxSpan(inline, lineHeight: lineHeight));
         currentOffset += 2;
       } else if (inline is DocxInlineImage) {
-        // Inline images with proper vertical alignment
+        // Inline images with proper vertical alignment. Route through the shared
+        // ImageBuilder so crop/flip/rotation (§H.3) and the display-resolution
+        // decode (RAM cap, §2.4 rule 2) apply here too, not only to block/layered
+        // images; it carries its own broken-image fallback.
         spans.add(WidgetSpan(
           alignment: PlaceholderAlignment.middle,
-          child: Image.memory(
-            inline.bytes,
-            width: inline.width,
-            height: inline.height,
-            fit: BoxFit.contain,
-            errorBuilder: (context, error, stackTrace) => Container(
-              width: inline.width,
-              height: inline.height,
-              color: Colors.grey.shade200,
-              child: const Icon(Icons.broken_image, size: 24),
-            ),
-          ),
+          child: _imageBuilder.buildInlineImage(inline),
         ));
       } else if (inline is DocxShape) {
         spans.add(WidgetSpan(

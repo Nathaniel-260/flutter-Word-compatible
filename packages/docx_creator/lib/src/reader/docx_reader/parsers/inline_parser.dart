@@ -452,6 +452,11 @@ class InlineParser {
               ext = target.split('.').last.toLowerCase();
             }
 
+            // Drawing transform (Plan §H.3): rotation, mirror, crop. The image's
+            // own `a:xfrm` lives in `pic:spPr`; the crop (`a:srcRect`) in
+            // `pic:blipFill`. (`a:ext`/`a:off` were already used for the size.)
+            final tf = _parseDrawingTransform(drawing);
+
             // Parse floating image properties if anchored
             if (isAnchor) {
               final anchor = drawing.findAllElements('wp:anchor').first;
@@ -638,6 +643,13 @@ class InlineParser {
                 effectExtentB: effectExtentB,
                 anchorExtensions:
                     anchorExtensions.isEmpty ? null : anchorExtensions,
+                rotation: tf.rotation,
+                flipH: tf.flipH,
+                flipV: tf.flipV,
+                cropLeft: tf.cropLeft,
+                cropTop: tf.cropTop,
+                cropRight: tf.cropRight,
+                cropBottom: tf.cropBottom,
               );
             }
 
@@ -648,6 +660,13 @@ class InlineParser {
               width: width,
               height: height,
               positionMode: DocxDrawingPosition.inline,
+              rotation: tf.rotation,
+              flipH: tf.flipH,
+              flipV: tf.flipV,
+              cropLeft: tf.cropLeft,
+              cropTop: tf.cropTop,
+              cropRight: tf.cropRight,
+              cropBottom: tf.cropBottom,
             );
           }
         }
@@ -746,6 +765,33 @@ class InlineParser {
       }
     }
 
+    // Transform (rotation/mirror) from the shape's own `a:xfrm` (in wsp:spPr).
+    final tf = _parseDrawingTransform(wsp);
+
+    // Floating anchor placement + wrap mode (Plan §H.1). Previously ignored, so
+    // an anchored shape rendered at its default position; now the same anchor
+    // model the image branch reads is honoured for shapes too.
+    var hFrom = DocxHorizontalPositionFrom.column;
+    var vFrom = DocxVerticalPositionFrom.paragraph;
+    DrawingHAlign? hAlign;
+    DrawingVAlign? vAlign;
+    double? hOffset;
+    double? vOffset;
+    var wrapMode = DocxTextWrap.square;
+    var behindDoc = false;
+    final anchor = drawingNode.findAllElements('wp:anchor').firstOrNull;
+    if (anchor != null) {
+      final a = _parseFloatAnchor(anchor);
+      hFrom = a.hFrom;
+      vFrom = a.vFrom;
+      hAlign = a.hAlign;
+      vAlign = a.vAlign;
+      hOffset = a.hOffset;
+      vOffset = a.vOffset;
+      wrapMode = a.wrapMode;
+      behindDoc = a.behindDoc;
+    }
+
     return DocxShape(
       width: width,
       height: height,
@@ -755,6 +801,179 @@ class InlineParser {
       outlineColor: outlineColor,
       outlineWidth: outlineWidth,
       text: text,
+      horizontalFrom: hFrom,
+      verticalFrom: vFrom,
+      horizontalAlign: hAlign,
+      verticalAlign: vAlign,
+      horizontalOffset: hOffset,
+      verticalOffset: vOffset,
+      textWrap: wrapMode,
+      behindDocument: behindDoc,
+      rotation: tf.rotation,
+      flipH: tf.flipH,
+      flipV: tf.flipV,
     );
   }
+
+  /// Parses a drawing's transform (`a:xfrm` rotation/mirror + `a:srcRect` crop)
+  /// from an element that contains them (the `pic:pic` for images, the `wsp:wsp`
+  /// for shapes). Units: `rot` is 1/60000°, `srcRect` insets are 1/1000 of a
+  /// percent → fraction = val / 100000.
+  _DrawingTransform _parseDrawingTransform(XmlElement scope) {
+    double rotation = 0;
+    bool flipH = false, flipV = false;
+    final xfrm = scope.findAllElements('a:xfrm').firstOrNull;
+    if (xfrm != null) {
+      final rot = int.tryParse(xfrm.getAttribute('rot') ?? '');
+      if (rot != null) rotation = rot / 60000.0;
+      final fh = xfrm.getAttribute('flipH');
+      final fv = xfrm.getAttribute('flipV');
+      flipH = fh == '1' || fh == 'true';
+      flipV = fv == '1' || fv == 'true';
+    }
+
+    double cropL = 0, cropT = 0, cropR = 0, cropB = 0;
+    final srcRect = scope.findAllElements('a:srcRect').firstOrNull;
+    if (srcRect != null) {
+      double frac(String name) =>
+          (int.tryParse(srcRect.getAttribute(name) ?? '0') ?? 0) / 100000.0;
+      cropL = frac('l');
+      cropT = frac('t');
+      cropR = frac('r');
+      cropB = frac('b');
+    }
+
+    return _DrawingTransform(
+      rotation: rotation,
+      flipH: flipH,
+      flipV: flipV,
+      cropLeft: cropL,
+      cropTop: cropT,
+      cropRight: cropR,
+      cropBottom: cropB,
+    );
+  }
+
+  /// Parses the placement + wrap of a `wp:anchor` (shared by shapes; the image
+  /// branch keeps its own inline parsing for the extra round-trip attributes).
+  _FloatAnchor _parseFloatAnchor(XmlElement anchor) {
+    var hFrom = DocxHorizontalPositionFrom.column;
+    var vFrom = DocxVerticalPositionFrom.paragraph;
+    DrawingHAlign? hAlign;
+    DrawingVAlign? vAlign;
+    double? hOffset;
+    double? vOffset;
+
+    final posH = anchor.findAllElements('wp:positionH').firstOrNull;
+    if (posH != null) {
+      final rel = posH.getAttribute('relativeFrom');
+      if (rel != null) {
+        hFrom = DocxHorizontalPositionFrom.values.firstWhere(
+          (e) => e.name == rel,
+          orElse: () => DocxHorizontalPositionFrom.column,
+        );
+      }
+      final alignNode = posH.findAllElements('wp:align').firstOrNull;
+      if (alignNode != null) {
+        hAlign = DrawingHAlign.values.firstWhere(
+          (e) => e.name == alignNode.innerText,
+          orElse: () => DrawingHAlign.left,
+        );
+      } else {
+        final off = posH.findAllElements('wp:posOffset').firstOrNull;
+        final val = off == null ? null : int.tryParse(off.innerText);
+        if (val != null) hOffset = val / 914400 * 72;
+      }
+    }
+
+    final posV = anchor.findAllElements('wp:positionV').firstOrNull;
+    if (posV != null) {
+      final rel = posV.getAttribute('relativeFrom');
+      if (rel != null) {
+        vFrom = DocxVerticalPositionFrom.values.firstWhere(
+          (e) => e.name == rel,
+          orElse: () => DocxVerticalPositionFrom.paragraph,
+        );
+      }
+      final alignNode = posV.findAllElements('wp:align').firstOrNull;
+      if (alignNode != null) {
+        vAlign = DrawingVAlign.values.firstWhere(
+          (e) => e.name == alignNode.innerText,
+          orElse: () => DrawingVAlign.top,
+        );
+      } else {
+        final off = posV.findAllElements('wp:posOffset').firstOrNull;
+        final val = off == null ? null : int.tryParse(off.innerText);
+        if (val != null) vOffset = val / 914400 * 72;
+      }
+    }
+
+    var wrapMode = DocxTextWrap.square;
+    if (anchor.findAllElements('wp:wrapNone').isNotEmpty) {
+      wrapMode = DocxTextWrap.none;
+    } else if (anchor.findAllElements('wp:wrapSquare').isNotEmpty) {
+      wrapMode = DocxTextWrap.square;
+    } else if (anchor.findAllElements('wp:wrapTight').isNotEmpty) {
+      wrapMode = DocxTextWrap.tight;
+    } else if (anchor.findAllElements('wp:wrapThrough').isNotEmpty) {
+      wrapMode = DocxTextWrap.through;
+    } else if (anchor.findAllElements('wp:wrapTopAndBottom').isNotEmpty) {
+      wrapMode = DocxTextWrap.topAndBottom;
+    }
+    final behindDoc = anchor.getAttribute('behindDoc') == '1';
+    if (behindDoc) wrapMode = DocxTextWrap.behindText;
+
+    return _FloatAnchor(
+      hFrom: hFrom,
+      vFrom: vFrom,
+      hAlign: hAlign,
+      vAlign: vAlign,
+      hOffset: hOffset,
+      vOffset: vOffset,
+      wrapMode: wrapMode,
+      behindDoc: behindDoc,
+    );
+  }
+}
+
+/// Parsed drawing transform (rotation/mirror/crop) — see [_parseDrawingTransform].
+class _DrawingTransform {
+  const _DrawingTransform({
+    required this.rotation,
+    required this.flipH,
+    required this.flipV,
+    required this.cropLeft,
+    required this.cropTop,
+    required this.cropRight,
+    required this.cropBottom,
+  });
+  final double rotation;
+  final bool flipH;
+  final bool flipV;
+  final double cropLeft;
+  final double cropTop;
+  final double cropRight;
+  final double cropBottom;
+}
+
+/// Parsed floating-anchor placement + wrap — see [_parseFloatAnchor].
+class _FloatAnchor {
+  const _FloatAnchor({
+    required this.hFrom,
+    required this.vFrom,
+    required this.hAlign,
+    required this.vAlign,
+    required this.hOffset,
+    required this.vOffset,
+    required this.wrapMode,
+    required this.behindDoc,
+  });
+  final DocxHorizontalPositionFrom hFrom;
+  final DocxVerticalPositionFrom vFrom;
+  final DrawingHAlign? hAlign;
+  final DrawingVAlign? vAlign;
+  final double? hOffset;
+  final double? vOffset;
+  final DocxTextWrap wrapMode;
+  final bool behindDoc;
 }
