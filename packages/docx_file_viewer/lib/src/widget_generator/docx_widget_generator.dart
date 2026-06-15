@@ -2,6 +2,7 @@ import 'package:docx_creator/docx_creator.dart';
 import 'package:flutter/material.dart';
 
 import '../docx_view_config.dart';
+import '../layout/numbering_resolver.dart';
 import '../layout/span_factory.dart';
 import '../layout/text_measurer.dart';
 import '../pagination/field_substitution.dart';
@@ -138,11 +139,16 @@ class DocxWidgetGenerator {
       onEndnoteTap: onEndnoteTap,
       docxTheme: doc.theme,
     );
+    // Plan §G: one document-order numbering pass so list markers continue
+    // correctly across interrupting blocks, table cells and same-`numId` lists,
+    // instead of restarting per [DocxList]. Computed once per document load.
+    final numberLabels = NumberingResolver().resolveDocument(doc);
     _listBuilder = ListBuilder(
       theme: theme,
       config: config,
       paragraphBuilder: _paragraphBuilder,
       docxTheme: doc.theme,
+      numberLabels: numberLabels,
     );
     _imageBuilder = ImageBuilder(config: config);
     _shapeBuilder = ShapeBuilder(

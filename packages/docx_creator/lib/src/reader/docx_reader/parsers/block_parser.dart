@@ -339,6 +339,11 @@ class BlockParser {
             format: _mapNumFmt(lvl.numFmt),
             lvlText: lvl.lvlText,
             start: lvl.start,
+            numFmtRaw: lvl.numFmt,
+            isLgl: lvl.isLgl,
+            suff: lvl.suff,
+            lvlJc: lvl.lvlJc,
+            lvlRestart: lvl.lvlRestart,
           ),
     ];
 

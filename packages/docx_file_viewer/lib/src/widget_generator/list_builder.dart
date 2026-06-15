@@ -1,5 +1,6 @@
 import 'package:docx_creator/docx_creator.dart';
 import 'package:docx_file_viewer/docx_file_viewer.dart';
+import 'package:docx_file_viewer/src/layout/numbering_resolver.dart';
 import 'package:docx_file_viewer/src/utils/text_direction_detector.dart';
 import 'package:flutter/material.dart';
 
@@ -14,11 +15,19 @@ class ListBuilder {
   final ParagraphBuilder paragraphBuilder;
   final DocxTheme? docxTheme;
 
+  /// Pre-computed marker strings keyed by item identity, from the document-wide
+  /// [NumberingResolver] pass (Plan §G). When an item is present here its marker
+  /// is taken verbatim — counters continue correctly across interrupting blocks,
+  /// table cells and same-`numId` lists. Null (or a missing item) means this is a
+  /// factory-built list with no global numbering, so the per-list fallback runs.
+  final Map<DocxListItem, String>? numberLabels;
+
   ListBuilder({
     required this.theme,
     required this.config,
     required this.paragraphBuilder,
     this.docxTheme,
+    this.numberLabels,
   });
 
   /// Whether [item] should be rendered with an ordered marker. A per-item
@@ -52,24 +61,37 @@ class ListBuilder {
     // (legal) numbering — %1.%2.%3 — can reference any ancestor's count.
     final counters = <int, int>{};
 
+    // When the global resolver (§G) supplied labels for this list's items, its
+    // markers are authoritative (correct continuation across blocks/cells); the
+    // local counter pass below only runs for factory lists it did not cover.
+    final resolved = numberLabels;
+
     for (final item in list.items) {
       final level = item.level.clamp(0, DocxList.maxLevels - 1);
-      final ordered = _itemIsOrdered(item, list);
       final isCheckbox = _itemIsCheckbox(item);
 
       String? orderedMarker;
-      if (ordered && !isCheckbox) {
-        // Advance this level (seeding from its start on first appearance);
-        // bullet/checkbox items must not consume a number.
-        counters[level] =
-            counters.containsKey(level) ? counters[level]! + 1 : _startForLevel(list, level);
-        orderedMarker = _composeMarker(list, item, level, counters);
-      }
+      if (resolved != null) {
+        // The resolver decided which items are numbered: a present label (even
+        // an empty one, for `w:numFmt="none"`) marks an ordered item; absent
+        // means a bullet/unnumbered item.
+        if (!isCheckbox) orderedMarker = resolved[item];
+      } else {
+        final ordered = _itemIsOrdered(item, list);
+        if (ordered && !isCheckbox) {
+          // Advance this level (seeding from its start on first appearance);
+          // bullet/checkbox items must not consume a number.
+          counters[level] = counters.containsKey(level)
+              ? counters[level]! + 1
+              : _startForLevel(list, level);
+          orderedMarker = _composeMarker(list, item, level, counters);
+        }
 
-      // A shallower (or equal, for the next sibling) item resets deeper levels
-      // so nested counters restart — matching Word and the previous behaviour.
-      for (var i = level + 1; i < DocxList.maxLevels; i++) {
-        counters.remove(i);
+        // A shallower (or equal, for the next sibling) item resets deeper
+        // levels so nested counters restart — matching Word.
+        for (var i = level + 1; i < DocxList.maxLevels; i++) {
+          counters.remove(i);
+        }
       }
 
       itemWidgets.add(_buildListItem(
@@ -111,48 +133,24 @@ class ListBuilder {
     final levelDef = list.levelFor(level);
     final template = levelDef?.lvlText;
     if (template != null && template.contains('%')) {
-      return _expandLvlText(list, template, counters);
+      // Shared with the global resolver so both render identical strings.
+      return expandLvlText(
+        template,
+        isLgl: levelDef?.isLgl ?? false,
+        valueForLevel: (l) => counters[l] ?? _startForLevel(list, l),
+        defForLevel: list.levelFor,
+      );
     }
     final value = counters[level] ?? _startForLevel(list, level);
     if (levelDef != null) {
       // Resolved from the document: use its actual format, no synthetic cascade.
-      return '${_formatComponent(value, level, levelDef.format)}.';
+      if (levelDef.numFmtRaw == 'none') return '';
+      return '${formatNumberComponent(value, rawFmt: levelDef.numFmtRaw, fmt: levelDef.format, level: level)}.';
     }
     // Factory-built list with no resolved definition: honor a per-item override
     // format, else the base style, applying the default decimal cascade by depth.
     final format = item.overrideStyle?.numberFormat ?? list.style.numberFormat;
-    return _getOrderedMarker(value, level, format);
-  }
-
-  /// Expands a `w:lvlText` template, replacing each `%n` with the count of
-  /// level `n-1` formatted in that level's own format.
-  String _expandLvlText(DocxList list, String template, Map<int, int> counters) {
-    return template.replaceAllMapped(RegExp(r'%(\d)'), (m) {
-      final refLevel = int.parse(m.group(1)!) - 1;
-      final value = counters[refLevel] ?? _startForLevel(list, refLevel);
-      final fmt = list.levelFor(refLevel)?.format ?? DocxNumberFormat.decimal;
-      return _formatComponent(value, refLevel, fmt);
-    });
-  }
-
-  /// Formats a single numbering component (no trailing separator).
-  String _formatComponent(int n, int level, DocxNumberFormat format) {
-    switch (format) {
-      case DocxNumberFormat.decimal:
-        return NumberFormatter.decimal(n);
-      case DocxNumberFormat.lowerAlpha:
-        return NumberFormatter.lowerAlpha(n);
-      case DocxNumberFormat.upperAlpha:
-        return NumberFormatter.upperAlpha(n);
-      case DocxNumberFormat.lowerRoman:
-        return NumberFormatter.lowerRoman(n);
-      case DocxNumberFormat.upperRoman:
-        return NumberFormatter.upperRoman(n);
-      case DocxNumberFormat.hebrew:
-        return NumberFormatter.hebrew(n);
-      case DocxNumberFormat.bullet:
-        return DocxList.bulletForLevel(level);
-    }
+    return orderedMarkerWithCascade(value, level, format);
   }
 
   Widget _buildListItem(
@@ -171,6 +169,20 @@ class ListBuilder {
         style.indentPerLevel / 15.0; // Convert twips to pixels
     // Calculate initial indent based on level
     double indent = 16.0 + (level * indentPerLevel.clamp(16.0, 48.0));
+
+    // Number justification (`w:lvlJc`) and suffix (`w:suff`) from the resolved
+    // level definition (Plan §G.2). The default keeps the carefully-tuned RTL
+    // behaviour: the glyph hugs the text side of its box (TextAlign.end) and a
+    // small gap separates it from the body, approximating Word's tab suffix.
+    final levelDef = list.levelFor(level);
+    final markerAlign = switch (levelDef?.lvlJc) {
+      'center' => TextAlign.center,
+      'left' || 'start' => TextAlign.start,
+      _ => TextAlign.end,
+    };
+    // `w:suff="nothing"` removes the gap between number and text; `space`/`tab`
+    // (and the unset default) keep the standard separation.
+    final markerGap = levelDef?.suff == 'nothing' ? 0.0 : 4.0;
 
     // Build content from all inline children with search support
     List<InlineSpan> spans;
@@ -253,10 +265,10 @@ class ListBuilder {
       } else {
         markerText = _getBulletMarker(level, style);
       }
-      // Align the glyph to the content side of its box so it hugs the text in
-      // both LTR and RTL.
+      // Align the glyph per `w:lvlJc`; the default (end) hugs the content side
+      // of its box so it sits next to the text in both LTR and RTL.
       markerWidget =
-          Text(markerText, style: markerStyle, textAlign: TextAlign.end);
+          Text(markerText, style: markerStyle, textAlign: markerAlign);
     }
 
     // Hebrew/Arabic content must lay out RTL: the marker sits on the right and
@@ -292,7 +304,7 @@ class ListBuilder {
               constraints: const BoxConstraints(minWidth: 24),
               child: markerWidget,
             ),
-            const SizedBox(width: 4),
+            SizedBox(width: markerGap),
             Expanded(
               child: config.enableSelection
                   ? SelectableText.rich(TextSpan(children: spans))
@@ -344,23 +356,6 @@ class ListBuilder {
     }
     // Otherwise use the shared level-based default bullets
     return DocxList.bulletForLevel(level);
-  }
-
-  /// Get ordered marker based on number format.
-  ///
-  /// For the default decimal list, the format cascades by depth
-  /// (1. → a. → i. → 1. ...) to match Word's standard multilevel list and the
-  /// DOCX numbering definition produced on export. An explicitly chosen format
-  /// (e.g. upperRoman) is kept at every level, mirroring the exporter's
-  /// behavior for custom list styles.
-  String _getOrderedMarker(int number, int level, DocxNumberFormat format) {
-    final effectiveFormat = format == DocxNumberFormat.decimal
-        ? DocxList.cascadeFormatForLevel(level)
-        : format;
-    if (effectiveFormat == DocxNumberFormat.bullet) {
-      return DocxList.bulletForLevel(level);
-    }
-    return '${_formatComponent(number, level, effectiveFormat)}.';
   }
 
   Color? _resolveColor(

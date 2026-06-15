@@ -134,6 +134,14 @@ class NumberingParser {
         int.tryParse(lvl.getElement('w:start')?.getAttribute('w:val') ?? '1') ??
             1;
 
+    // Word's multilevel rules: legal numbering (all decimal), number suffix,
+    // number justification, and the restart-on-higher-level control.
+    final isLgl = lvl.getElement('w:isLgl') != null;
+    final suff = lvl.getElement('w:suff')?.getAttribute('w:val');
+    final lvlJc = lvl.getElement('w:lvlJc')?.getAttribute('w:val');
+    final lvlRestart = int.tryParse(
+        lvl.getElement('w:lvlRestart')?.getAttribute('w:val') ?? '');
+
     // Parse indentation
     int? indentLeft;
     int? hanging;
@@ -213,6 +221,10 @@ class NumberingParser {
       numFmt: numFmt,
       lvlText: lvlText,
       start: start,
+      isLgl: isLgl,
+      suff: suff,
+      lvlJc: lvlJc,
+      lvlRestart: lvlRestart,
       indentLeft: indentLeft,
       hanging: hanging,
       bulletChar: bulletChar,

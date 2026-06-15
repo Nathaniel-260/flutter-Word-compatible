@@ -130,11 +130,39 @@ class DocxListLevel {
   /// `w:startOverride`).
   final int start;
 
+  /// Raw OOXML `w:numFmt` value (e.g. `hebrew1`, `hebrew2`, `decimalZero`,
+  /// `ordinal`, `bullet`). Carries the distinctions the coarse [format] enum
+  /// collapses (both Hebrew variants map to [DocxNumberFormat.hebrew]), so the
+  /// renderer can reproduce gematria vs. Hebrew-alphabet, zero-padding, etc.
+  /// Null for lists built via the factory constructors (use [format]).
+  final String? numFmtRaw;
+
+  /// `w:isLgl` — legal numbering: every `%n` component of [lvlText] renders in
+  /// decimal regardless of the referenced level's own format.
+  final bool isLgl;
+
+  /// `w:suff` — separator after the number: `tab` (default), `space`,
+  /// `nothing`. Null = unspecified (treated as `tab`).
+  final String? suff;
+
+  /// `w:lvlJc` — justification of the number within the indent
+  /// (`left`/`start`, `center`, `right`/`end`).
+  final String? lvlJc;
+
+  /// `w:lvlRestart` — 1-based level whose advance restarts this level; `0` =
+  /// never restart; null = Word default (restart on any lower-numbered level).
+  final int? lvlRestart;
+
   const DocxListLevel({
     required this.level,
     required this.format,
     this.lvlText,
     this.start = 1,
+    this.numFmtRaw,
+    this.isLgl = false,
+    this.suff,
+    this.lvlJc,
+    this.lvlRestart,
   });
 }
 

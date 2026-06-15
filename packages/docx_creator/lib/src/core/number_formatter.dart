@@ -33,6 +33,29 @@ abstract final class NumberFormatter {
   /// Plain decimal: 1, 2, 3 …
   static String decimal(int n) => '$n';
 
+  /// Zero-padded decimal (`w:numFmt="decimalZero"`): 01, 02 … 09, 10, 11 …
+  /// Only single digits are padded, matching Word (two-digit minimum width).
+  static String decimalZero(int n) => n >= 0 && n < 10 ? '0$n' : '$n';
+
+  /// English ordinal (`w:numFmt="ordinal"`): 1st, 2nd, 3rd, 4th … Values ≤0
+  /// fall back to decimal. English-only by design (see §8.2): non-English
+  /// ordinals are not produced.
+  static String ordinal(int n) {
+    if (n <= 0) return '$n';
+    final mod100 = n % 100;
+    if (mod100 >= 11 && mod100 <= 13) return '${n}th';
+    switch (n % 10) {
+      case 1:
+        return '${n}st';
+      case 2:
+        return '${n}nd';
+      case 3:
+        return '${n}rd';
+      default:
+        return '${n}th';
+    }
+  }
+
   /// Uppercase Roman: I, II, III … Values outside 1..3999 fall back to decimal
   /// (additive Roman has no representation for them).
   static String upperRoman(int n) {

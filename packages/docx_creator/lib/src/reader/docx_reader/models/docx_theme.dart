@@ -264,6 +264,23 @@ class DocxNumberingLevel {
   /// Start value.
   final int start;
 
+  /// `w:isLgl` — legal numbering: every component of [lvlText] is rendered in
+  /// decimal regardless of each referenced level's own [numFmt].
+  final bool isLgl;
+
+  /// `w:suff` — the character that follows the number: `tab` (Word default),
+  /// `space`, or `nothing`. Null means unspecified (treated as `tab`).
+  final String? suff;
+
+  /// `w:lvlJc` — justification of the number itself within the indent
+  /// (`left`/`start`, `center`, `right`/`end`). RTL lists commonly use `right`.
+  final String? lvlJc;
+
+  /// `w:lvlRestart` — the 1-based level whose advance restarts this level's
+  /// counter. `0` means this level never restarts; null is Word's default
+  /// (restart whenever any lower-numbered level advances).
+  final int? lvlRestart;
+
   /// Indentation left (twips).
   final int? indentLeft;
 
@@ -295,6 +312,10 @@ class DocxNumberingLevel {
     required this.numFmt,
     this.lvlText,
     this.start = 1,
+    this.isLgl = false,
+    this.suff,
+    this.lvlJc,
+    this.lvlRestart,
     this.indentLeft,
     this.hanging,
     this.bulletChar,
@@ -312,6 +333,10 @@ class DocxNumberingLevel {
         numFmt: numFmt,
         lvlText: lvlText,
         start: start ?? this.start,
+        isLgl: isLgl,
+        suff: suff,
+        lvlJc: lvlJc,
+        lvlRestart: lvlRestart,
         indentLeft: indentLeft,
         hanging: hanging,
         bulletChar: bulletChar,
