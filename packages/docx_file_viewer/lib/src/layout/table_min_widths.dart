@@ -84,14 +84,13 @@ double _inlinesLongestWordPx(
       if (word.isEmpty) continue;
       // Build and lay out the single word exactly as the measurer builds cell
       // text, at unbounded width → its intrinsic (un-wrapped) px width.
-      final built =
-          sf.buildMeasurementSpans([inline.copyWith(content: word)],
-              skipHidden: true);
+      final built = sf.buildMeasurementSpans(
+        [inline.copyWith(content: word)],
+        skipHidden: true,
+      );
       final root = built.root;
-      // Hidden runs (w:vanish) build to nothing → no contribution.
-      if (root is TextSpan && (root.children?.isEmpty ?? root.text == null)) {
-        continue;
-      }
+      // A hidden run (w:vanish) builds to no visible text → it adds no floor.
+      if (root.toPlainText(includePlaceholders: false).isEmpty) continue;
       painter
         ..text = root
         ..layout();
