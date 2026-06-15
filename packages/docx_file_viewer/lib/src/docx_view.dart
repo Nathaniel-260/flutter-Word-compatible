@@ -208,10 +208,8 @@ class _DocxViewState extends State<DocxView> {
       // (Arial/David/… are not embedded), so single-spaced text lays out at
       // Word's per-font line height. Best-effort + desktop-only (web no-ops);
       // embedded fonts were already registered above from their bytes.
-      final families = <String>{...widget.config.customFontFallbacks};
-      _collectFontFamilies(doc.elements, families);
-      _collectFontFamilies(doc.section?.header?.children ?? const [], families);
-      _collectFontFamilies(doc.section?.footer?.children ?? const [], families);
+      final families = collectDocumentFontFamilies(doc,
+          extra: widget.config.customFontFallbacks);
       await registerSystemFonts(families);
 
       // Pre-process notes for quick lookup
@@ -632,24 +630,19 @@ class _DocxViewState extends State<DocxView> {
   /// to stay fully visible. A page that fits is shown at 100%, centered.
   Widget _pageSlot(Widget page) {
     if (!widget.config.fitPageToWidth) return Center(child: page);
-    final pageW = _generator.pageDisplayWidth(_doc?.section);
-    final pageH = _generator.pageDisplayHeight(_doc?.section);
+    // The page widget's natural footprint includes its outer margin band, so
+    // measure and scale against the full slot (pageW/H already include the
+    // margin). Otherwise BoxFit.fill stretched the larger child non-uniformly
+    // and a "fitting" page rendered slightly under 100% (QA F4).
+    final slotW = _generator.pageSlotWidth(_doc?.section);
+    final slotH = _generator.pageSlotHeight(_doc?.section);
     return LayoutBuilder(
-      builder: (context, constraints) {
-        final maxW =
-            constraints.maxWidth.isFinite ? constraints.maxWidth : pageW;
-        final scale = pageFitScale(maxW, pageW);
-        return Container(
-          width: maxW,
-          height: pageH * scale,
-          alignment: Alignment.topCenter,
-          child: SizedBox(
-            width: pageW * scale,
-            height: pageH * scale,
-            child: FittedBox(fit: BoxFit.fill, child: page),
-          ),
-        );
-      },
+      builder: (context, constraints) => buildPageFitSlot(
+        slotWidth: slotW,
+        slotHeight: slotH,
+        maxWidth: constraints.maxWidth,
+        child: page,
+      ),
     );
   }
 }
@@ -789,6 +782,30 @@ class _DocxViewWithSearchState extends State<DocxViewWithSearch> {
       ],
     );
   }
+}
+
+/// Collects every system font family the document references — across its body,
+/// header, footer, footnotes and endnotes — so their real line metrics can be
+/// registered (QA F10). Optionally seeded with [extra] (e.g. the configured
+/// fallbacks). Best-effort: node kinds without text are skipped.
+@visibleForTesting
+Set<String> collectDocumentFontFamilies(
+  DocxBuiltDocument doc, {
+  Iterable<String> extra = const [],
+}) {
+  final families = <String>{...extra};
+  _collectFontFamilies(doc.elements, families);
+  _collectFontFamilies(doc.section?.header?.children ?? const [], families);
+  _collectFontFamilies(doc.section?.footer?.children ?? const [], families);
+  // Notes carry their own runs/fonts; a family used only inside a footnote or
+  // endnote must still get system line-metrics instead of the default height.
+  for (final f in doc.footnotes ?? const []) {
+    _collectFontFamilies(f.content, families);
+  }
+  for (final e in doc.endnotes ?? const []) {
+    _collectFontFamilies(e.content, families);
+  }
+  return families;
 }
 
 /// Collects every font family the document's runs reference (`w:rFonts`

@@ -36,10 +36,10 @@ class TableColumnLayout {
 
 /// Resolves the px width of every grid column for [table] (Plan §F.1).
 ///
-/// - **fixed** (`w:tblLayout="fixed"`): the grid/`tcW` widths are honoured
-///   verbatim; a fixed table may overflow [availableWidth] (Word does not shrink
-///   it — the renderer scales/clips). A `w:tblW` pct/dxa, when present, scales
-///   the grid proportionally to that total.
+/// - **fixed** (`w:tblLayout="fixed"`): the grid/`tcW` widths are authoritative
+///   and honoured verbatim; a fixed table may overflow [availableWidth] (Word
+///   does not shrink it — the renderer scales/clips). `w:tblW` is informational
+///   in this mode and does not rescale the grid (matches Word).
 /// - **autofit**: the grid encodes Word's last content fit, so it is honoured and
 ///   only scaled *down* proportionally when it would exceed [availableWidth]. When
 ///   [minColumnWidths] is supplied (the longest-word px of each column) no column

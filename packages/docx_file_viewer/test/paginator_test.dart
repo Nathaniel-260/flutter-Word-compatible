@@ -544,4 +544,38 @@ void main() {
     // A whole (un-split) block is stored by reference, not cloned.
     expect(identical(res.pages.first.slices.first.block, p), isTrue);
   });
+
+  group('QA F8: auto-row measurement tracks content (no 18px floor)', () {
+    DocxTable oneRow(DocxTableRow row) =>
+        DocxTable(gridColumns: const [5000], rows: [row]);
+
+    double measuredHeight(DocxTable t) => paginator
+        .paginate(DocxBuiltDocument(elements: [t]))
+        .pages
+        .first
+        .slices
+        .first
+        .height;
+
+    test('an empty auto row imposes no minimum height', () {
+      // The renderer (_buildRow) adds no floor to an auto row, so the measurer
+      // must not either — the old _minRowHeightPx=18 over-estimated it.
+      final h = measuredHeight(
+          oneRow(const DocxTableRow(cells: [DocxTableCell(children: [])])));
+      expect(h, lessThan(18.0),
+          reason: 'an auto row sizes to its (empty) content, not a 18px floor');
+    });
+
+    test('an atLeast row still floors to its height (unchanged)', () {
+      // 2000tw ÷ 15 = 133.3px, far above any single-line content.
+      final h = measuredHeight(oneRow(DocxTableRow(
+        height: 2000,
+        heightRule: DocxTableRowHeightRule.atLeast,
+        cells: [
+          DocxTableCell(children: [para('x')])
+        ],
+      )));
+      expect(h, closeTo(2000 / 15, 0.5));
+    });
+  });
 }

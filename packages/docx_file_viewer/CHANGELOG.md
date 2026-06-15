@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+QA Part F follow-up fixes.
+
+### 🐛 Bug Fixes
+
+- **No artificial divider at a forced page top (F1)** — in paged mode, a paragraph carrying `w:pageBreakBefore` that opens a new page no longer draws a leading `Divider`. The page itself represents the break (as in Word), and the measurer no longer disagrees with the renderer by the divider's 32px, so the last body line is not at risk of being clipped.
+- **`DocxViewConfig.copyWith` carries page settings (F13)** — `copyWith` now preserves `pageHeight`, `pageMode` and `fitPageToWidth`; previously `pageHeight`/`pageMode` were silently reset to their defaults.
+
+### 🔧 Improvements
+
+- **Paragraph spacing defaults to 0 (F6)** — when no spacing is resolved, a paragraph now contributes 0 before/after (the OOXML spec default) instead of an implicit 80 twips. Improves page-break parity with Word; documents that relied on the implicit spacing will render more tightly.
+- **Fit-to-width shows a fitting page at 100% (F4)** — `fitPageToWidth` now scales the whole page footprint (including its margin band) uniformly via `BoxFit.contain`, so a page that fits is shown at exactly 100% with no aspect-ratio distortion (previously ~96% and slightly stretched).
+- **Autofit table content floor (F3)** — a long, unbreakable word now widens its autofit column (the CSS `table-layout:auto` floor) instead of overflowing the cell — applied identically in measurement and rendering.
+- **Faster system-font metrics (F9)** — system fonts are read partially (only the `head` + `OS/2` tables) instead of loading the whole file, avoiding multi-megabyte reads for large CJK fonts on first load.
+- **Wider font-metrics coverage (F10)** — font families used only inside footnotes/endnotes are now registered for per-font line metrics, instead of falling back to the default line height.
+- **`auto` table-row measurement (F8)** — an `auto` row with no explicit height now measures to its content (no 18px floor), matching the renderer exactly.
+
+### 🧪 Tests
+
+- Added/extended: `top_spacing_test` (F1), `page_fit_test` (F4), `paginator_test` (F8), `collect_fonts_test` (F10), `font_metrics_test` (F9), `table_min_widths_test` (F3).
+
 ## [1.0.2] - 2026-05-16
 
 ### ✨ New Features

@@ -74,19 +74,47 @@ class FontMetrics {
         rec += 16;
       }
 
-      if (headOff == null || headOff + 20 > bd.lengthInBytes) return null;
-      final unitsPerEm = bd.getUint16(headOff + 18);
+      // No OS/2 table (rare for Word-targeted fonts) → cannot derive Word's
+      // line height; let the caller fall back. Hand the two tables to
+      // [fromTables], which works from each table's own start (a too-short slice
+      // simply yields null, matching the old explicit bounds checks).
+      if (headOff == null || os2Off == null) return null;
+      if (headOff < 0 ||
+          os2Off < 0 ||
+          headOff > bd.lengthInBytes ||
+          os2Off > bd.lengthInBytes) {
+        return null;
+      }
+      return fromTables(
+        Uint8List.sublistView(bytes, headOff),
+        Uint8List.sublistView(bytes, os2Off),
+      );
+    } catch (_) {
+      return null; // malformed font — caller falls back
+    }
+  }
+
+  /// Builds metrics from the raw `head` and `OS/2` table bytes, with each offset
+  /// relative to its own table start. This lets a caller that has read **only**
+  /// those two tables (a partial file read — see `system_font_metrics_io.dart`)
+  /// avoid loading a whole multi-megabyte font into memory. Returns null when
+  /// either table is too short or the values are unusable. [head] must cover at
+  /// least 20 bytes (`unitsPerEm` at offset 18); [os2] at least 78.
+  static FontMetrics? fromTables(Uint8List head, Uint8List os2) {
+    try {
+      final h = ByteData.sublistView(head);
+      final o = ByteData.sublistView(os2);
+      if (h.lengthInBytes < 20 || o.lengthInBytes < 78) return null;
+
+      final unitsPerEm = h.getUint16(18);
       if (unitsPerEm == 0) return null;
 
-      // No OS/2 table (rare for Word-targeted fonts) → cannot derive Word's
-      // line height; let the caller fall back.
-      if (os2Off == null || os2Off + 78 > bd.lengthInBytes) return null;
-      final fsSelection = bd.getUint16(os2Off + 62);
-      final typoAsc = bd.getInt16(os2Off + 68);
-      final typoDesc = bd.getInt16(os2Off + 70);
-      final typoGap = bd.getInt16(os2Off + 72);
-      final winAsc = bd.getUint16(os2Off + 74);
-      final winDesc = bd.getUint16(os2Off + 76);
+      final fsSelection = o.getUint16(62);
+      final typoAsc = o.getInt16(68);
+      final typoDesc = o.getInt16(70);
+      final typoGap = o.getInt16(72);
+      final winAsc = o.getUint16(74);
+      final winDesc = o.getUint16(76);
 
       final useTypo = (fsSelection & _useTypoMetricsBit) != 0;
       // Word spaces lines by the typographic metrics even when the bit is clear;
@@ -107,7 +135,7 @@ class FontMetrics {
         useTypoMetrics: useTypo,
       );
     } catch (_) {
-      return null; // malformed font — caller falls back
+      return null; // malformed table data — caller falls back
     }
   }
 

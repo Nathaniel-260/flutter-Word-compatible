@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../docx_view_config.dart';
 import '../layout/table_layout.dart';
+import '../layout/table_min_widths.dart';
 import '../theme/docx_view_theme.dart';
 import 'image_builder.dart';
 import 'list_builder.dart';
@@ -29,6 +30,15 @@ class TableBuilder {
     required this.shapeBuilder,
     this.docxTheme,
   });
+
+  // Content-width floors (longest-word px per grid column), memoised by table
+  // identity so a table re-built on relayout is not re-measured. Derived from
+  // the same span construction the paginator's measurer uses, so the painted
+  // widths match the measured ones (QA F3).
+  final Map<DocxTable, List<double>> _minColWidths = {};
+
+  List<double> _minWidthsOf(DocxTable table) => _minColWidths.putIfAbsent(
+      table, () => computeMinColumnWidths(table, paragraphBuilder.spanFactory));
 
   /// Build a widget from a [DocxTable].
   ///
@@ -77,6 +87,9 @@ class TableBuilder {
           final layout = resolveTableColumnWidths(
             table,
             availableWidth: hasBound ? constraints.maxWidth : double.infinity,
+            // Same content-width floor the paginator measured with, so a long
+            // word expands its column identically in both passes (QA F3).
+            minColumnWidths: hasBound ? _minWidthsOf(table) : null,
           );
           final content = _buildTableContent(table, layout.columns, counter);
           final totalWidth = layout.totalWidth;

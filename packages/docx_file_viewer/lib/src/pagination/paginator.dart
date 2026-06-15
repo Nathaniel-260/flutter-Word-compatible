@@ -3,6 +3,7 @@ import 'package:flutter/widgets.dart';
 
 import '../docx_view_config.dart';
 import '../layout/table_layout.dart';
+import '../layout/table_min_widths.dart';
 import '../layout/text_measurer.dart';
 import '../utils/docx_units.dart';
 import '../utils/text_direction_detector.dart';
@@ -43,6 +44,12 @@ class Paginator {
   final Map<String, int> _bookmarkPages = {};
   final Map<int, int> _footnotePages = {};
   final Map<int, int> _endnotePages = {};
+
+  // Per-table content-width floors (longest-word px per grid column), memoised by
+  // table identity so a table measured and then split is not recomputed. The
+  // renderer derives the same vector independently (deterministic) → measure ≡
+  // render for autofit table widths (QA F3).
+  final Map<DocxTable, List<double>> _minColWidths = {};
 
   // Streaming sink: invoked as each page is closed so the UI can display pages
   // as they are born (Plan §D.2.9 / §4.4). Null for the synchronous path.
@@ -414,10 +421,15 @@ class Paginator {
     // its before-spacing. Mirror that here (after any page break above, so a
     // pageBreakBefore/heading paragraph also sits at the new page top). Storing
     // the suppressed copy as the slice keeps measurement ≡ rendering.
+    //
+    // Also clear pageBreakBefore at the page top: the new page already realises
+    // the break, so the renderer must not additionally draw a leading break
+    // Divider (paragraph_builder) — that 32px is never accounted for by the
+    // measurer and would push the body past the packed area (QA F1).
     if (_used == 0 &&
         block is DocxParagraph &&
-        (block.spacingBefore ?? 0) != 0) {
-      block = block.copyWith(spacingBefore: 0);
+        ((block.spacingBefore ?? 0) != 0 || block.pageBreakBefore)) {
+      block = block.copyWith(spacingBefore: 0, pageBreakBefore: false);
     }
 
     final height = _measureBlock(block, _geo.contentWidth);
@@ -592,9 +604,10 @@ class Paginator {
     final bodyRows = rows.sublist(headerCount);
     if (bodyRows.length <= 1) return null; // nothing to split between
 
-    final cols =
-        resolveTableColumnWidths(table, availableWidth: _geo.contentWidth)
-            .columns;
+    final cols = resolveTableColumnWidths(table,
+            availableWidth: _geo.contentWidth,
+            minColumnWidths: _minWidthsOf(table))
+        .columns;
     final headerHeight = _measureRows(headerRows, table, cols);
 
     var used = headerHeight;
@@ -645,7 +658,6 @@ class Paginator {
   static const double _dropCapHeightPx = 80.0;
   static const double _shapeHeightPx = 120.0;
   static const double _unknownBlockHeightPx = 24.0; // one conservative line
-  static const double _minRowHeightPx = 18.0;
   static const double _listLevelIndentPx = 24.0; // per nesting level (~0.25")
   static const double _minContentWidthPx = 8.0;
 
@@ -691,9 +703,17 @@ class Paginator {
   /// matches the painted table (no longer an equal-column approximation).
   double _measureTable(DocxTable table, double width) {
     if (table.rows.isEmpty) return 0;
-    final cols = resolveTableColumnWidths(table, availableWidth: width).columns;
+    final cols = resolveTableColumnWidths(table,
+            availableWidth: width, minColumnWidths: _minWidthsOf(table))
+        .columns;
     return _measureRows(table.rows, table, cols);
   }
+
+  /// The content-width floor vector for [table] (longest-word px per grid
+  /// column), memoised by identity. Computed from the same span construction the
+  /// measurer uses, so the renderer derives the same vector (QA F3).
+  List<double> _minWidthsOf(DocxTable table) => _minColWidths.putIfAbsent(
+      table, () => computeMinColumnWidths(table, measurer.spanFactory));
 
   double _measureRows(
       List<DocxTableRow> rows, DocxTable table, List<double> cols) {
@@ -721,16 +741,20 @@ class Paginator {
       if (cellHeight > rowHeight) rowHeight = cellHeight;
       gridIndex += span;
     }
-    // `w:trHeight` rule: `exact` fixes the row height (content is clipped);
-    // `atLeast` is a floor (content may grow it); `auto` ignores the value.
-    if (row.height != null && row.heightRule == DocxTableRowHeightRule.exact) {
-      return row.height! * kTwipsToPx;
+    // `w:trHeight` rule — mirror the renderer (_buildRow) exactly so that
+    // measurement ≡ rendering: only a height with an explicit rule constrains
+    // the row. `exact` fixes the height (content clipped); `atLeast` is a floor;
+    // `auto` (and any row with no height) sizes to its content. The renderer
+    // imposes no minimum on an auto row, so neither does the measurer — the old
+    // 18px floor over-estimated near-empty auto rows (QA F8).
+    if (row.height != null) {
+      final hPx = row.height! * kTwipsToPx;
+      if (row.heightRule == DocxTableRowHeightRule.exact) return hPx;
+      if (row.heightRule == DocxTableRowHeightRule.atLeast) {
+        return rowHeight < hPx ? hPx : rowHeight;
+      }
     }
-    final floor =
-        (row.height != null && row.heightRule == DocxTableRowHeightRule.atLeast)
-            ? row.height! * kTwipsToPx
-            : _minRowHeightPx;
-    return rowHeight < floor ? floor : rowHeight;
+    return rowHeight;
   }
 
   double _measureList(DocxList list, double width) {

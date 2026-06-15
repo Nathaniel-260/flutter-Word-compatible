@@ -636,11 +636,13 @@ class DocxTableRow extends DocxNode {
   final int? height;
 
   /// How [height] is interpreted (`w:trHeight w:hRule`): [DocxTableRowHeightRule.exact]
-  /// clips content to the height, [atLeast] treats it as a minimum.
+  /// clips content to the height, [atLeast] treats it as a minimum, [auto] fits
+  /// the content.
   ///
-  /// Defaults to [DocxTableRowHeightRule.exact] so a height set programmatically
-  /// is enforced (issue #74). The reader sets this explicitly from `w:hRule`,
-  /// mapping a bare `w:trHeight` (no rule) to [atLeast] — Word's default.
+  /// Defaults to [DocxTableRowHeightRule.atLeast] — Word's interpretation of a
+  /// bare `w:trHeight` with no `w:hRule` — so a programmatic [height] acts as a
+  /// floor, matching the reader and Word 1:1. Pass [DocxTableRowHeightRule.exact]
+  /// explicitly when you need to clip content to a fixed height (issue #74).
   final DocxTableRowHeightRule heightRule;
 
   /// Whether this row is a header row (repeats on new pages).
@@ -667,7 +669,7 @@ class DocxTableRow extends DocxNode {
   const DocxTableRow({
     required this.cells,
     this.height,
-    this.heightRule = DocxTableRowHeightRule.exact,
+    this.heightRule = DocxTableRowHeightRule.atLeast,
     this.isHeader = false,
     this.cnfStyle,
     this.cantSplit = false,

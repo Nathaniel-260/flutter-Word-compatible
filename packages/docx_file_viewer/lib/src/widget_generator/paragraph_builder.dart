@@ -27,6 +27,11 @@ class ParagraphBuilder {
   /// instance-equivalent factory so measured geometry matches rendered.
   final SpanFactory _spanFactory;
 
+  /// The shared run→span factory, exposed so sibling builders (e.g.
+  /// [TableBuilder]'s content-width floor) measure with the *same* span
+  /// construction the paginator's measurer uses — keeping measure ≡ render.
+  SpanFactory get spanFactory => _spanFactory;
+
   // Used for search highlighting
 
   ParagraphBuilder({

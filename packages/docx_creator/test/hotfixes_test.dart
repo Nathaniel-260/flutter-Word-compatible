@@ -40,10 +40,29 @@ void main() {
           contains('<w:headerReference w:type="default" r:id="rId5"/>'));
     });
 
-    test('Issue #74: DocxTableRow generates w:hRule="exact" when height is set',
+    test('Issue #74: a bare height defaults to w:hRule="atLeast" (Word 1:1)',
         () {
+      // Word interprets a bare w:trHeight (no w:hRule) as a minimum, so the
+      // constructor defaults heightRule to atLeast — matching the reader and
+      // Word exactly. Programmatic exact clipping is opt-in (see below).
       final row = DocxTableRow(
         height: 500,
+        cells: [
+          DocxTableCell(children: [DocxParagraph.text('Cell 1')])
+        ],
+      );
+
+      final builder = XmlBuilder();
+      row.buildXml(builder);
+      final xml = builder.buildDocument().toXmlString(pretty: true);
+
+      expect(xml, contains('<w:trHeight w:val="500" w:hRule="atLeast"/>'));
+    });
+
+    test('Issue #74: explicit heightRule: exact clips to a fixed height', () {
+      final row = DocxTableRow(
+        height: 500,
+        heightRule: DocxTableRowHeightRule.exact,
         cells: [
           DocxTableCell(children: [DocxParagraph.text('Cell 1')])
         ],
