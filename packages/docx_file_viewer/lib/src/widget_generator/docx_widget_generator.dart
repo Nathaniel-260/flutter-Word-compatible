@@ -353,6 +353,22 @@ class DocxWidgetGenerator {
           ? DocxUnits.twipsToPixels(section.effectiveHeight)
           : pageDisplayWidth(section) * 1.414);
 
+  /// The transparent margin band drawn around every paged page (the visual gap
+  /// between pages plus room for the drop shadow). Applied symmetrically by
+  /// [_buildPageContainer]; the fit-to-width wrapper must account for it so the
+  /// whole page footprint scales uniformly and a fitting page shows at 100%.
+  static const double pageOuterMargin = 16.0;
+
+  /// Full width a page widget occupies including [pageOuterMargin] on both
+  /// sides — the natural footprint the fit-to-width slot scales/contains.
+  double pageSlotWidth([DocxSectionDef? section]) =>
+      pageDisplayWidth(section) + pageOuterMargin * 2;
+
+  /// Full height a page widget occupies including [pageOuterMargin] on top and
+  /// bottom.
+  double pageSlotHeight([DocxSectionDef? section]) =>
+      pageDisplayHeight(section) + pageOuterMargin * 2;
+
   /// Builds one page widget per [PaginationResult.pages] entry, wiring each
   /// page's [PageContext] (live `PAGE`/`NUMPAGES`/`SECTIONPAGES`/`PAGEREF`,
   /// even/odd and title-page chrome, per-section geometry). Shared by the sync
@@ -584,7 +600,7 @@ class DocxWidgetGenerator {
       // Fixed page height (Plan §D.2.6/§E.2): content is measured to fit, and any
       // small overshoot is clipped rather than stretching the page.
       height: pageHeight,
-      margin: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+      margin: const EdgeInsets.all(pageOuterMargin),
       clipBehavior: Clip.hardEdge,
       decoration: BoxDecoration(
         color: sectionBg ?? paperColor,

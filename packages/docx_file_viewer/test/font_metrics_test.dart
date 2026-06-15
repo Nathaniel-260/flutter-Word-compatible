@@ -5,6 +5,7 @@ import 'package:docx_creator/docx_creator.dart';
 import 'package:docx_file_viewer/docx_file_viewer.dart';
 import 'package:docx_file_viewer/src/font_loader/font_metrics.dart';
 import 'package:docx_file_viewer/src/font_loader/font_metrics_registry.dart';
+import 'package:docx_file_viewer/src/font_loader/system_font_metrics_io.dart';
 import 'package:docx_file_viewer/src/layout/span_factory.dart';
 import 'package:docx_file_viewer/src/layout/text_measurer.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -63,5 +64,28 @@ void main() {
 
   test('tryParse returns null for non-font bytes', () {
     expect(FontMetrics.tryParse(Uint8List.fromList([0, 1, 2, 3, 4])), isNull);
+  });
+
+  // QA F9: the system-font path reads only the head + OS/2 tables, never the
+  // whole (possibly multi-MB) file — but must yield the identical metrics.
+  test('readFontMetricsPartial matches tryParse on Arial (partial read)', () {
+    const p = r'C:\Windows\Fonts\arial.ttf';
+    if (!File(p).existsSync()) return; // skip on non-Windows hosts
+    final full = FontMetrics.tryParse(File(p).readAsBytesSync());
+    final partial = readFontMetricsPartial(File(p));
+    expect(full, isNotNull);
+    expect(partial, isNotNull);
+    expect(partial!.lineHeightRatio, full!.lineHeightRatio,
+        reason: 'a partial read must register the same ratio as a full parse');
+    expect(partial.unitsPerEm, full.unitsPerEm);
+  });
+
+  test('readFontMetricsPartial returns null for a non-font file', () {
+    final tmp = File('${Directory.systemTemp.path}/qa_f9_not_a_font.bin')
+      ..writeAsBytesSync(List<int>.generate(13, (i) => i));
+    addTearDown(() {
+      if (tmp.existsSync()) tmp.deleteSync();
+    });
+    expect(readFontMetricsPartial(tmp), isNull);
   });
 }

@@ -1,5 +1,8 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
+import 'font_metrics.dart';
 import 'font_metrics_registry.dart';
 
 /// Loads line metrics for the named [families] from the operating system's font
@@ -22,13 +25,74 @@ Future<void> registerSystemFonts(Iterable<String> families) async {
     for (final name in _candidateFileNames(family)) {
       final file = _firstExisting(dirs, name);
       if (file == null) continue;
-      try {
-        FontMetricsRegistry.register(family, file.readAsBytesSync());
-      } catch (_) {
-        // unreadable file — try the next candidate
-        continue;
+      final metrics = readFontMetricsPartial(file);
+      if (metrics != null) {
+        FontMetricsRegistry.registerRatio(family, metrics.lineHeightRatio);
+        break;
       }
-      if (FontMetricsRegistry.has(family)) break;
+      // unreadable / unparseable file — try the next candidate
+    }
+  }
+}
+
+/// Reads a font's line metrics from disk **without loading the whole file**:
+/// only the sfnt header, the table directory, and the `head` + `OS/2` tables are
+/// read (a few hundred bytes), instead of pulling a 10–20 MB CJK font fully into
+/// memory just to parse two tables (QA F9). Returns null on any IO/format error
+/// (best-effort + silent, matching the previous behaviour).
+@visibleForTesting
+FontMetrics? readFontMetricsPartial(File file) {
+  RandomAccessFile? raf;
+  try {
+    raf = file.openSync();
+    final length = raf.lengthSync();
+    final r = raf; // promote for the local closure
+
+    Uint8List readAt(int offset, int count) {
+      if (offset < 0 || count <= 0 || offset + count > length) {
+        throw const FormatException('font table out of range');
+      }
+      r.setPositionSync(offset);
+      final bytes = r.readSync(count);
+      if (bytes.length != count) {
+        throw const FormatException('short font read');
+      }
+      return bytes;
+    }
+
+    // sfnt / TTC header: a TrueType Collection points at face 0's offset table.
+    var base = 0;
+    final header = ByteData.sublistView(readAt(0, 12));
+    if (header.getUint32(0) == 0x74746366) {
+      // 'ttcf'
+      base = ByteData.sublistView(readAt(12, 4)).getUint32(0); // face 0 offset
+    }
+
+    // Offset table → number of tables → the 16-byte-per-entry table directory.
+    final numTables = ByteData.sublistView(readAt(base + 4, 2)).getUint16(0);
+    if (numTables == 0) return null;
+    final dir = ByteData.sublistView(readAt(base + 12, numTables * 16));
+
+    int? headOff;
+    int? os2Off;
+    for (var i = 0; i < numTables; i++) {
+      final rec = i * 16;
+      final tag = dir.getUint32(rec);
+      final off = dir.getUint32(rec + 8);
+      if (tag == 0x68656164) headOff = off; // 'head'
+      if (tag == 0x4f532f32) os2Off = off; // 'OS/2'
+    }
+    if (headOff == null || os2Off == null) return null;
+
+    // Read only the two tables we parse (20 + 78 bytes), not the whole font.
+    return FontMetrics.fromTables(readAt(headOff, 20), readAt(os2Off, 78));
+  } catch (_) {
+    return null; // missing / unreadable / malformed — caller falls back
+  } finally {
+    try {
+      raf?.closeSync();
+    } catch (_) {
+      // ignore close failures
     }
   }
 }

@@ -596,8 +596,8 @@ extension DocxCellTextDirectionExtension on DocxCellTextDirection {
   String get xmlValue => name;
 
   /// Parse an OOXML `w:textDirection w:val` token, or `null` if unknown/absent.
-  /// Word also accepts the legacy aliases `tbRlV`→`tbRl` is *not* applied here;
-  /// only the documented tokens are matched.
+  /// Matches only the documented ST_TextDirection tokens by exact name; legacy
+  /// aliases (e.g. mapping `tbRlV`→`tbRl`) are intentionally *not* applied.
   static DocxCellTextDirection? fromXml(String? val) {
     if (val == null) return null;
     for (final d in DocxCellTextDirection.values) {

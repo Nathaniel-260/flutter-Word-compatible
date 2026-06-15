@@ -1,3 +1,10 @@
+## Unreleased
+
+### Changed
+- **BREAKING — `DocxTableRow.heightRule` now defaults to `atLeast`** (was `exact`) (QA F11). This matches the reader (a bare `w:trHeight` with no `w:hRule` parses to `atLeast`) and Word's own interpretation of a row height as a *minimum*. As a result, a programmatically built `DocxTableRow(height: X)` now treats the height as a floor (content may grow the row) instead of clipping content to a fixed height. To keep the old fixed-height clipping (issue #74), pass `heightRule: DocxTableRowHeightRule.exact` explicitly.
+
+---
+
 ## 1.2.7
 
 ### Fixed

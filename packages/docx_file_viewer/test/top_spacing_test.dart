@@ -3,6 +3,8 @@ import 'package:docx_file_viewer/docx_file_viewer.dart';
 import 'package:docx_file_viewer/src/layout/span_factory.dart';
 import 'package:docx_file_viewer/src/layout/text_measurer.dart';
 import 'package:docx_file_viewer/src/pagination/paginator.dart';
+import 'package:docx_file_viewer/src/widget_generator/docx_widget_generator.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Word suppresses a paragraph's "space before" when it falls at the top of a
@@ -61,5 +63,47 @@ void main() {
     final p2first = res.pages[1].slices.first.block as DocxParagraph;
     expect(p2first.spacingBefore, 0,
         reason: 'a block forced to the top of a new page is suppressed too');
+    // QA F1: the new page already realises the break, so the stored slice must
+    // also clear pageBreakBefore — otherwise the renderer adds an unmeasured
+    // leading Divider (32px) and the body no longer matches the packed area.
+    expect(p2first.pageBreakBefore, isFalse,
+        reason: 'the page itself represents the break; the slice must not also '
+            'carry pageBreakBefore (would draw an unmeasured Divider)');
+  });
+
+  testWidgets(
+      'QA F1: a page born from pageBreakBefore draws no leading Divider',
+      (tester) async {
+    const config = DocxViewConfig(
+      pageMode: DocxPageMode.paged,
+      pageWidth: 400,
+      pageHeight: 600,
+      enableSelection: false,
+      enableZoom: false,
+    );
+    final doc = DocxBuiltDocument(elements: [
+      DocxParagraph(children: [DocxText('first')]),
+      DocxParagraph(
+        pageBreakBefore: true,
+        spacingBefore: 240,
+        children: [DocxText('TOP_OF_P2')],
+      ),
+    ]);
+
+    final widgets = DocxWidgetGenerator(config: config).generateWidgets(doc);
+    expect(widgets.length, 2, reason: 'pageBreakBefore opens a second page');
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(body: Center(child: widgets[1])),
+    ));
+    expect(tester.takeException(), isNull);
+
+    // The break-line that Word never draws must be absent, and the paragraph
+    // that opened the page must still render (not clipped away).
+    expect(find.byType(Divider), findsNothing,
+        reason: 'the page already represents the break — no artificial divider');
+    final topLine = find.byWidgetPredicate(
+        (w) => w is RichText && w.text.toPlainText().contains('TOP_OF_P2'));
+    expect(topLine, findsOneWidget);
   });
 }
