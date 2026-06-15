@@ -2,6 +2,7 @@ import 'package:docx_creator/docx_creator.dart';
 import 'package:flutter/widgets.dart';
 
 import '../docx_view_config.dart';
+import '../layout/list_layout.dart';
 import '../layout/table_layout.dart';
 import '../layout/table_min_widths.dart';
 import '../layout/text_measurer.dart';
@@ -759,7 +760,8 @@ class Paginator {
 
   double _measureList(DocxList list, double width) {
     var total = 0.0;
-    for (final item in list.items) {
+    for (var i = 0; i < list.items.length; i++) {
+      final item = list.items[i];
       // Indent the item content for its level + bullet gutter.
       final indent = (item.level + 1) * _listLevelIndentPx;
       final itemWidth = (width - indent).clamp(_minContentWidthPx, width);
@@ -767,7 +769,17 @@ class Paginator {
       // per item so the measurement LRU (keyed by identity) hits on re-measure.
       final wrap =
           _listItemParagraph[item] ??= DocxParagraph(children: item.children);
-      total += measurer.measureParagraph(wrap, itemWidth).totalHeight;
+      // Vertical spacing comes from the source paragraph (Word's
+      // spacingBefore/After + contextualSpacing) via the shared helper, so the
+      // page-packing height matches the painted list (measure ≡ render, §G.2).
+      final spacing = listItemSpacingPx(
+        item,
+        isFirst: i == 0,
+        isLast: i == list.items.length - 1,
+      );
+      total += spacing.before +
+          measurer.measureParagraph(wrap, itemWidth).textHeight +
+          spacing.after;
     }
     return total;
   }

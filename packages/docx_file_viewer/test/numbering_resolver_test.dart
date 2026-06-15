@@ -1,7 +1,10 @@
 import 'package:docx_creator/docx_creator.dart';
 import 'package:docx_file_viewer/src/docx_view_config.dart';
 import 'package:docx_file_viewer/src/layout/numbering_resolver.dart';
+import 'package:docx_file_viewer/src/theme/docx_view_theme.dart';
 import 'package:docx_file_viewer/src/widget_generator/docx_widget_generator.dart';
+import 'package:docx_file_viewer/src/widget_generator/list_builder.dart';
+import 'package:docx_file_viewer/src/widget_generator/paragraph_builder.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -273,6 +276,48 @@ void main() {
           .where((m) => RegExp(r'^\d+\.$').hasMatch(m))
           .toList();
       expect(markers, ['1.', '2.', '3.', '4.']);
+    });
+
+    testWidgets('an item the resolver skipped still gets a fallback marker',
+        (tester) async {
+      // A numbered list whose definition only covers level 0; the level-1 item
+      // gets no resolver label (def == null). The renderer must fall back to the
+      // local per-list numbering instead of silently dropping the marker.
+      final items = [li('top', level: 0), li('sub', level: 1)];
+      final list = DocxList(
+        isOrdered: true,
+        numId: 1,
+        levels: const [
+          DocxListLevel(
+              level: 0,
+              format: DocxNumberFormat.decimal,
+              numFmtRaw: 'decimal',
+              lvlText: '%1.'),
+        ],
+        items: items,
+      );
+      final labels = NumberingResolver()
+          .resolveDocument(DocxBuiltDocument(elements: [list]));
+      expect(labels.containsKey(items[0]), isTrue); // level 0 covered
+      expect(labels.containsKey(items[1]), isFalse); // level 1 skipped
+
+      const config = DocxViewConfig();
+      const theme = DocxViewTheme();
+      final builder = ListBuilder(
+        config: config,
+        theme: theme,
+        paragraphBuilder: ParagraphBuilder(config: config, theme: theme),
+        numberLabels: labels,
+      );
+      await tester
+          .pumpWidget(MaterialApp(home: Scaffold(body: builder.build(list))));
+
+      final markers = tester
+          .widgetList<Text>(find.byType(Text))
+          .map((t) => t.data ?? '')
+          .toList();
+      expect(markers, contains('1.')); // resolver label (level 0)
+      expect(markers, contains('a.')); // local fallback cascade (level 1)
     });
   });
 }

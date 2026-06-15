@@ -318,6 +318,10 @@ class BlockParser {
         level: level,
         overrideStyle: override,
         isRtl: p.isRtl,
+        // Keep the source paragraph so the viewer reproduces Word's real
+        // inter-item spacing (spacingBefore/After + contextualSpacing) instead
+        // of a fixed gap. Shared by reference (same children list).
+        sourceParagraph: p,
       );
     }).toList();
 

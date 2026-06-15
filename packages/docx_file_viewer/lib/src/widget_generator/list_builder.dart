@@ -1,5 +1,6 @@
 import 'package:docx_creator/docx_creator.dart';
 import 'package:docx_file_viewer/docx_file_viewer.dart';
+import 'package:docx_file_viewer/src/layout/list_layout.dart';
 import 'package:docx_file_viewer/src/layout/numbering_resolver.dart';
 import 'package:docx_file_viewer/src/utils/text_direction_detector.dart';
 import 'package:flutter/material.dart';
@@ -18,8 +19,10 @@ class ListBuilder {
   /// Pre-computed marker strings keyed by item identity, from the document-wide
   /// [NumberingResolver] pass (Plan §G). When an item is present here its marker
   /// is taken verbatim — counters continue correctly across interrupting blocks,
-  /// table cells and same-`numId` lists. Null (or a missing item) means this is a
-  /// factory-built list with no global numbering, so the per-list fallback runs.
+  /// table cells and same-`numId` lists. An item **absent** from the map (a list
+  /// the resolver skipped, or an ilvl with no resolved definition) falls back to
+  /// the local per-list numbering in [build], so its marker is never silently
+  /// lost. Null means no resolver ran at all (e.g. direct factory use / tests).
   final Map<DocxListItem, String>? numberLabels;
 
   ListBuilder({
@@ -61,37 +64,49 @@ class ListBuilder {
     // (legal) numbering — %1.%2.%3 — can reference any ancestor's count.
     final counters = <int, int>{};
 
-    // When the global resolver (§G) supplied labels for this list's items, its
-    // markers are authoritative (correct continuation across blocks/cells); the
-    // local counter pass below only runs for factory lists it did not cover.
+    // The global resolver (§G) supplies authoritative markers (correct
+    // continuation across blocks/cells/tables). The local per-list counter pass
+    // below always runs and provides a *fallback* marker, so an ordered item the
+    // resolver did not cover — a list with no `numId`/`levels`, or an item at an
+    // ilvl with no resolved [DocxListLevel] — still gets numbered instead of
+    // silently losing its marker. A present resolver label (incl. the empty
+    // string for `w:numFmt="none"`) overrides the local one per item.
     final resolved = numberLabels;
 
-    for (final item in list.items) {
+    for (var index = 0; index < list.items.length; index++) {
+      final item = list.items[index];
       final level = item.level.clamp(0, DocxList.maxLevels - 1);
       final isCheckbox = _itemIsCheckbox(item);
 
-      String? orderedMarker;
-      if (resolved != null) {
-        // The resolver decided which items are numbered: a present label (even
-        // an empty one, for `w:numFmt="none"`) marks an ordered item; absent
-        // means a bullet/unnumbered item.
-        if (!isCheckbox) orderedMarker = resolved[item];
-      } else {
-        final ordered = _itemIsOrdered(item, list);
-        if (ordered && !isCheckbox) {
-          // Advance this level (seeding from its start on first appearance);
-          // bullet/checkbox items must not consume a number.
-          counters[level] = counters.containsKey(level)
-              ? counters[level]! + 1
-              : _startForLevel(list, level);
-          orderedMarker = _composeMarker(list, item, level, counters);
-        }
+      // Word's real inter-item spacing (spacingBefore/After + contextualSpacing
+      // from the source paragraph); fixed fallback for factory lists.
+      final spacing = listItemSpacingPx(
+        item,
+        isFirst: index == 0,
+        isLast: index == list.items.length - 1,
+      );
 
-        // A shallower (or equal, for the next sibling) item resets deeper
-        // levels so nested counters restart — matching Word.
-        for (var i = level + 1; i < DocxList.maxLevels; i++) {
-          counters.remove(i);
-        }
+      String? orderedMarker;
+      final ordered = _itemIsOrdered(item, list);
+      if (ordered && !isCheckbox) {
+        // Advance this level (seeding from its start on first appearance);
+        // bullet/checkbox items must not consume a number.
+        counters[level] = counters.containsKey(level)
+            ? counters[level]! + 1
+            : _startForLevel(list, level);
+        orderedMarker = _composeMarker(list, item, level, counters);
+      }
+      // Resolver label wins when present (per item, not per map); else keep the
+      // local fallback marker computed above.
+      if (resolved != null && !isCheckbox) {
+        orderedMarker = resolved[item] ?? orderedMarker;
+      }
+
+      // A shallower (or equal, for the next sibling) item resets deeper levels
+      // so nested counters restart — matching Word (and keeps the local
+      // fallback counters correct for any item the resolver did not cover).
+      for (var i = level + 1; i < DocxList.maxLevels; i++) {
+        counters.remove(i);
       }
 
       itemWidgets.add(_buildListItem(
@@ -100,11 +115,17 @@ class ListBuilder {
         orderedMarker: orderedMarker,
         isCheckbox: isCheckbox,
         counter: counter,
+        topSpacing: spacing.before,
+        bottomSpacing: spacing.after,
       ));
     }
 
     return Container(
-      margin: const EdgeInsets.symmetric(vertical: 4),
+      // A DOCX list reproduces Word's spacing per item, so it needs no extra
+      // margin around the whole list; factory lists keep a small gap.
+      margin: listHasSourceParagraphs(list)
+          ? EdgeInsets.zero
+          : const EdgeInsets.symmetric(vertical: 4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: itemWidgets,
@@ -158,6 +179,8 @@ class ListBuilder {
     required DocxList list,
     required String? orderedMarker,
     required bool isCheckbox,
+    required double topSpacing,
+    required double bottomSpacing,
     BlockIndexCounter? counter,
   }) {
     final level = item.level.clamp(0, DocxList.maxLevels - 1);
@@ -285,8 +308,10 @@ class ListBuilder {
       child: Padding(
         key: key,
         // Directional: `start` is the right edge under RTL, so deeper levels
-        // indent away from the correct margin.
-        padding: EdgeInsetsDirectional.only(start: indent, top: 2, bottom: 2),
+        // indent away from the correct margin. Vertical spacing comes from the
+        // source paragraph (Word's spacingBefore/After), not a fixed gap.
+        padding: EdgeInsetsDirectional.only(
+            start: indent, top: topSpacing, bottom: bottomSpacing),
         child: Row(
           // Baseline-align text markers so the number/letter sits on the same
           // baseline as the first line of body text even when their font

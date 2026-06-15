@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:xml/xml.dart';
 
 import '../core/enums.dart';
+import 'docx_block.dart';
 import 'docx_inline.dart';
 import 'docx_node.dart';
 
@@ -365,11 +366,20 @@ class DocxListItem extends DocxNode {
   /// paragraph so the renderer mirrors marker/indent without guessing.
   final bool isRtl;
 
+  /// The original [DocxParagraph] this item was built from, when read from a
+  /// DOCX. Carries the *resolved* paragraph spacing (before/after, line) and
+  /// `w:contextualSpacing` so the renderer and the paginator reproduce Word's
+  /// inter-item spacing instead of guessing a fixed gap. Shared by reference
+  /// (no copy — its `children` are the same list as [children]). Null for lists
+  /// built via the factory constructors / HTML+Markdown parsers.
+  final DocxParagraph? sourceParagraph;
+
   const DocxListItem(
     this.children, {
     this.level = 0,
     this.overrideStyle,
     this.isRtl = false,
+    this.sourceParagraph,
     super.id,
   });
 
@@ -390,12 +400,14 @@ class DocxListItem extends DocxNode {
     int? level,
     DocxListStyle? overrideStyle,
     bool? isRtl,
+    DocxParagraph? sourceParagraph,
   }) {
     return DocxListItem(
       children ?? this.children,
       level: level ?? this.level,
       overrideStyle: overrideStyle ?? this.overrideStyle,
       isRtl: isRtl ?? this.isRtl,
+      sourceParagraph: sourceParagraph ?? this.sourceParagraph,
       id: id,
     );
   }
