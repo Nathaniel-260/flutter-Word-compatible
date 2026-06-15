@@ -754,10 +754,22 @@ class InlineParser {
       }
     }
 
-    // Read text content
+    // Read text content. A text box (`wsp:txbx`) carries real block content in
+    // `w:txbxContent`; re-enter block parsing so the renderer reproduces its
+    // paragraphs/tables (Plan §H). The joined `w:t` string is kept as a flat
+    // fallback for simple consumers.
     String? text;
+    List<DocxBlock>? textBlocks;
     final txbx = wsp.findAllElements('wsp:txbx').firstOrNull;
     if (txbx != null) {
+      final txbxContent = txbx.findAllElements('w:txbxContent').firstOrNull;
+      if (txbxContent != null) {
+        final blocks = BlockParser(context)
+            .parseBlocks(txbxContent.children)
+            .whereType<DocxBlock>()
+            .toList();
+        if (blocks.isNotEmpty) textBlocks = blocks;
+      }
       final textContent =
           txbx.findAllElements('w:t').map((t) => t.innerText).join();
       if (textContent.isNotEmpty) {
@@ -801,6 +813,7 @@ class InlineParser {
       outlineColor: outlineColor,
       outlineWidth: outlineWidth,
       text: text,
+      textBlocks: textBlocks,
       horizontalFrom: hFrom,
       verticalFrom: vFrom,
       horizontalAlign: hAlign,

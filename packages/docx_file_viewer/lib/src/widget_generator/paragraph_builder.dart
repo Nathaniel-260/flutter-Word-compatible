@@ -14,6 +14,7 @@ import '../theme/docx_view_theme.dart';
 import '../widgets/drop_cap_text.dart';
 import '../widgets/tabbed_line.dart';
 import 'image_builder.dart';
+import 'shape_builder.dart';
 
 /// Builds Flutter widgets from [DocxParagraph] elements.
 class ParagraphBuilder {
@@ -38,6 +39,12 @@ class ParagraphBuilder {
   /// block/layered images, so every image path bounds RAM and honours crop. Only
   /// needs [config]; created lazily so test instantiations need not pass one.
   late final ImageBuilder _imageBuilder = ImageBuilder(config: config);
+
+  /// Shared shape renderer (preset geometry, fill/outline, and text-box block
+  /// content via re-entry, Plan §H). Set by the generator so an in-flow shape
+  /// renders identically to a layered one; null in standalone/test use, where
+  /// [_buildInlineShape] falls back to a plain fill/outline box.
+  ShapeBuilder? shapeBuilder;
 
   // Used for search highlighting
 
@@ -1042,6 +1049,10 @@ class ParagraphBuilder {
   }
 
   Widget _buildInlineShape(DocxShape shape) {
+    // Delegate to the shared ShapeBuilder when wired (preset geometry + text-box
+    // block content); otherwise a plain fill/outline box as a safe fallback.
+    final sb = shapeBuilder;
+    if (sb != null) return sb.buildInlineShape(shape);
     return Container(
       width: shape.width,
       height: shape.height,

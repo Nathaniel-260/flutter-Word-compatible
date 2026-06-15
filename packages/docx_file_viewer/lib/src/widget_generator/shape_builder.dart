@@ -8,7 +8,50 @@ class ShapeBuilder {
   final DocxViewConfig config;
   final DocxTheme? docxTheme;
 
-  ShapeBuilder({required this.config, this.docxTheme});
+  /// Renders the block content of a text box (`DocxShape.textBlocks`) by
+  /// re-entering the document generator (Plan §H). Set by the generator; when
+  /// null (or a shape has no [DocxShape.textBlocks]) the flat [DocxShape.text]
+  /// is rendered as a single centred label instead.
+  final Widget Function(List<DocxBlock> blocks)? textBlockBuilder;
+
+  ShapeBuilder({required this.config, this.docxTheme, this.textBlockBuilder});
+
+  /// The content drawn inside a shape: the rich text-box blocks when available
+  /// (clipped to the box, top-aligned, never overflowing), else the flat text as
+  /// a centred label, else nothing.
+  Widget? _shapeTextContent(DocxShape shape) {
+    final blocks = shape.textBlocks;
+    if (blocks != null && blocks.isNotEmpty && textBlockBuilder != null) {
+      // Lay the content out at natural height and clip it to the box so a tall
+      // text box never throws an overflow assert (matches Word's clipped box).
+      return ClipRect(
+        child: OverflowBox(
+          alignment: Alignment.topLeft,
+          maxHeight: double.infinity,
+          child: Padding(
+            padding: const EdgeInsets.all(4),
+            child: textBlockBuilder!(blocks),
+          ),
+        ),
+      );
+    }
+    if (shape.text != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(4),
+          child: Text(
+            shape.text!,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 12,
+              color: _contrastColor(shape.fillColor),
+            ),
+          ),
+        ),
+      );
+    }
+    return null;
+  }
 
   /// Build a block-level shape widget.
   Widget buildBlockShape(DocxShapeBlock shapeBlock) {
@@ -97,22 +140,9 @@ class ShapeBuilder {
     Widget container = Container(
       width: shape.width,
       height: shape.height,
+      clipBehavior: borderRadius != null ? Clip.antiAlias : Clip.hardEdge,
       decoration: decoration,
-      child: shape.text != null
-          ? Center(
-              child: Padding(
-                padding: const EdgeInsets.all(4),
-                child: Text(
-                  shape.text!,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: _contrastColor(shape.fillColor),
-                  ),
-                ),
-              ),
-            )
-          : null,
+      child: _shapeTextContent(shape),
     );
 
     if (shape.rotation != 0) {
@@ -131,17 +161,7 @@ class ShapeBuilder {
       height: shape.height,
       child: CustomPaint(
         painter: _ShapePainter(shape, docxTheme),
-        child: shape.text != null
-            ? Center(
-                child: Text(
-                  shape.text!,
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: _contrastColor(shape.fillColor),
-                  ),
-                ),
-              )
-            : null,
+        child: _shapeTextContent(shape),
       ),
     );
   }

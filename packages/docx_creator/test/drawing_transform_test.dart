@@ -1,11 +1,83 @@
 import 'dart:typed_data';
 
+import 'package:archive/archive.dart';
 import 'package:docx_creator/docx_creator.dart';
 import 'package:xml/xml.dart';
 import 'package:test/test.dart';
 
 /// Part H.1/H.3 — drawing transform (rotation / mirror / crop) parse + round-trip.
 void main() {
+  group('Text box content (w:txbxContent) — Part H', () {
+    const ns =
+        'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '
+        'xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" '
+        'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" '
+        'xmlns:wsp="http://schemas.microsoft.com/office/word/2010/wordprocessingShape"';
+
+    DocxShape parseTextBoxShape(String txbxInner) {
+      // The reader matches the `wsp:` prefix (wsp:wsp / wsp:txbx), as written by
+      // the exporter and real Word output.
+      final run = XmlDocument.parse('<w:r $ns><w:drawing><wp:inline>'
+          '<a:graphic><a:graphicData><wsp:wsp>'
+          '<wsp:spPr><a:prstGeom prst="rect"/></wsp:spPr>'
+          '<wsp:txbx><w:txbxContent>$txbxInner</w:txbxContent></wsp:txbx>'
+          '</wsp:wsp></a:graphicData></a:graphic>'
+          '</wp:inline></w:drawing></w:r>');
+      final parsed =
+          InlineParser(ReaderContext(Archive())).parseRun(run.rootElement);
+      return parsed as DocxShape;
+    }
+
+    test('parses real block content into textBlocks (not just flat text)', () {
+      final shape = parseTextBoxShape(
+        '<w:p><w:r><w:rPr><w:b/></w:rPr><w:t>Boxed title</w:t></w:r></w:p>'
+        '<w:p><w:r><w:t>Second line</w:t></w:r></w:p>',
+      );
+
+      expect(shape.textBlocks, isNotNull);
+      expect(shape.textBlocks!.length, 2);
+      final first = shape.textBlocks!.first as DocxParagraph;
+      final firstRun = first.children.first as DocxText;
+      expect(firstRun.content, 'Boxed title');
+      expect(firstRun.fontWeight, DocxFontWeight.bold);
+      // The flat fallback is still populated from the joined w:t runs.
+      expect(shape.text, contains('Boxed title'));
+    });
+
+    test('buildXml emits the real blocks (not the flat centred fallback)', () {
+      final shape = DocxShape(
+        width: 120,
+        height: 60,
+        textBlocks: [
+          DocxParagraph(children: [
+            DocxText('Hello', fontWeight: DocxFontWeight.bold),
+          ]),
+        ],
+      )..setShapeId(9);
+
+      final builder = XmlBuilder();
+      shape.buildXml(builder);
+      final xml = builder.buildDocument().toXmlString();
+
+      expect(xml, contains('<w:txbxContent>'));
+      expect(xml, contains('Hello'));
+      // The blocks carry their own bold run, so the flat single-paragraph
+      // centred fallback is not used.
+      expect(xml, contains('<w:b'));
+    });
+
+    test('flat text still uses the centred-paragraph fallback', () {
+      final shape = DocxShape(width: 80, height: 40, text: 'Label')
+        ..setShapeId(10);
+      final builder = XmlBuilder();
+      shape.buildXml(builder);
+      final xml = builder.buildDocument().toXmlString();
+      expect(xml, contains('<w:txbxContent>'));
+      expect(xml, contains('Label'));
+      expect(xml, contains('w:val="center"'));
+    });
+  });
+
   group('Image transform — buildXml', () {
     test('writes rot / flipH / flipV / srcRect into the drawing XML', () {
       final img = DocxInlineImage(

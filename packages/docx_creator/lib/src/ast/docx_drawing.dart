@@ -180,8 +180,15 @@ class DocxShape extends DocxInline {
   /// Outline width in points.
   final double outlineWidth;
 
-  /// Text content inside the shape (optional).
+  /// Plain-text content inside the shape (optional). A flat fallback used by the
+  /// factory constructors and when no rich [textBlocks] are present.
   final String? text;
+
+  /// Rich block content of a text box (`w:txbxContent`), when read from a DOCX
+  /// (Plan §H). Carries the box's real paragraphs/tables so the renderer can
+  /// reproduce their formatting instead of a single centred string. Null for
+  /// factory shapes or shapes without a text body; [text] remains the fallback.
+  final List<DocxBlock>? textBlocks;
 
   /// Horizontal position from origin (for floating shapes).
   final DocxHorizontalPositionFrom horizontalFrom;
@@ -228,6 +235,7 @@ class DocxShape extends DocxInline {
     this.outlineColor,
     this.outlineWidth = 1,
     this.text,
+    this.textBlocks,
     this.horizontalFrom = DocxHorizontalPositionFrom.column,
     this.verticalFrom = DocxVerticalPositionFrom.paragraph,
     this.horizontalAlign,
@@ -707,8 +715,17 @@ class DocxShape extends DocxInline {
         }
       });
 
-      // Text body (if shape contains text)
-      if (text != null && text!.isNotEmpty) {
+      // Text body. Prefer the rich [textBlocks] (round-trips real paragraphs);
+      // fall back to the flat [text] as a single centred paragraph.
+      if (textBlocks != null && textBlocks!.isNotEmpty) {
+        builder.element('wsp:txbx', nest: () {
+          builder.element('w:txbxContent', nest: () {
+            for (final block in textBlocks!) {
+              block.buildXml(builder);
+            }
+          });
+        });
+      } else if (text != null && text!.isNotEmpty) {
         builder.element('wsp:txbx', nest: () {
           builder.element('w:txbxContent', nest: () {
             builder.element('w:p', nest: () {

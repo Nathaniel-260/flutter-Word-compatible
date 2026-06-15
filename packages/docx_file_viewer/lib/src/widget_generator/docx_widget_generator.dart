@@ -155,7 +155,17 @@ class DocxWidgetGenerator {
     _shapeBuilder = ShapeBuilder(
       config: config,
       docxTheme: doc.theme,
+      // Re-enter block generation so a text box renders its real paragraphs
+      // (Plan §H) instead of a single flat string.
+      textBlockBuilder: (blocks) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: _generateBlockWidgets(blocks),
+      ),
     );
+    // Route the paragraph builder's in-flow shapes through the shared
+    // ShapeBuilder too, so an inline/side text box renders its content (§H).
+    _paragraphBuilder.shapeBuilder = _shapeBuilder;
     _tableBuilder = TableBuilder(
       theme: theme,
       config: config,
