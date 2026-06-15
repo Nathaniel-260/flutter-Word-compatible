@@ -27,3 +27,6 @@ melos.yaml.lock
 
 # Test run logs (e.g. `flutter test > test_output.txt`)
 **/test_output.txt
+
+# Local scratch / temp docx working dir (not source)
+.tmp_docx/
