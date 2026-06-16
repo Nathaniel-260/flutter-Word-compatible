@@ -40,36 +40,24 @@ void main() {
         hAlign: hAlign,
       );
 
-  group('measurement matches the in-flow vs out-of-flow render', () {
-    test('a side float adds its in-flow height to its paragraph', () {
-      // square/tight/through floats are rendered in-flow beside the text (a Row),
-      // so they must be measured in-flow too — the ~133px float dominates this
-      // short paragraph (measure ≡ render).
-      final withFloat = DocxParagraph(children: [
-        DocxText('hello world'),
-        floatImg(DocxTextWrap.square, hAlign: DrawingHAlign.right),
-      ]);
-      final plain = DocxParagraph(children: [DocxText('hello world')]);
-      expect(
-        measurer.measureParagraph(withFloat, _contentW).totalHeight,
-        greaterThan(measurer.measureParagraph(plain, _contentW).totalHeight),
-      );
-    });
-
-    test('an out-of-flow float adds no inline height to its paragraph', () {
-      // topAndBottom is reserved by the paginator (a full-width band), and
-      // behindText/inFront are positioned layers — none sit in the text flow, so
-      // none inflate the measured paragraph.
+  group('measurement excludes floating drawings from the text span', () {
+    test('no floating image (any wrap) adds inline height to its paragraph',
+        () {
+      // Every floating drawing is placed out of the text flow — a side float by
+      // the band-aware wrap (§8.2 #29), a full-width float as a reserved band, a
+      // layer float as a back/front layer — so none inflate the measured text
+      // span. Their footprint is added by the paginator (band / wrap height).
       final plain = DocxParagraph(children: [DocxText('hello world')]);
       final plainH = measurer.measureParagraph(plain, _contentW).totalHeight;
       for (final wrap in [
+        DocxTextWrap.square,
         DocxTextWrap.topAndBottom,
         DocxTextWrap.behindText,
         DocxTextWrap.inFrontOfText,
       ]) {
         final withFloat = DocxParagraph(children: [
           DocxText('hello world'),
-          floatImg(wrap),
+          floatImg(wrap, hAlign: DrawingHAlign.right),
         ]);
         expect(
           measurer.measureParagraph(withFloat, _contentW).totalHeight,

@@ -5,6 +5,7 @@ import 'package:docx_creator/docx_creator.dart';
 import 'package:docx_file_viewer/docx_file_viewer.dart';
 import 'package:docx_file_viewer/src/widget_generator/docx_widget_generator.dart';
 import 'package:docx_file_viewer/src/widget_generator/paragraph_builder.dart'; // Ensure this is accessible or export it
+import 'package:docx_file_viewer/src/widgets/float_wrap_text.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -23,7 +24,7 @@ void main() {
         theme: DocxViewTheme(),
       );
 
-      // Paragraph: "Start" -> Image(Right) -> "End"
+      // Paragraph: "Start" -> Image(Right side float) -> "End"
       final paragraph = DocxParagraph(children: [
         DocxText('Start '),
         DocxInlineImage(
@@ -32,6 +33,7 @@ void main() {
           bytes: validPng,
           extension: '.png',
           positionMode: DocxDrawingPosition.floating,
+          textWrap: DocxTextWrap.square,
           hAlign: DrawingHAlign.right,
         ),
         DocxText('End'),
@@ -40,59 +42,18 @@ void main() {
       final widget = builder.build(paragraph);
       await tester.pumpWidget(MaterialApp(home: Scaffold(body: widget)));
 
-      // Current incorrect behavior:
-      // It creates a Row with [Expanded(Text("Start End")), Column(Image)]
-      // The text is contiguous and the image is to the right of the *entire* text block.
+      // The text wraps beside the right float via the band-aware layout
+      // (§8.2 #29) — no content is lost, the float renders once.
+      expect(find.byType(FloatWrapText), findsOneWidget);
+      expect(find.byType(Image), findsOneWidget);
 
-      final rowFinder = find.byType(Row);
-      expect(rowFinder, findsOneWidget);
-
-      final row = tester.widget<Row>(rowFinder);
-      // We expect 2 children: Expanded(Text) and Column(Image) (or similar 3-child structure with spacing)
-      // Actually `_buildFloatingLayout` always creates 3 children: LeftCol, Expanded(Text), RightCol.
-      // Or 2 if one side is empty?
-      // Inspecting code: `children: [ if(left)..., Expanded, if(right)... ]`.
-
-      expect(row.children.length, greaterThanOrEqualTo(2));
-
-      // Verify Text contains "Start End" combined
-
-      // Depending on config, it might be SelectableText.rich or RichText. Default config enabledSelection?
-      // Let's assume RichText for simplicity or check finder.
-
-      // Expect separate RichText/SelectableText widgets now because of the split
-      final richTextFinder = find.byType(RichText);
-      final selectableTextFinder = find.byType(SelectableText);
-
-      List<String> textContents = [];
-      for (final element in richTextFinder.evaluate()) {
-        textContents.add((element.widget as RichText).text.toPlainText());
-      }
-      for (final element in selectableTextFinder.evaluate()) {
-        final widget = element.widget as SelectableText;
-        if (widget.textSpan != null) {
-          textContents.add(widget.textSpan!.toPlainText());
-        }
-      }
-
-      // We expect 'Start ' and 'End' to be in the SAME block now for [Left] [Text] [Right] layout
-      // The text is center-aligned (or default) between the two floats.
-
+      final textContents = [
+        for (final e in find.byType(RichText).evaluate())
+          (e.widget as RichText).text.toPlainText(),
+      ];
       final fullContent = textContents.join('');
       expect(fullContent, contains('Start '));
       expect(fullContent, contains('End'));
-
-      // Because we removed the split on Right float, they might be in the same widget again.
-      // The key is that they are in a Row structure which we verified earlier.
-      // We are just verifying that we didn't lose content.
-
-      // If the layout logic does NOT split, 'Start ' and 'End' will be in the same span.
-      // This is acceptable as long as visually they are flanked by images.
-
-      final hasCombinedBlock =
-          textContents.any((t) => t.contains('Start ') && t.contains('End'));
-      expect(hasCombinedBlock, isTrue,
-          reason: 'Text should be continuous between floats for this layout');
     });
 
     testWidgets('Font Family from DocxText.fonts is ignored (Bug Repro)',

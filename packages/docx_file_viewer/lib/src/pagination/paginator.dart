@@ -3,6 +3,7 @@ import 'package:flutter/widgets.dart';
 
 import '../docx_view_config.dart';
 import '../layout/float_layout.dart';
+import '../layout/float_text_layout.dart';
 import '../layout/list_layout.dart';
 import '../layout/table_layout.dart';
 import '../layout/table_min_widths.dart';
@@ -702,9 +703,7 @@ class Paginator {
   /// Measures the full vertical footprint of [block] at [width] pixels.
   double _measureBlock(DocxNode block, double width) {
     if (block is DocxParagraph) {
-      return measurer
-          .measureParagraph(block, width, direction: _directionOf(block))
-          .totalHeight;
+      return _measureParagraph(block, width);
     }
     if (block is DocxTable) {
       return _measureTable(block, width);
@@ -726,6 +725,34 @@ class Paginator {
       return _shapeHeightPx;
     }
     return _unknownBlockHeightPx;
+  }
+
+  /// Measures a paragraph, accounting for **side-float wrapping** (Plan §H.2,
+  /// §8.2 #29): when the paragraph anchors a `square`/`tight` float, its text
+  /// height is recomputed with [layoutFloatWrap] — the same core the renderer
+  /// (`FloatWrapText`) lays out with — so the page-packing height matches the
+  /// painted height. The paragraph spacing (and the no-float fast path) come from
+  /// the ordinary measurement.
+  double _measureParagraph(DocxParagraph p, double width) {
+    final direction = _directionOf(p);
+    final base = measurer.measureParagraph(p, width, direction: direction);
+    final sideRects = localSideFloatRects(p.children,
+        contentWidth: width, pageIsRtl: p.isRtl);
+    if (sideRects.isEmpty) return base.totalHeight;
+
+    final lineHeight = measurer.spanFactory.resolveLineHeightScale(p);
+    final span = measurer.spanFactory
+        .buildMeasurementSpans(p.children,
+            lineHeight: lineHeight, skipHidden: true)
+        .root;
+    final wrap = layoutFloatWrap(
+      text: span,
+      floats: sideRects,
+      contentWidth: width,
+      direction: direction,
+    );
+    final textHeight = wrap?.height ?? base.textHeight;
+    return base.spacingBefore + textHeight + base.spacingAfter;
   }
 
   /// Mirrors the renderer's direction choice (paragraph_builder

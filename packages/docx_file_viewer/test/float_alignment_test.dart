@@ -3,123 +3,66 @@ import 'dart:typed_data';
 import 'package:docx_creator/docx_creator.dart';
 import 'package:docx_file_viewer/docx_file_viewer.dart';
 import 'package:docx_file_viewer/src/widget_generator/paragraph_builder.dart';
+import 'package:docx_file_viewer/src/widgets/float_wrap_text.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   group('ParagraphBuilder Float Alignment', () {
-    testWidgets(
-        'Combines Text + Right Floating Image (After Text) in single Row',
-        (tester) async {
-      // User Scenario: Text first, then Right-aligned floating image.
-      // Expected: Single Row, with text on left and image on right.
-
+    // Text + a side float now wrap together via the band-aware [FloatWrapText]
+    // (§8.2 #29): text flows beside the float, the float renders once.
+    Widget buildParagraph(DrawingHAlign align) {
       final image = DocxInlineImage(
         bytes: _createGradientImage(),
         extension: 'png',
         width: 50,
         height: 50,
         positionMode: DocxDrawingPosition.floating,
-        hAlign: DrawingHAlign.right,
+        textWrap: DocxTextWrap.square,
+        hAlign: align,
       );
-
-      final paragraph = DocxParagraph(
-        children: [
-          DocxText('Main content text that should be beside the image.'),
-          image,
-        ],
-      );
-
-      final builder = ParagraphBuilder(
+      final paragraph = DocxParagraph(children: [
+        DocxText('Main content text that should be beside the image.'),
+        image,
+      ]);
+      return ParagraphBuilder(
         config: const DocxViewConfig(),
         theme: DocxViewTheme.light(),
         docxTheme: DocxTheme.empty(),
-      );
+      ).build(paragraph);
+    }
 
-      await tester.pumpWidget(
-          MaterialApp(home: Scaffold(body: builder.build(paragraph))));
+    testWidgets('Text + Right side float wrap together (FloatWrapText)',
+        (tester) async {
+      await tester.pumpWidget(MaterialApp(
+          home: Scaffold(body: buildParagraph(DrawingHAlign.right))));
 
-      // 1. Should be exactly ONE Row (no splitting into multiple rows)
-      // If it splits, we'd likely get a Column with 2 items (Text, then Image Row) or 2 Rows.
-      // ParagraphBuilder wraps content in a Column of blocks if multiple blocks exist.
-      // We want to ensure we have ONE Row that contains both elements.
-
-      final rowFinder = find.byType(Row);
-      expect(rowFinder, findsOneWidget,
-          reason: 'Text and Right Float should merge into one Row');
-
-      final row = tester.widget<Row>(rowFinder);
-
-      // 2. Verify Row structure:
-      // [LeftFloats?, Expanded(Text), Spacer?, RightFloats(Column)]
-      // The implementation of _buildFloatingLayout usually puts right elements last.
-
-      expect(row.children.length, greaterThanOrEqualTo(2));
-
-      // Use helper to find text and image inside the row
-      final textInRow =
-          find.descendant(of: rowFinder, matching: find.byType(SelectableText));
-      final imageInRow =
-          find.descendant(of: rowFinder, matching: find.byType(Image));
-
-      expect(textInRow, findsOneWidget, reason: 'Text should be in the row');
-      expect(imageInRow, findsOneWidget, reason: 'Image should be in the row');
+      expect(find.byType(FloatWrapText), findsOneWidget,
+          reason: 'the side float wraps the text in-flow');
+      expect(find.byType(Image), findsOneWidget,
+          reason: 'the float image renders once');
+      expect(_renderedText(), contains('Main content'),
+          reason: 'the paragraph text is rendered beside the float');
     });
 
-    testWidgets(
-        'Combines Text + Left Floating Image (After Text) in single Row',
+    testWidgets('Text + Left side float wrap together (FloatWrapText)',
         (tester) async {
-      final image = DocxInlineImage(
-        bytes: _createGradientImage(),
-        extension: 'png',
-        width: 50,
-        height: 50,
-        positionMode: DocxDrawingPosition.floating,
-        hAlign: DrawingHAlign.left,
-      );
+      await tester.pumpWidget(MaterialApp(
+          home: Scaffold(body: buildParagraph(DrawingHAlign.left))));
 
-      final paragraph = DocxParagraph(
-        children: [
-          DocxText('Text content.'),
-          image,
-        ],
-      );
-
-      final builder = ParagraphBuilder(
-        config: const DocxViewConfig(),
-        theme: DocxViewTheme.light(),
-        docxTheme: DocxTheme.empty(),
-      );
-
-      await tester.pumpWidget(
-          MaterialApp(home: Scaffold(body: builder.build(paragraph))));
-
-      final rowFinder = find.byType(Row);
-      expect(rowFinder, findsOneWidget,
-          reason: 'Text and Left Float should merge into one Row');
-
-      // final row = tester.widget<Row>(rowFinder);
-      // Remove unused validation using row if possible, or use it. Actually loop below uses it?
-      // "We can iterate children to verify order..."
-      // The test uses find.descendant which doesn't strictly depend on 'row'.
-      // But let's check if 'row' is used later?
-      // Code snippet showed:
-      // final textInRow = find.descendant(of: rowFinder...)
-      // The variable 'row' itself was unused in lines 101-112?
-      // Let's just remove the assignment.
-      // Structure: LeftFloats(Column), Spacer?, Expanded(Text)
-      // We can iterate children to verify order if we want, but finding both inside is good enough for now.
-
-      final textInRow =
-          find.descendant(of: rowFinder, matching: find.byType(SelectableText));
-      final imageInRow =
-          find.descendant(of: rowFinder, matching: find.byType(Image));
-
-      expect(textInRow, findsOneWidget);
-      expect(imageInRow, findsOneWidget);
+      expect(find.byType(FloatWrapText), findsOneWidget);
+      expect(find.byType(Image), findsOneWidget);
+      expect(_renderedText(), contains('Main content'));
     });
   });
 }
+
+/// The concatenated plain text of every rendered [RichText] (the wrap splits a
+/// paragraph into one RichText per line).
+String _renderedText() => [
+      for (final e in find.byType(RichText).evaluate())
+        (e.widget as RichText).text.toPlainText(),
+    ].join();
 
 Uint8List _createGradientImage() {
   return Uint8List.fromList([

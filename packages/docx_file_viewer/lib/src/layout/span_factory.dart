@@ -448,20 +448,19 @@ class SpanFactory {
         ));
         seg(2, inline);
       } else if (inline is DocxInlineImage) {
-        // A float that the renderer takes *out of flow* — a full-width
-        // (`topAndBottom`) band reserved by the paginator, or a back/front layer
-        // (`behindText`/`inFront`/`none`) — must not add inline height here, or
-        // the measured paragraph would be taller than what the renderer lays
-        // out. A *side* float (`square`/`tight`/`through`) is rendered in-flow
-        // beside the text (`paragraph_builder._buildFloatingLayout`), so it is
-        // measured in-flow too (measure ≡ render until band-aware reflow lands).
-        if (_isOutOfFlowFloat(inline)) {
+        // A *floating* drawing never adds inline height here: the renderer places
+        // it out of the text flow — a side float through the band-aware wrap
+        // (`FloatWrapText`, §8.2 #29), a full-width float as a paginator-reserved
+        // band, a layer float as a back/front layer. The paragraph's text span
+        // (this) is laid out *around* it by the same `layoutFloatWrap` the
+        // paginator measures with, so measure ≡ render.
+        if (_isFloatingDrawing(inline)) {
           anchorSeg(inline); // zero-width anchor for split bookkeeping
         } else {
           addImage(inline.width, inline.height, inline);
         }
       } else if (inline is DocxShape) {
-        if (_isOutOfFlowFloat(inline)) {
+        if (_isFloatingDrawing(inline)) {
           anchorSeg(inline);
         } else {
           addImage(inline.width, inline.height, inline);
@@ -709,13 +708,8 @@ class SpanFactory {
   }
 }
 
-/// True when [inline] is a floating drawing the renderer positions **out of the
-/// text flow**: a full-width (`topAndBottom`) band — whose vertical space the
-/// paginator reserves in `_recordFloats` — or a back/front layer
-/// (`behindText`/`inFront`/`none`). A *side* float (`square`/`tight`/`through`)
-/// is rendered in-flow beside the text, so it is measured in-flow (returns
-/// false). Inline (non-floating) drawings return false (also in-flow).
-bool _isOutOfFlowFloat(DocxInline inline) {
-  final flow = floatPlacementOf(inline)?.flow;
-  return flow != null && flow != FloatFlow.side;
-}
+/// True when [inline] is a floating drawing — positioned out of the text flow by
+/// the renderer (side floats via the band-aware wrap, full-width as a reserved
+/// band, layer floats as a back/front layer). Such a drawing must not add inline
+/// height to the measured text span. Inline (non-floating) drawings return false.
+bool _isFloatingDrawing(DocxInline inline) => floatPlacementOf(inline) != null;

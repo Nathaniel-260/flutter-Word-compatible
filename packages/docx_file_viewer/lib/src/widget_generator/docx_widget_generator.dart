@@ -785,9 +785,6 @@ class DocxWidgetGenerator {
     final widgets = <Widget>[];
     int i = 0;
 
-    // Track floats that have been "consumed" by a previous paragraph's grouping
-    final consumedFloats = <DocxInline>{};
-
     while (i < elements.length) {
       final element = elements[i];
 
@@ -867,129 +864,12 @@ class DocxWidgetGenerator {
         }
       }
 
-      // Handle Paragraphs with special float grouping logic
-      if (element is DocxParagraph) {
-        final (localLefts, localRights) = getFloatsFromParagraph(element);
-
-        // Filter out floats we already handled in a previous group
-        final activeLefts =
-            localLefts.where((f) => !consumedFloats.contains(f)).toList();
-        final activeRights =
-            localRights.where((f) => !consumedFloats.contains(f)).toList();
-
-        final extraRights = <DocxInline>[];
-
-        // If we have unconsumed left floats, we are a potential anchor for a group
-        // Look ahead for right floats in subsequent paragraphs
-        if (activeLefts.isNotEmpty) {
-          int j = i + 1;
-          // Look ahead a few paragraphs
-          while (j < elements.length && j < i + 5) {
-            final next = elements[j];
-            if (next is DocxParagraph) {
-              final (nextLefts, nextRights) = getFloatsFromParagraph(next);
-
-              // If next has valid lefts, it starts its own group - stop scanning
-              if (nextLefts.any((f) => !consumedFloats.contains(f))) {
-                break;
-              }
-
-              // Inspect next rights
-              final nextActiveRights =
-                  nextRights.where((f) => !consumedFloats.contains(f)).toList();
-
-              if (nextActiveRights.isNotEmpty) {
-                // Determine if we should group these rights with current lefts
-                extraRights.addAll(nextActiveRights);
-                consumedFloats.addAll(nextActiveRights);
-              }
-            } else {
-              // Non-paragraph breaks the group visual flow
-              break;
-            }
-            j++;
-          }
-        }
-
-        final finalRights = [...activeRights, ...extraRights];
-
-        // If we have active floats (either our own or adopted ones), render a Float Row
-        if (activeLefts.isNotEmpty || finalRights.isNotEmpty) {
-          // Mark our own floats as consumed
-          consumedFloats.addAll(activeLefts);
-          consumedFloats.addAll(activeRights);
-
-          // Build the content WITHOUT the floats we are displaying here
-          // We must exclude both activeLefts and activeRights from the content rendering
-          final floatsToExclude = {...activeLefts, ...activeRights};
-
-          final contentWidget = _paragraphBuilder
-              .buildExcludingFloats(element, floatsToExclude, counter: counter);
-
-          // Helper to build a column of floats
-          List<Widget> buildFloatColumn(List<DocxInline> floats) {
-            return floats.map((img) {
-              Widget child;
-              if (img is DocxInlineImage) {
-                child = Image.memory(img.bytes,
-                    width: img.width, height: img.height, fit: BoxFit.contain);
-              } else if (img is DocxShape) {
-                child = _shapeBuilder.buildInlineShape(img);
-              } else {
-                child = const SizedBox.shrink();
-              }
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: child,
-              );
-            }).toList();
-          }
-
-          final rowWidget = Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (activeLefts.isNotEmpty) ...[
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: buildFloatColumn(activeLefts),
-                ),
-                const SizedBox(width: 12),
-              ],
-              Expanded(child: contentWidget),
-              if (finalRights.isNotEmpty) ...[
-                const SizedBox(width: 12),
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: buildFloatColumn(finalRights),
-                ),
-              ]
-            ],
-          );
-
-          widgets.add(Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: rowWidget,
-          ));
-
-          i++;
-          continue;
-        } else {
-          // No active floats to render in the custom layout -- check for hidden consumed floats
-          if (localLefts.any((f) => consumedFloats.contains(f)) ||
-              localRights.any((f) => consumedFloats.contains(f))) {
-            final floatsToExclude = {...localLefts, ...localRights}
-                .where((f) => consumedFloats.contains(f))
-                .toSet();
-
-            widgets.add(_paragraphBuilder.buildExcludingFloats(
-                element, floatsToExclude,
-                counter: counter));
-
-            i++;
-            continue;
-          }
-        }
-      }
+      // Paragraphs (with or without floats) fall through to standard
+      // processing → the paragraph builder. Side floats wrap the text in-flow
+      // via [FloatWrapText] (§8.2 #29); layer / full-width floats are drawn by
+      // the page float layer (paged) or the page background. The old block-level
+      // float-grouping Row (getFloatsFromParagraph) was removed when real
+      // band-aware wrapping landed.
 
       // Standard element processing
       final widget = generateWidget(element, counter: counter);
@@ -1000,52 +880,6 @@ class DocxWidgetGenerator {
     }
 
     return widgets;
-  }
-
-  /// Extract floating images from ANY paragraph, including those with text.
-  /// Returns (leftFloats, rightFloats).
-  (List<DocxInline>, List<DocxInline>) getFloatsFromParagraph(
-      DocxParagraph paragraph) {
-    final leftFloats = <DocxInline>[];
-    final rightFloats = <DocxInline>[];
-
-    for (final child in paragraph.children) {
-      // תמונה/צורה "מאחורי הטקסט" (behindDoc) אינה float בצד — היא רקע של
-      // העמוד (מסגרת/עיטור עמוד-שער). מדולגת כאן כדי שלא תרונדר כבלוק שדוחף
-      // את הטקסט; היא נאספת בנפרד ומצוירת כרקע (ראו _collectBehindTextImages).
-      //
-      // הערה מכוונת: רקע-עמוד מוצג רק ב-DocxPageMode.paged, שם יש "מיכל עמוד"
-      // (Stack) לשים מאחוריו את התמונה. במצב continuous (גלילה רציפה) הפלט הוא
-      // רשימה שטוחה ללא גבולות עמוד, ולכן רקעי-עמוד *אינם* מוצגים — זהו מצב
-      // reflow לקריאה, לא נאמנות-עמוד. אי-הצגה זו היא בחירת עיצוב, לא אובדן באג.
-      if (child is DocxInlineImage &&
-          child.textWrap == DocxTextWrap.behindText) {
-        continue;
-      }
-      // צורה (DocxShape) "מאחורי הטקסט" מדולגת אף היא, אך כרגע **אינה** נאספת
-      // לרקע (רק תמונות נאספות ב-_collectBehindTextImages) — צורות-רקע נעלמות.
-      // edge case נדיר במסמכי קודש (רקע הוא כמעט תמיד תמונה); ליטוש עתידי.
-      if (child is DocxShape && child.behindDocument) {
-        continue;
-      }
-      if (child is DocxInlineImage &&
-          child.positionMode == DocxDrawingPosition.floating) {
-        if (child.hAlign == DrawingHAlign.right) {
-          rightFloats.add(child);
-        } else if (child.hAlign != DrawingHAlign.center) {
-          leftFloats.add(child);
-        }
-      } else if (child is DocxShape &&
-          child.position == DocxDrawingPosition.floating) {
-        if (child.horizontalAlign == DrawingHAlign.right) {
-          rightFloats.add(child);
-        } else if (child.horizontalAlign != DrawingHAlign.center) {
-          leftFloats.add(child);
-        }
-      }
-    }
-
-    return (leftFloats, rightFloats);
   }
 
   /// Generate a single widget from a [DocxNode].

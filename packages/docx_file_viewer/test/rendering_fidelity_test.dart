@@ -5,6 +5,7 @@ import 'package:docx_creator/docx_creator.dart';
 
 import 'package:docx_file_viewer/docx_file_viewer.dart';
 import 'package:docx_file_viewer/src/widget_generator/paragraph_builder.dart';
+import 'package:docx_file_viewer/src/widgets/float_wrap_text.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xml/xml.dart';
@@ -96,6 +97,8 @@ void main() {
       final image = DocxInlineImage(
         bytes: _createValidHeaderGif(),
         positionMode: DocxDrawingPosition.floating,
+        textWrap:
+            DocxTextWrap.square, // a real side float (not a wrapNone layer)
         hAlign: DrawingHAlign.center,
         extension: 'png',
       );
@@ -134,6 +137,7 @@ void main() {
         width: 100,
         height: 100,
         positionMode: DocxDrawingPosition.floating,
+        textWrap: DocxTextWrap.square,
         hAlign: DrawingHAlign.left, // Left align
       );
 
@@ -159,22 +163,15 @@ void main() {
         ),
       );
 
-      // Assert
-      // Should find a Row containing the image and the text
-      expect(find.byType(Row), findsOneWidget);
+      // Assert: the text wraps beside the float via the band-aware layout
+      // (§8.2 #29), with the image rendered once.
+      expect(find.byType(FloatWrapText), findsOneWidget);
       expect(find.byType(Image), findsOneWidget);
-      expect(find.text('Side text'), findsOneWidget);
-
-      // Verify structure: Image should be first child of Row (for left align)
-      final rowFinder = find.byType(Row);
-      final rowWidget = tester.widget<Row>(rowFinder);
-      expect(rowWidget.children.length, greaterThanOrEqualTo(2));
-      expect(rowWidget.children[0], isA<Column>()); // Image wrapped in Column
-      expect(
-          find.descendant(
-              of: find.byWidget(rowWidget.children[0]),
-              matching: find.byType(Image)),
-          findsOneWidget);
+      final rendered = [
+        for (final e in find.byType(RichText).evaluate())
+          (e.widget as RichText).text.toPlainText(),
+      ].join();
+      expect(rendered, contains('Side text'));
     });
   });
 }

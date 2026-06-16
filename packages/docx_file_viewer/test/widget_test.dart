@@ -7,6 +7,7 @@ import 'package:docx_file_viewer/src/theme/docx_view_theme.dart';
 import 'package:docx_file_viewer/src/utils/block_index_counter.dart';
 import 'package:docx_file_viewer/src/widget_generator/image_builder.dart';
 import 'package:docx_file_viewer/src/widget_generator/list_builder.dart';
+import 'package:docx_file_viewer/src/widgets/float_wrap_text.dart';
 import 'package:docx_file_viewer/src/widget_generator/paragraph_builder.dart';
 import 'package:docx_file_viewer/src/widget_generator/shape_builder.dart';
 import 'package:docx_file_viewer/src/widget_generator/table_builder.dart';
@@ -275,12 +276,13 @@ void main() {
         0x3B,
       ]);
 
-      // Floating (left-align) image
+      // Floating (left-align) side float
       final floatParagraph = DocxParagraph(children: [
         DocxText('Text beside float'),
         DocxInlineImage(
           bytes: gifBytes,
           positionMode: DocxDrawingPosition.floating,
+          textWrap: DocxTextWrap.square,
           hAlign: DrawingHAlign.left,
           extension: 'gif',
           width: 50,
@@ -297,10 +299,9 @@ void main() {
         home: Scaffold(body: builder.build(floatParagraph)),
       ));
 
-      // Floating images must produce an IntrinsicHeight > Row layout.
-      expect(find.byType(IntrinsicHeight), findsOneWidget,
-          reason: 'Floating image must use IntrinsicHeight Row layout');
-      expect(find.byType(Row), findsOneWidget);
+      // A side float wraps the text beside it via the band-aware layout (§8.2 #29).
+      expect(find.byType(FloatWrapText), findsOneWidget,
+          reason: 'Side float must use the band-aware wrap layout');
 
       // Inline image — must NOT produce IntrinsicHeight/Row wrapping.
       final inlineParagraph = DocxParagraph(children: [

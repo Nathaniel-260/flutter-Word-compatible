@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:docx_creator/docx_creator.dart';
 import 'package:docx_file_viewer/docx_file_viewer.dart';
 import 'package:docx_file_viewer/src/widget_generator/docx_widget_generator.dart';
+import 'package:docx_file_viewer/src/widgets/float_wrap_text.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -61,12 +62,14 @@ void main() {
     expect(find.byType(Image), findsNothing);
   });
 
-  testWidgets('side float keeps the legacy in-flow Row path (one Image)',
+  testWidgets('side float wraps text beside it (FloatWrapText, one Image)',
       (tester) async {
     await pumpDoc(
         tester, docWithFloat(DocxTextWrap.square, hAlign: DrawingHAlign.right));
+    // True square wrap (§8.2 #29): the paragraph uses the band-aware layout, not
+    // the page float layer, and the image is rendered once.
+    expect(find.byType(FloatWrapText), findsOneWidget);
     expect(find.byType(Image), findsOneWidget);
-    expect(find.byType(Row), findsWidgets);
   });
 }
 

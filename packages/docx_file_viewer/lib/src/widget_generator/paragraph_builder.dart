@@ -8,10 +8,12 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../docx_view_config.dart';
 import '../layout/bidi_align.dart';
+import '../layout/float_layout.dart';
 import '../layout/span_factory.dart';
 import '../layout/tab_engine.dart';
 import '../theme/docx_view_theme.dart';
 import '../widgets/drop_cap_text.dart';
+import '../widgets/float_wrap_text.dart';
 import '../widgets/tabbed_line.dart';
 import 'image_builder.dart';
 import 'shape_builder.dart';
@@ -251,6 +253,7 @@ class ParagraphBuilder {
           leftElements: lefts,
           rightElements: rights,
           textAlign: textAlign,
+          direction: direction,
           lineHeightScale: lineHeightScale,
           strut: strut,
         );
@@ -285,31 +288,31 @@ class ParagraphBuilder {
       if (excludedFloats?.contains(child) ?? false) {
         continue; // Skip specific excluded float
       }
-      // תמונה "מאחורי הטקסט" (behindDoc) — לא float בצד אלא רקע של העמוד.
-      // מדולגת כאן ומרונדרת כשכבת Stack ברמת העמוד (ראו _buildPageContainer),
-      // כדי שהטקסט יופיע *בתוך* המסגרת/רקע ולא מתחת או נדחק על-ידה (וגם מונע
-      // את ה-overflow של ה-Row כשהתמונה רחבה כמעט כרוחב העמוד).
-      if (child is DocxInlineImage &&
-          child.textWrap == DocxTextWrap.behindText) {
+      // A floating drawing that does NOT reserve a side band — full-width
+      // (`topAndBottom`) or a back/front layer (`behindText`/`inFront`/`none`) —
+      // is drawn by the page float layer / page background, not in the text flow.
+      // Skip it here so it neither wraps text nor renders inline. (In paged mode
+      // the page has already stripped the layer floats; this also covers the
+      // continuous/reflow path and behindText.)
+      final placement = (child is DocxInlineImage || child is DocxShape)
+          ? floatPlacementOf(child)
+          : null;
+      if (placement != null && placement.flow != FloatFlow.side) {
         continue;
       }
+      // A *side* float (square/tight/through) buckets by horizontal alignment:
+      // left/right wrap the text beside it (via [FloatWrapText]); center breaks
+      // the row into a centred block. Inline (non-floating) drawings → null.
       DocxAlign? align;
-      if (child is DocxInlineImage) {
-        if (child.positionMode == DocxDrawingPosition.floating) {
-          align = child.hAlign == DrawingHAlign.left
-              ? DocxAlign.left
-              : (child.hAlign == DrawingHAlign.right
-                  ? DocxAlign.right
-                  : DocxAlign.center);
-        }
-      } else if (child is DocxShape) {
-        if (child.position == DocxDrawingPosition.floating) {
-          align = child.horizontalAlign == DrawingHAlign.left
-              ? DocxAlign.left
-              : (child.horizontalAlign == DrawingHAlign.right
-                  ? DocxAlign.right
-                  : DocxAlign.center);
-        }
+      if (placement != null) {
+        final hAlign = child is DocxInlineImage
+            ? child.hAlign
+            : (child as DocxShape).horizontalAlign;
+        align = hAlign == DrawingHAlign.left
+            ? DocxAlign.left
+            : (hAlign == DrawingHAlign.right
+                ? DocxAlign.right
+                : DocxAlign.center);
       }
 
       if (align == DocxAlign.center) {
@@ -439,18 +442,24 @@ class ParagraphBuilder {
 
   /// Builds a layout that wraps text around left and/or right floating elements.
   ///
-  /// Uses IntrinsicHeight with Row for proper alignment of floating images and text.
+  /// Lays a paragraph's text out wrapping around its side floats (Plan §H.2,
+  /// §8.2 #29) via [FloatWrapText] — text flows beside a float for its height,
+  /// then full width below, matching Word. Falls back to a simple
+  /// `IntrinsicHeight`+`Row` (float column beside the whole text) when the text
+  /// carries a `WidgetSpan` (an inline image) that cannot be sliced across lines.
   Widget _buildFloatingLayout({
     required TextSpan textSpan,
     List<DocxInline> leftElements = const [],
     List<DocxInline> rightElements = const [],
     required TextAlign textAlign,
+    required TextDirection direction,
     double? lineHeightScale,
     StrutStyle? strut,
   }) {
     const double floatSpacing = 12.0;
 
-    // Helper to build the widget for a floating element
+    // Helper to build the widget for a floating element (natural size; the wrap
+    // scales it to its resolved rect with a FittedBox).
     Widget? buildFloatWidget(DocxInline? element) {
       if (element == null) return null;
       if (element is DocxInlineImage) {
@@ -461,7 +470,7 @@ class ParagraphBuilder {
       return null;
     }
 
-    // Build a column of floating elements
+    // Build a column of floating elements (fallback layout only).
     Widget buildFloatColumn(List<DocxInline> elements) {
       if (elements.isEmpty) return const SizedBox.shrink();
       return Column(
@@ -481,27 +490,37 @@ class ParagraphBuilder {
       );
     }
 
-    // Build the text widget
-    Widget textWidget = config.enableSelection
-        ? SelectableText.rich(textSpan, textAlign: textAlign, strutStyle: strut)
-        : RichText(text: textSpan, textAlign: textAlign, strutStyle: strut);
+    // Fallback: the whole text column beside the floats (pre-§8.2 #29 behaviour).
+    Widget fallbackRow() {
+      final Widget textWidget = config.enableSelection
+          ? SelectableText.rich(textSpan,
+              textAlign: textAlign, strutStyle: strut)
+          : RichText(text: textSpan, textAlign: textAlign, strutStyle: strut);
+      return IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (leftElements.isNotEmpty) ...[
+              buildFloatColumn(leftElements),
+              const SizedBox(width: floatSpacing),
+            ],
+            Expanded(child: textWidget),
+            if (rightElements.isNotEmpty) ...[
+              const SizedBox(width: floatSpacing),
+              buildFloatColumn(rightElements),
+            ],
+          ],
+        ),
+      );
+    }
 
-    // Use IntrinsicHeight to allow text to wrap naturally beside floats
-    return IntrinsicHeight(
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (leftElements.isNotEmpty) ...[
-            buildFloatColumn(leftElements),
-            const SizedBox(width: floatSpacing),
-          ],
-          Expanded(child: textWidget),
-          if (rightElements.isNotEmpty) ...[
-            const SizedBox(width: floatSpacing),
-            buildFloatColumn(rightElements),
-          ],
-        ],
-      ),
+    return FloatWrapText(
+      textSpan: textSpan,
+      sideFloats: [...leftElements, ...rightElements],
+      direction: direction,
+      textAlign: textAlign,
+      buildFloat: (el) => buildFloatWidget(el) ?? const SizedBox.shrink(),
+      fallback: fallbackRow,
     );
   }
 
