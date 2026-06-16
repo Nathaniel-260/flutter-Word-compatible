@@ -444,6 +444,14 @@ class InlineParser {
               final cy = extent.getAttribute('cy');
               if (cx != null) width = int.parse(cx) / 914400 * 72;
               if (cy != null) height = int.parse(cy) / 914400 * 72;
+            } else {
+              // VML (`w:pict`) images carry their size in the shape's CSS-like
+              // `style` (e.g. width:450pt;height:300pt), not a DrawingML extent.
+              final vml = _vmlShapeSize(blip);
+              if (vml != null) {
+                width = vml.$1;
+                height = vml.$2;
+              }
             }
 
             // Determine extension from file path
@@ -946,6 +954,29 @@ class InlineParser {
       wrapMode: wrapMode,
       behindDoc: behindDoc,
     );
+  }
+
+  /// Size (in points) of the VML shape that owns a `v:imagedata` blip, read from
+  /// the ancestor `v:shape`/`v:rect` CSS `style` (`width:Wpt;height:Hpt`). VML
+  /// has no DrawingML `wp:extent`, so without this a `w:pict` image defaults to
+  /// 100×100. Returns null when no styled ancestor is found.
+  (double, double)? _vmlShapeSize(XmlElement blip) {
+    for (XmlNode? n = blip.parent; n != null; n = n.parent) {
+      if (n is! XmlElement) continue;
+      final style = n.getAttribute('style');
+      if (style == null) continue;
+      final w = _cssPoints(style, 'width');
+      final h = _cssPoints(style, 'height');
+      if (w != null && h != null) return (w, h);
+    }
+    return null;
+  }
+
+  /// Extracts a `<prop>:<n>pt` length (in points) from a VML CSS `style` string.
+  double? _cssPoints(String style, String prop) {
+    final m = RegExp('(?:^|;)\\s*$prop\\s*:\\s*([0-9.]+)pt')
+        .firstMatch(style.toLowerCase());
+    return m == null ? null : double.tryParse(m.group(1)!);
   }
 }
 

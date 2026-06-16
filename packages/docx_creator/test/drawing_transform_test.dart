@@ -78,6 +78,33 @@ void main() {
     });
   });
 
+  group('VML (w:pict) image — Part H', () {
+    test('reads size from the v:shape style instead of defaulting to 100×100',
+        () {
+      final bytes = _gif1x1();
+      final archive = Archive()
+        ..addFile(ArchiveFile('word/media/wm.png', bytes.length, bytes));
+      final ctx = ReaderContext(archive);
+      ctx.relationships['rId5'] = const DocxRelationship(
+          id: 'rId5', type: 'image', target: 'media/wm.png');
+
+      const ns =
+          'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '
+          'xmlns:v="urn:schemas-microsoft-com:vml" '
+          'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"';
+      final run = XmlDocument.parse('<w:r $ns><w:pict>'
+          '<v:shape id="wm" type="#_x0000_t75" style="position:absolute;width:450pt;height:300pt;z-index:-1">'
+          '<v:imagedata r:id="rId5" o:title="watermark"/>'
+          '</v:shape></w:pict></w:r>');
+
+      final parsed = InlineParser(ctx).parseRun(run.rootElement);
+      expect(parsed, isA<DocxInlineImage>());
+      final img = parsed as DocxInlineImage;
+      expect(img.width, closeTo(450, 0.01));
+      expect(img.height, closeTo(300, 0.01));
+    });
+  });
+
   group('Image transform — buildXml', () {
     test('writes rot / flipH / flipV / srcRect into the drawing XML', () {
       final img = DocxInlineImage(
