@@ -736,23 +736,40 @@ class Paginator {
   double _measureParagraph(DocxParagraph p, double width) {
     final direction = _directionOf(p);
     final base = measurer.measureParagraph(p, width, direction: direction);
-    final sideRects = localSideFloatRects(p.children,
-        contentWidth: width, pageIsRtl: p.isRtl);
-    if (sideRects.isEmpty) return base.totalHeight;
+    // Use the same RTL signal the renderer does (`direction`, which honours
+    // both `w:bidi` and content detection), not just `p.isRtl` — otherwise an
+    // RTL-by-content paragraph (common in Hebrew sacred texts, no `w:bidi`)
+    // would place `inside`/`outside` floats differently here than in the
+    // renderer, breaking measure ≡ render.
+    final pageIsRtl = direction == TextDirection.rtl;
+    final sideRects =
+        localSideFloatRects(p.children, contentWidth: width, pageIsRtl: pageIsRtl);
+    // Centered/offset floats render as a stacked block (not a side band), so the
+    // renderer adds their height to the paragraph column — mirror that here.
+    final centerFloatsHeight =
+        localCenterFloatsHeight(p.children, pageIsRtl: pageIsRtl);
+    if (sideRects.isEmpty && centerFloatsHeight == 0) return base.totalHeight;
 
-    final lineHeight = measurer.spanFactory.resolveLineHeightScale(p);
-    final span = measurer.spanFactory
-        .buildMeasurementSpans(p.children,
-            lineHeight: lineHeight, skipHidden: true)
-        .root;
-    final wrap = layoutFloatWrap(
-      text: span,
-      floats: sideRects,
-      contentWidth: width,
-      direction: direction,
-    );
-    final textHeight = wrap?.height ?? base.textHeight;
-    return base.spacingBefore + textHeight + base.spacingAfter;
+    var textHeight = base.textHeight;
+    if (sideRects.isNotEmpty) {
+      final lineHeight = measurer.spanFactory.resolveLineHeightScale(p);
+      final span = measurer.spanFactory
+          .buildMeasurementSpans(p.children,
+              lineHeight: lineHeight, skipHidden: true)
+          .root;
+      final wrap = layoutFloatWrap(
+        text: span,
+        floats: sideRects,
+        contentWidth: width,
+        direction: direction,
+        strut: measurer.spanFactory.resolveStrut(p),
+      );
+      textHeight = wrap?.height ?? base.textHeight;
+    }
+    return base.spacingBefore +
+        textHeight +
+        centerFloatsHeight +
+        base.spacingAfter;
   }
 
   /// Mirrors the renderer's direction choice (paragraph_builder

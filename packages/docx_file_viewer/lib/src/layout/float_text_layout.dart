@@ -51,6 +51,7 @@ FloatWrapResult? layoutFloatWrap({
   required List<FloatRect> floats,
   required double contentWidth,
   required TextDirection direction,
+  StrutStyle? strut,
   double minWidth = 24.0,
 }) {
   if (contentWidth <= 0) return const FloatWrapResult(lines: [], height: 0);
@@ -61,9 +62,13 @@ FloatWrapResult? layoutFloatWrap({
     return FloatWrapResult(lines: const [], height: _floatsHeight(floats, 0));
   }
 
+  // The paragraph strut (exact/atLeast line spacing, §C.2) must drive the
+  // band line heights too, or the wrapped lines would advance at a different
+  // pitch than the measurer/renderer expect (measure ≢ render).
   final painter = TextPainter(
     textDirection: direction,
     textScaler: TextScaler.noScaling,
+    strutStyle: strut,
   );
 
   // Nominal line height for band selection, from a full-width layout.
@@ -195,10 +200,13 @@ InlineSpan? _sliceWalk(InlineSpan span, int start, int end, _Cursor c) {
 
 /// Resolves the paragraph-local exclusion rectangles for the side floats among
 /// [inlines], at [contentWidth]. Used by both the renderer and the paginator so
-/// the wrap geometry is identical (measure ≡ render). Only `side`-flow floats
-/// participate (full-width/layer floats are handled elsewhere); the float sits at
-/// its horizontal alignment/offset and at its vertical offset from the paragraph
-/// top (paragraph/line/char-anchored floats; others pin to the top).
+/// the wrap geometry is identical (measure ≡ render). Only floats that wrap as a
+/// left/right side band ([sideBandOf]) participate — a centered or
+/// offset-positioned float renders as a centered block (handled by
+/// [localCenterFloatsHeight] / the renderer's centred-block path), not a band, so
+/// including it here would measure a wrap that the renderer never paints (§8.2
+/// #31). The float hugs its band edge and sits at its vertical offset from the
+/// paragraph top (paragraph/line/char-anchored floats; others pin to the top).
 List<FloatRect> localSideFloatRects(
   List<DocxInline> inlines, {
   required double contentWidth,
@@ -207,23 +215,13 @@ List<FloatRect> localSideFloatRects(
   final rects = <FloatRect>[];
   for (final inline in inlines) {
     final p = floatPlacementOf(inline);
-    if (p == null || p.flow != FloatFlow.side) continue;
+    if (p == null) continue;
+    final band = sideBandOf(p, pageIsRtl: pageIsRtl);
+    if (band == SideBand.none) continue;
 
     final width = p.width;
     final height = p.height;
-    double left;
-    if (p.hOffsetPx != null) {
-      left = p.hOffsetPx!;
-    } else {
-      final align = p.hAlign ?? DrawingHAlign.left;
-      left = switch (align) {
-        DrawingHAlign.left => 0,
-        DrawingHAlign.center => (contentWidth - width) / 2,
-        DrawingHAlign.right => contentWidth - width,
-        DrawingHAlign.inside => pageIsRtl ? contentWidth - width : 0,
-        DrawingHAlign.outside => pageIsRtl ? 0 : contentWidth - width,
-      };
-    }
+    final left = band == SideBand.left ? 0.0 : contentWidth - width;
     final top = p.vOffsetPx ?? 0.0;
 
     rects.add(FloatRect(
@@ -240,4 +238,24 @@ List<FloatRect> localSideFloatRects(
     ));
   }
   return rects;
+}
+
+/// The total vertical space the *centered-block* side floats among [inlines]
+/// reserve — those [localSideFloatRects] excludes ([sideBandOf] → [SideBand.none])
+/// because the renderer lays them out as a centred block above/below the text
+/// rather than a side band. The paginator adds this to the measured paragraph
+/// height so the page-packing height matches the painted column (measure ≡
+/// render, §8.2 #31).
+double localCenterFloatsHeight(
+  List<DocxInline> inlines, {
+  bool pageIsRtl = false,
+}) {
+  var h = 0.0;
+  for (final inline in inlines) {
+    final p = floatPlacementOf(inline);
+    if (p == null || p.flow != FloatFlow.side) continue;
+    if (sideBandOf(p, pageIsRtl: pageIsRtl) != SideBand.none) continue;
+    h += p.height;
+  }
+  return h;
 }

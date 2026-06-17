@@ -289,34 +289,51 @@ class ParagraphBuilder {
         continue; // Skip specific excluded float
       }
       // A floating drawing that does NOT reserve a side band — full-width
-      // (`topAndBottom`) or a back/front layer (`behindText`/`inFront`/`none`) —
-      // is drawn by the page float layer / page background, not in the text flow.
-      // Skip it here so it neither wraps text nor renders inline. (In paged mode
-      // the page has already stripped the layer floats; this also covers the
-      // continuous/reflow path and behindText.)
+      // (`topAndBottom`) or a back/front layer (`behindText`/`inFront`/`none`).
       final placement = (child is DocxInlineImage || child is DocxShape)
           ? floatPlacementOf(child)
           : null;
       if (placement != null && placement.flow != FloatFlow.side) {
+        // In paged mode the paginator draws these on the page float layer /
+        // page background, so they are stripped here. In continuous mode there
+        // is no page model, so a full-width (`topAndBottom`) float would vanish
+        // entirely — render it inline as an aligned block so it is not lost
+        // (best-effort: it reserves the full content width in flow). Layer
+        // floats (`behindText`/`inFront`/`none`) need page-absolute positioning
+        // that continuous mode lacks and remain unsupported there (§8.2 #34).
+        if (config.pageMode == DocxPageMode.continuous &&
+            placement.flow == FloatFlow.fullWidth) {
+          flushBuffer();
+          final Widget? w = child is DocxInlineImage
+              ? _imageBuilder.buildInlineImage(child)
+              : (child is DocxShape ? _buildInlineShape(child) : null);
+          if (w != null) {
+            final hAlign = child is DocxInlineImage
+                ? child.hAlign
+                : (child as DocxShape).horizontalAlign;
+            columnChildren.add(Align(
+              alignment: switch (hAlign) {
+                DrawingHAlign.right => Alignment.centerRight,
+                DrawingHAlign.center => Alignment.center,
+                _ => Alignment.centerLeft,
+              },
+              child: w,
+            ));
+          }
+        }
         continue;
       }
-      // A *side* float (square/tight/through) buckets by horizontal alignment:
-      // left/right wrap the text beside it (via [FloatWrapText]); center breaks
-      // the row into a centred block. Inline (non-floating) drawings → null.
-      DocxAlign? align;
-      if (placement != null) {
-        final hAlign = child is DocxInlineImage
-            ? child.hAlign
-            : (child as DocxShape).horizontalAlign;
-        align = hAlign == DrawingHAlign.left
-            ? DocxAlign.left
-            : (hAlign == DrawingHAlign.right
-                ? DocxAlign.right
-                : DocxAlign.center);
-      }
+      // A *side* float (square/tight/through) buckets by which side band it
+      // reserves ([sideBandOf], shared with the paginator so measure ≡ render):
+      // left/right wrap the text beside it (via [FloatWrapText]); a centered or
+      // offset-positioned float ([SideBand.none]) breaks the row into a centred
+      // block. Inline (non-floating) drawings have no placement → text flow.
+      final band = placement == null
+          ? null
+          : sideBandOf(placement, pageIsRtl: direction == TextDirection.rtl);
 
-      if (align == DocxAlign.center) {
-        // A Center float breaks the current Row.
+      if (placement != null && band == SideBand.none) {
+        // A centred-block float breaks the current Row.
         flushBuffer();
 
         Widget centerWidget;
@@ -328,9 +345,9 @@ class ParagraphBuilder {
           centerWidget = const SizedBox.shrink();
         }
         columnChildren.add(Center(child: centerWidget));
-      } else if (align == DocxAlign.left) {
+      } else if (band == SideBand.left) {
         currentLeftFloats.add(child);
-      } else if (align == DocxAlign.right) {
+      } else if (band == SideBand.right) {
         currentRightFloats.add(child);
       } else {
         currentInlines.add(child);
@@ -519,6 +536,7 @@ class ParagraphBuilder {
       sideFloats: [...leftElements, ...rightElements],
       direction: direction,
       textAlign: textAlign,
+      strut: strut,
       buildFloat: (el) => buildFloatWidget(el) ?? const SizedBox.shrink(),
       fallback: fallbackRow,
     );

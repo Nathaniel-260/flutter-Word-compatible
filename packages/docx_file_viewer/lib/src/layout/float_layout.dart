@@ -90,6 +90,31 @@ class FloatPlacement {
       };
 }
 
+/// Which side band a `side`-flow float reserves for text to wrap beside, or
+/// [none] when it is **not** wrapped as a side band — a centered or
+/// offset-positioned float renders as a centered block above/below the text
+/// instead. Shared by the renderer's bucketing and [localSideFloatRects] so the
+/// two agree (measure ≡ render): a float that renders as a centered block must
+/// not also carve a side band in the measured height (§8.2 #31).
+enum SideBand { left, right, none }
+
+/// Classifies [p]'s horizontal placement into a [SideBand]. Only `side`-flow
+/// floats aligned to the left/right content edge — directly, or via
+/// `inside`/`outside` resolved by [pageIsRtl] — wrap text beside them; centered,
+/// offset-positioned (no alignment), or non-`side` floats return [SideBand.none].
+SideBand sideBandOf(FloatPlacement p, {bool pageIsRtl = false}) {
+  if (p.flow != FloatFlow.side) return SideBand.none;
+  final align = p.hAlign;
+  if (align == null) return SideBand.none; // offset-positioned → centered block
+  return switch (align) {
+    DrawingHAlign.left => SideBand.left,
+    DrawingHAlign.right => SideBand.right,
+    DrawingHAlign.inside => pageIsRtl ? SideBand.right : SideBand.left,
+    DrawingHAlign.outside => pageIsRtl ? SideBand.left : SideBand.right,
+    DrawingHAlign.center => SideBand.none,
+  };
+}
+
 /// A float resolved to a body-coordinate rectangle, carrying everything the
 /// paginator/renderer need: where to draw it ([left]/[top]/[width]/[height]),
 /// the exclusion box for wrapping ([marginLeft]…[marginBottom]), and its flow

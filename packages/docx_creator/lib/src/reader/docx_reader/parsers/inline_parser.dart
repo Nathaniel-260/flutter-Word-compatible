@@ -1,6 +1,9 @@
+import 'dart:typed_data';
+
 import 'package:xml/xml.dart';
 
 import '../../../../docx_creator.dart';
+import '../../../utils/image_resolver.dart';
 import 'field_instruction.dart';
 
 /// Parses inline content (runs, text, hyperlinks, fields, bookmarks).
@@ -447,7 +450,7 @@ class InlineParser {
             } else {
               // VML (`w:pict`) images carry their size in the shape's CSS-like
               // `style` (e.g. width:450pt;height:300pt), not a DrawingML extent.
-              final vml = _vmlShapeSize(blip);
+              final vml = _vmlShapeSize(blip, imageBytes);
               if (vml != null) {
                 width = vml.$1;
                 height = vml.$2;
@@ -957,26 +960,60 @@ class InlineParser {
   }
 
   /// Size (in points) of the VML shape that owns a `v:imagedata` blip, read from
-  /// the ancestor `v:shape`/`v:rect` CSS `style` (`width:Wpt;height:Hpt`). VML
-  /// has no DrawingML `wp:extent`, so without this a `w:pict` image defaults to
-  /// 100×100. Returns null when no styled ancestor is found.
-  (double, double)? _vmlShapeSize(XmlElement blip) {
+  /// the ancestor `v:shape`/`v:rect` CSS `style` (`width:W;height:H`). VML has no
+  /// DrawingML `wp:extent`, so without this a `w:pict` image defaults to 100×100.
+  ///
+  /// When the style declares only one of width/height, the missing dimension is
+  /// derived from the image's intrinsic aspect ratio (via [imageBytes]) so the
+  /// picture is not distorted (falling back to a square when the ratio cannot be
+  /// read). Returns null when no styled ancestor declares either dimension.
+  (double, double)? _vmlShapeSize(XmlElement blip, Uint8List imageBytes) {
+    double? w;
+    double? h;
     for (XmlNode? n = blip.parent; n != null; n = n.parent) {
       if (n is! XmlElement) continue;
       final style = n.getAttribute('style');
       if (style == null) continue;
-      final w = _cssPoints(style, 'width');
-      final h = _cssPoints(style, 'height');
-      if (w != null && h != null) return (w, h);
+      w ??= _cssPoints(style, 'width');
+      h ??= _cssPoints(style, 'height');
+      if (w != null && h != null) break;
     }
-    return null;
+    if (w == null && h == null) return null;
+    if (w != null && h != null) return (w, h);
+
+    // One dimension only — scale by the intrinsic aspect ratio.
+    final intrinsic = ImageResolver.intrinsicSizePt(imageBytes);
+    if (intrinsic != null && intrinsic.$1 > 0 && intrinsic.$2 > 0) {
+      final ratio = intrinsic.$1 / intrinsic.$2; // width / height
+      if (w != null) return (w, w / ratio);
+      return (h! * ratio, h);
+    }
+    // Unknown ratio: reuse the known dimension for both (square) rather than the
+    // 100×100 default, which would ignore the author's explicit size entirely.
+    final known = w ?? h!;
+    return (known, known);
   }
 
-  /// Extracts a `<prop>:<n>pt` length (in points) from a VML CSS `style` string.
+  /// Extracts a `<prop>:<n><unit>` absolute length from a VML CSS `style` string,
+  /// converted to DOCX **points**. Supports the absolute units Word may emit
+  /// (`pt`/`px`/`in`/`cm`/`mm`/`pc`); relative units (`em`/`ex`/`%`) and `auto`
+  /// match nothing → null, so the caller keeps its fallback.
   double? _cssPoints(String style, String prop) {
-    final m = RegExp('(?:^|;)\\s*$prop\\s*:\\s*([0-9.]+)pt')
-        .firstMatch(style.toLowerCase());
-    return m == null ? null : double.tryParse(m.group(1)!);
+    final m =
+        RegExp('(?:^|;)\\s*$prop\\s*:\\s*([0-9.]+)\\s*(pt|px|in|cm|mm|pc)')
+            .firstMatch(style.toLowerCase());
+    if (m == null) return null;
+    final value = double.tryParse(m.group(1)!);
+    if (value == null) return null;
+    return switch (m.group(2)!) {
+      'pt' => value,
+      'px' => value * 72.0 / 96.0, // CSS px (96 DPI) → pt (72 DPI)
+      'in' => value * 72.0,
+      'cm' => value * 72.0 / 2.54,
+      'mm' => value * 72.0 / 25.4,
+      'pc' => value * 12.0, // 1 pica = 12 pt
+      _ => null,
+    };
   }
 }
 

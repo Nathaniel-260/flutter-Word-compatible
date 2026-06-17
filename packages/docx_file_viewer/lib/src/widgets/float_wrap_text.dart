@@ -19,6 +19,7 @@ class FloatWrapText extends StatelessWidget {
     required this.buildFloat,
     required this.direction,
     this.textAlign = TextAlign.start,
+    this.strut,
     this.fallback,
   });
 
@@ -34,6 +35,10 @@ class FloatWrapText extends StatelessWidget {
 
   final TextDirection direction;
   final TextAlign textAlign;
+
+  /// Paragraph strut (exact/atLeast line spacing, §C.2). Applied to each wrapped
+  /// line and to the wrap measurement so the painted pitch matches the measurer.
+  final StrutStyle? strut;
 
   /// Built when the text cannot be wrapped (a `WidgetSpan` is present).
   final Widget Function()? fallback;
@@ -55,6 +60,7 @@ class FloatWrapText extends StatelessWidget {
           floats: rects,
           contentWidth: width,
           direction: direction,
+          strut: strut,
         );
         if (result == null) {
           return fallback?.call() ??
@@ -62,6 +68,7 @@ class FloatWrapText extends StatelessWidget {
                 text: textSpan,
                 textDirection: direction,
                 textAlign: textAlign,
+                strutStyle: strut,
               );
         }
         return SizedBox(
@@ -78,6 +85,7 @@ class FloatWrapText extends StatelessWidget {
                     text: line.span,
                     textDirection: direction,
                     textAlign: textAlign,
+                    strutStyle: strut,
                   ),
                 ),
               for (var i = 0; i < rects.length && i < sideFloats.length; i++)
