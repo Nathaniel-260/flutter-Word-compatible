@@ -1,9 +1,19 @@
+import 'dart:math' as math;
+
 import 'package:docx_creator/docx_creator.dart';
 import 'package:flutter/material.dart';
 
 import '../docx_view_config.dart';
 
-/// Builds Flutter widgets from [DocxShape] and [DocxShapeBlock] elements.
+/// Builds Flutter widgets from [DocxShape] and [DocxShapeBlock] elements
+/// (Plan §H.3 — preset geometry + fill/outline + transforms).
+///
+/// Rectangles, rounded rectangles and ellipses render with a [BoxDecoration]
+/// (so their text/clip behaviour is exact); every other geometric preset is
+/// painted from a real [Path] produced by [shapePresetPath] using `dart:math`
+/// (no hand-rolled trig). Colour resolution lives in one place ([_resolveColor])
+/// and the painter receives already-resolved [Color]s, so there is no duplicate
+/// theme logic.
 class ShapeBuilder {
   final DocxViewConfig config;
   final DocxTheme? docxTheme;
@@ -16,14 +26,121 @@ class ShapeBuilder {
 
   ShapeBuilder({required this.config, this.docxTheme, this.textBlockBuilder});
 
-  /// The content drawn inside a shape: the rich text-box blocks when available
-  /// (clipped to the box, top-aligned, never overflowing), else the flat text as
-  /// a centred label, else nothing.
+  /// Build a block-level shape widget.
+  Widget buildBlockShape(DocxShapeBlock shapeBlock) {
+    final shape = shapeBlock.shape;
+    final alignment = switch (shapeBlock.align) {
+      DocxAlign.center => Alignment.center,
+      DocxAlign.right => Alignment.centerRight,
+      _ => Alignment.centerLeft,
+    };
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      alignment: alignment,
+      child: _buildShape(shape),
+    );
+  }
+
+  /// Build an inline shape widget.
+  Widget buildInlineShape(DocxShape shape) => _buildShape(shape);
+
+  Widget _buildShape(DocxShape shape) {
+    final fill = _resolveColor(shape.fillColor);
+    final outline = _resolveColor(shape.outlineColor);
+    final size = Size(shape.width, shape.height);
+
+    Widget body;
+    switch (shape.preset) {
+      case DocxShapePreset.rect:
+        body = _decorated(shape, fill, outline, null);
+      case DocxShapePreset.roundRect:
+        // Word's default corner radius is ~⅙ of the shorter side.
+        final r = math.min(shape.width, shape.height) * 0.1667;
+        body = _decorated(shape, fill, outline, BorderRadius.circular(r));
+      case DocxShapePreset.ellipse:
+        // A true ellipse (not a stadium): elliptical corner radii = half-extent.
+        body = _decorated(
+            shape,
+            fill,
+            outline,
+            BorderRadius.all(
+                Radius.elliptical(shape.width / 2, shape.height / 2)));
+      default:
+        final path = shapePresetPath(shape.preset, size);
+        if (path == null) {
+          // Unsupported preset → a rounded box so it is visible (§8.2).
+          body = _decorated(shape, fill, outline, BorderRadius.circular(4));
+        } else {
+          body = _painted(shape, path, fill, outline);
+        }
+    }
+
+    // Mirror (`a:xfrm@flipH/flipV`) then rotate (`@rot`), matching Word's order.
+    if (shape.flipH || shape.flipV) {
+      body = Transform(
+        alignment: Alignment.center,
+        transform: Matrix4.diagonal3Values(
+            shape.flipH ? -1 : 1, shape.flipV ? -1 : 1, 1),
+        child: body,
+      );
+    }
+    if (shape.rotation != 0) {
+      body = Transform.rotate(
+        angle: shape.rotation * math.pi / 180,
+        child: body,
+      );
+    }
+    return body;
+  }
+
+  /// A rect/roundRect/ellipse rendered with a [BoxDecoration].
+  Widget _decorated(
+    DocxShape shape,
+    Color? fill,
+    Color? outline,
+    BorderRadius? radius,
+  ) {
+    return Container(
+      width: shape.width,
+      height: shape.height,
+      clipBehavior: radius != null ? Clip.antiAlias : Clip.hardEdge,
+      decoration: BoxDecoration(
+        color: fill ?? Colors.grey.shade200,
+        border: shape.outlineColor != null
+            ? Border.all(
+                color: outline ?? Colors.black, width: shape.outlineWidth)
+            : null,
+        borderRadius: radius,
+      ),
+      child: _shapeTextContent(shape),
+    );
+  }
+
+  /// A geometric preset painted from [path], with the text content overlaid.
+  Widget _painted(DocxShape shape, Path path, Color? fill, Color? outline) {
+    final isLine = _isLinePreset(shape.preset);
+    return SizedBox(
+      width: shape.width,
+      height: shape.height,
+      child: CustomPaint(
+        painter: _ShapePainter(
+          path: path,
+          // A line/connector has no area to fill; everything else fills (Word
+          // defaults an unfilled autoshape to a light grey).
+          fill: isLine ? null : (fill ?? Colors.grey.shade200),
+          stroke: isLine ? (outline ?? fill ?? Colors.black) : outline,
+          strokeWidth: shape.outlineWidth,
+        ),
+        child: _shapeTextContent(shape),
+      ),
+    );
+  }
+
+  /// The content drawn inside a shape: rich text-box blocks when available
+  /// (clipped, top-aligned), else the flat text as a centred label, else null.
   Widget? _shapeTextContent(DocxShape shape) {
     final blocks = shape.textBlocks;
     if (blocks != null && blocks.isNotEmpty && textBlockBuilder != null) {
-      // Lay the content out at natural height and clip it to the box so a tall
-      // text box never throws an overflow assert (matches Word's clipped box).
       return ClipRect(
         child: OverflowBox(
           alignment: Alignment.topLeft,
@@ -44,7 +161,7 @@ class ShapeBuilder {
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 12,
-              color: _contrastColor(shape.fillColor),
+              color: _contrastColor(_resolveColor(shape.fillColor)),
             ),
           ),
         ),
@@ -53,352 +170,358 @@ class ShapeBuilder {
     return null;
   }
 
-  /// Build a block-level shape widget.
-  Widget buildBlockShape(DocxShapeBlock shapeBlock) {
-    final shape = shapeBlock.shape;
+  // --- Colour resolution (single source for builder + painter) -------------
 
-    Widget shapeWidget = _buildShape(shape);
-
-    // Apply alignment
-    Alignment alignment;
-    switch (shapeBlock.align) {
-      case DocxAlign.center:
-        alignment = Alignment.center;
-        break;
-      case DocxAlign.right:
-        alignment = Alignment.centerRight;
-        break;
-      default:
-        alignment = Alignment.centerLeft;
-    }
-
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 8),
-      alignment: alignment,
-      child: shapeWidget,
-    );
-  }
-
-  /// Build an inline shape widget.
-  Widget buildInlineShape(DocxShape shape) {
-    return _buildShape(shape);
-  }
-
-  Widget _buildShape(DocxShape shape) {
-    // Determine shape decoration based on preset
-    BoxDecoration decoration;
-    BorderRadius? borderRadius;
-
-    switch (shape.preset) {
-      case DocxShapePreset.ellipse:
-        borderRadius = BorderRadius.circular(shape.height / 2);
-        break;
-      case DocxShapePreset.roundRect:
-        borderRadius = BorderRadius.circular(8);
-        break;
-      case DocxShapePreset.triangle:
-      case DocxShapePreset.rtTriangle:
-      case DocxShapePreset.star4:
-      case DocxShapePreset.star5:
-      case DocxShapePreset.star6:
-      case DocxShapePreset.diamond:
-        // For complex shapes, use CustomPaint
-        return _buildComplexShape(shape);
-      default:
-        borderRadius = null;
-    }
-
-    final fillColor = _resolveColor(
-      shape.fillColor?.hex,
-      shape.fillColor?.themeColor,
-      shape.fillColor?.themeTint,
-      shape.fillColor?.themeShade,
-    );
-
-    final outlineColor = _resolveColor(
-      shape.outlineColor?.hex,
-      shape.outlineColor?.themeColor,
-      shape.outlineColor?.themeTint,
-      shape.outlineColor?.themeShade,
-    );
-
-    decoration = BoxDecoration(
-      color: fillColor ??
-          (shape.fillColor != null
-              ? _parseHexColor(shape.fillColor!.hex)
-              : Colors.grey.shade200),
-      border: shape.outlineColor != null
-          ? Border.all(
-              color: outlineColor ?? _parseHexColor(shape.outlineColor!.hex),
-              width: shape.outlineWidth,
-            )
-          : null,
-      borderRadius: borderRadius,
-    );
-
-    // Apply rotation if specified
-    Widget container = Container(
-      width: shape.width,
-      height: shape.height,
-      clipBehavior: borderRadius != null ? Clip.antiAlias : Clip.hardEdge,
-      decoration: decoration,
-      child: _shapeTextContent(shape),
-    );
-
-    if (shape.rotation != 0) {
-      container = Transform.rotate(
-        angle: (shape.rotation * 3.14159) / 180, // Convert to radians
-        child: container,
-      );
-    }
-
-    return container;
-  }
-
-  Widget _buildComplexShape(DocxShape shape) {
-    return SizedBox(
-      width: shape.width,
-      height: shape.height,
-      child: CustomPaint(
-        painter: _ShapePainter(shape, docxTheme),
-        child: _shapeTextContent(shape),
-      ),
-    );
-  }
-
-  Color _parseHexColor(String hex) {
-    String cleanHex = hex.replaceAll('#', '').replaceAll('0x', '');
-    if (cleanHex.length == 6) {
-      return Color(int.parse('FF$cleanHex', radix: 16));
-    } else if (cleanHex.length == 8) {
-      return Color(int.parse(cleanHex, radix: 16));
-    }
-    return Colors.grey;
-  }
-
-  Color _contrastColor(DocxColor? color) {
-    if (color == null) return Colors.black;
-    // Resolve theme color for contrast check too
-    final resolved = _resolveColor(
-            color.hex, color.themeColor, color.themeTint, color.themeShade) ??
-        _parseHexColor(color.hex);
-
-    final luminance = resolved.computeLuminance();
-    return luminance > 0.5 ? Colors.black : Colors.white;
-  }
-
-  Color? _resolveColor(
-      String? hex, String? themeColor, String? themeTint, String? themeShade) {
-    Color? baseColor;
-
-    // 1. Try Theme Color
+  /// Resolves a [DocxColor] (theme colour + tint/shade, else direct hex) to a
+  /// Flutter [Color], or null when it carries no usable value (`auto`/empty).
+  Color? _resolveColor(DocxColor? color) {
+    if (color == null) return null;
+    Color? base;
+    final themeColor = color.themeColor;
     if (themeColor != null && docxTheme != null) {
-      final themeHex = docxTheme!.colors.getColor(themeColor);
-      if (themeHex != null) {
-        baseColor = _parseHexColor(themeHex);
+      final hex = docxTheme!.colors.getColor(themeColor);
+      if (hex != null) base = _parseHex(hex);
+    }
+    if (base == null && color.hex != 'auto') {
+      base = _parseHex(color.hex);
+    }
+    if (base == null) return null;
+
+    final tint = color.themeTint;
+    if (tint != null) {
+      final v = int.tryParse(tint, radix: 16);
+      if (v != null) {
+        base = Color.alphaBlend(
+            Colors.white.withValues(alpha: 1 - v / 255.0), base);
       }
     }
-
-    // 2. Fallback to direct Hex
-    if (baseColor == null && hex != null && hex != 'auto') {
-      baseColor = _parseHexColor(hex);
-    }
-
-    if (baseColor == null) return null;
-
-    // 3. Apply Tint/Shade
-    if (themeTint != null) {
-      final tintVal = int.tryParse(themeTint, radix: 16);
-      if (tintVal != null) {
-        final factor = tintVal / 255.0;
-        baseColor = Color.alphaBlend(
-            Colors.white.withValues(alpha: 1 - factor), baseColor);
+    final shade = color.themeShade;
+    if (shade != null) {
+      final v = int.tryParse(shade, radix: 16);
+      if (v != null) {
+        base = Color.alphaBlend(
+            Colors.black.withValues(alpha: 1 - v / 255.0), base);
       }
     }
+    return base;
+  }
 
-    if (themeShade != null) {
-      final shadeVal = int.tryParse(themeShade, radix: 16);
-      if (shadeVal != null) {
-        final factor = shadeVal / 255.0;
-        baseColor = Color.alphaBlend(
-            Colors.black.withValues(alpha: 1 - factor), baseColor);
-      }
-    }
+  Color _contrastColor(Color? fill) =>
+      (fill ?? Colors.grey.shade200).computeLuminance() > 0.5
+          ? Colors.black
+          : Colors.white;
+}
 
-    return baseColor;
+/// Parses a `RRGGBB`/`AARRGGBB` hex string (with optional `#`/`0x`) to a [Color],
+/// defaulting to grey on malformed input.
+Color _parseHex(String hex) {
+  final clean = hex.replaceAll('#', '').replaceAll('0x', '');
+  if (clean.length == 6) return Color(int.parse('FF$clean', radix: 16));
+  if (clean.length == 8) return Color(int.parse(clean, radix: 16));
+  return Colors.grey;
+}
+
+/// True for presets that are a stroke, not a filled area.
+bool _isLinePreset(DocxShapePreset p) =>
+    p == DocxShapePreset.line || p == DocxShapePreset.straightConnector1;
+
+/// Builds the outline [Path] for a geometric [preset] inside a [size] box, or
+/// null when the preset is handled by a [BoxDecoration] (rect/roundRect/ellipse)
+/// or has no dedicated geometry yet. Pure (no painting) so it is unit-testable.
+///
+/// All trigonometry uses `dart:math`; coordinates are in the local box where
+/// `(0,0)` is top-left and `(w,h)` is bottom-right.
+Path? shapePresetPath(DocxShapePreset preset, Size size) {
+  final w = size.width;
+  final h = size.height;
+  switch (preset) {
+    case DocxShapePreset.triangle:
+      return Path()
+        ..moveTo(w / 2, 0)
+        ..lineTo(w, h)
+        ..lineTo(0, h)
+        ..close();
+    case DocxShapePreset.rtTriangle:
+      return Path()
+        ..moveTo(0, 0)
+        ..lineTo(0, h)
+        ..lineTo(w, h)
+        ..close();
+    case DocxShapePreset.diamond:
+      return Path()
+        ..moveTo(w / 2, 0)
+        ..lineTo(w, h / 2)
+        ..lineTo(w / 2, h)
+        ..lineTo(0, h / 2)
+        ..close();
+    case DocxShapePreset.parallelogram:
+      final off = w * 0.25;
+      return Path()
+        ..moveTo(off, 0)
+        ..lineTo(w, 0)
+        ..lineTo(w - off, h)
+        ..lineTo(0, h)
+        ..close();
+    case DocxShapePreset.trapezoid:
+      final off = w * 0.25;
+      return Path()
+        ..moveTo(off, 0)
+        ..lineTo(w - off, 0)
+        ..lineTo(w, h)
+        ..lineTo(0, h)
+        ..close();
+    case DocxShapePreset.pentagon:
+      return _regularPolygon(size, 5);
+    case DocxShapePreset.hexagon:
+      return _regularPolygon(size, 6);
+    case DocxShapePreset.heptagon:
+      return _regularPolygon(size, 7);
+    case DocxShapePreset.octagon:
+      return _regularPolygon(size, 8);
+    case DocxShapePreset.star4:
+      return _star(size, 4);
+    case DocxShapePreset.star5:
+      return _star(size, 5);
+    case DocxShapePreset.star6:
+      return _star(size, 6);
+    case DocxShapePreset.rightArrow:
+      return _hArrow(size, pointingRight: true);
+    case DocxShapePreset.leftArrow:
+      return _hArrow(size, pointingRight: false);
+    case DocxShapePreset.downArrow:
+      return _vArrow(size, pointingDown: true);
+    case DocxShapePreset.upArrow:
+      return _vArrow(size, pointingDown: false);
+    case DocxShapePreset.leftRightArrow:
+      return _hDoubleArrow(size);
+    case DocxShapePreset.upDownArrow:
+      return _vDoubleArrow(size);
+    case DocxShapePreset.chevron:
+      return _chevron(size);
+    case DocxShapePreset.plus:
+    case DocxShapePreset.cross:
+      return _plus(size);
+    case DocxShapePreset.line:
+    case DocxShapePreset.straightConnector1:
+      return Path()
+        ..moveTo(0, 0)
+        ..lineTo(w, h);
+    default:
+      return null;
   }
 }
 
-/// Custom painter for complex shapes.
-class _ShapePainter extends CustomPainter {
-  final DocxShape shape;
-  final DocxTheme? docxTheme;
+/// A regular [n]-gon inscribed in [size]'s ellipse, first vertex at the top.
+Path _regularPolygon(Size size, int n) {
+  final cx = size.width / 2;
+  final cy = size.height / 2;
+  final path = Path();
+  for (var i = 0; i < n; i++) {
+    final a = -math.pi / 2 + i * 2 * math.pi / n;
+    final x = cx + cx * math.cos(a);
+    final y = cy + cy * math.sin(a);
+    i == 0 ? path.moveTo(x, y) : path.lineTo(x, y);
+  }
+  return path..close();
+}
 
-  _ShapePainter(this.shape, this.docxTheme);
+/// A [points]-pointed star inscribed in [size]'s ellipse, first point at the top.
+Path _star(Size size, int points, {double innerRatio = 0.4}) {
+  final cx = size.width / 2;
+  final cy = size.height / 2;
+  final path = Path();
+  for (var i = 0; i < points * 2; i++) {
+    final outer = i.isEven;
+    final rx = (outer ? cx : cx * innerRatio);
+    final ry = (outer ? cy : cy * innerRatio);
+    final a = -math.pi / 2 + i * math.pi / points;
+    final x = cx + rx * math.cos(a);
+    final y = cy + ry * math.sin(a);
+    i == 0 ? path.moveTo(x, y) : path.lineTo(x, y);
+  }
+  return path..close();
+}
+
+/// A horizontal block arrow (head at the right when [pointingRight]).
+Path _hArrow(Size size, {required bool pointingRight}) {
+  final w = size.width;
+  final h = size.height;
+  final headW = math.min(w * 0.4, h);
+  final top = h * 0.3;
+  final bot = h * 0.7;
+  final path = Path();
+  if (pointingRight) {
+    path
+      ..moveTo(0, top)
+      ..lineTo(w - headW, top)
+      ..lineTo(w - headW, 0)
+      ..lineTo(w, h / 2)
+      ..lineTo(w - headW, h)
+      ..lineTo(w - headW, bot)
+      ..lineTo(0, bot);
+  } else {
+    path
+      ..moveTo(w, top)
+      ..lineTo(headW, top)
+      ..lineTo(headW, 0)
+      ..lineTo(0, h / 2)
+      ..lineTo(headW, h)
+      ..lineTo(headW, bot)
+      ..lineTo(w, bot);
+  }
+  return path..close();
+}
+
+/// A vertical block arrow (head at the bottom when [pointingDown]).
+Path _vArrow(Size size, {required bool pointingDown}) {
+  final w = size.width;
+  final h = size.height;
+  final headH = math.min(h * 0.4, w);
+  final left = w * 0.3;
+  final right = w * 0.7;
+  final path = Path();
+  if (pointingDown) {
+    path
+      ..moveTo(left, 0)
+      ..lineTo(left, h - headH)
+      ..lineTo(0, h - headH)
+      ..lineTo(w / 2, h)
+      ..lineTo(w, h - headH)
+      ..lineTo(right, h - headH)
+      ..lineTo(right, 0);
+  } else {
+    path
+      ..moveTo(left, h)
+      ..lineTo(left, headH)
+      ..lineTo(0, headH)
+      ..lineTo(w / 2, 0)
+      ..lineTo(w, headH)
+      ..lineTo(right, headH)
+      ..lineTo(right, h);
+  }
+  return path..close();
+}
+
+/// A double-headed horizontal arrow (heads at both ends).
+Path _hDoubleArrow(Size size) {
+  final w = size.width;
+  final h = size.height;
+  final headW = math.min(w * 0.25, h);
+  final top = h * 0.3;
+  final bot = h * 0.7;
+  return Path()
+    ..moveTo(0, h / 2)
+    ..lineTo(headW, 0)
+    ..lineTo(headW, top)
+    ..lineTo(w - headW, top)
+    ..lineTo(w - headW, 0)
+    ..lineTo(w, h / 2)
+    ..lineTo(w - headW, h)
+    ..lineTo(w - headW, bot)
+    ..lineTo(headW, bot)
+    ..lineTo(headW, h)
+    ..close();
+}
+
+/// A double-headed vertical arrow (heads at top and bottom).
+Path _vDoubleArrow(Size size) {
+  final w = size.width;
+  final h = size.height;
+  final headH = math.min(h * 0.25, w);
+  final left = w * 0.3;
+  final right = w * 0.7;
+  return Path()
+    ..moveTo(w / 2, 0)
+    ..lineTo(w, headH)
+    ..lineTo(right, headH)
+    ..lineTo(right, h - headH)
+    ..lineTo(w, h - headH)
+    ..lineTo(w / 2, h)
+    ..lineTo(0, h - headH)
+    ..lineTo(left, h - headH)
+    ..lineTo(left, headH)
+    ..lineTo(0, headH)
+    ..close();
+}
+
+/// A right-pointing chevron (`>`-like arrow band).
+Path _chevron(Size size) {
+  final w = size.width;
+  final h = size.height;
+  final notch = w * 0.3;
+  return Path()
+    ..moveTo(0, 0)
+    ..lineTo(w - notch, 0)
+    ..lineTo(w, h / 2)
+    ..lineTo(w - notch, h)
+    ..lineTo(0, h)
+    ..lineTo(notch, h / 2)
+    ..close();
+}
+
+/// A plus/cross with arms one third of the box.
+Path _plus(Size size) {
+  final w = size.width;
+  final h = size.height;
+  final x1 = w / 3;
+  final x2 = w * 2 / 3;
+  final y1 = h / 3;
+  final y2 = h * 2 / 3;
+  return Path()
+    ..moveTo(x1, 0)
+    ..lineTo(x2, 0)
+    ..lineTo(x2, y1)
+    ..lineTo(w, y1)
+    ..lineTo(w, y2)
+    ..lineTo(x2, y2)
+    ..lineTo(x2, h)
+    ..lineTo(x1, h)
+    ..lineTo(x1, y2)
+    ..lineTo(0, y2)
+    ..lineTo(0, y1)
+    ..lineTo(x1, y1)
+    ..close();
+}
+
+/// Paints a preset [path]: fills [fill] (when set) then strokes [stroke].
+class _ShapePainter extends CustomPainter {
+  final Path path;
+  final Color? fill;
+  final Color? stroke;
+  final double strokeWidth;
+
+  _ShapePainter({
+    required this.path,
+    required this.fill,
+    required this.stroke,
+    required this.strokeWidth,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Resolve colors manually since _ShapePainter is separate
-    final fillColorRaw = shape.fillColor; // default handled later
-
-    // We duplicate _resolveColor logic here or make it static utility?
-    // Duplication for now to keep it self-contained in this builder.
-    final fillColorVal = _resolveColor(
-            fillColorRaw?.hex,
-            fillColorRaw?.themeColor,
-            fillColorRaw?.themeTint,
-            fillColorRaw?.themeShade) ??
-        (fillColorRaw != null
-            ? _parseHexColor(fillColorRaw.hex)
-            : Colors.grey.shade200);
-
-    final outlineColorRaw = shape.outlineColor;
-    final outlineColorVal = _resolveColor(
-            outlineColorRaw?.hex,
-            outlineColorRaw?.themeColor,
-            outlineColorRaw?.themeTint,
-            outlineColorRaw?.themeShade) ??
-        (outlineColorRaw != null
-            ? _parseHexColor(outlineColorRaw.hex)
-            : Colors.black);
-
-    final fillPaint = Paint()
-      ..color = fillColorVal
-      ..style = PaintingStyle.fill;
-
-    final strokePaint = Paint()
-      ..color = outlineColorVal
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = shape.outlineWidth;
-
-    final path = Path();
-
-    switch (shape.preset) {
-      case DocxShapePreset.triangle:
-        path.moveTo(size.width / 2, 0);
-        path.lineTo(size.width, size.height);
-        path.lineTo(0, size.height);
-        path.close();
-        break;
-
-      case DocxShapePreset.rtTriangle:
-        path.moveTo(0, 0);
-        path.lineTo(size.width, size.height);
-        path.lineTo(0, size.height);
-        path.close();
-        break;
-
-      case DocxShapePreset.diamond:
-        path.moveTo(size.width / 2, 0);
-        path.lineTo(size.width, size.height / 2);
-        path.lineTo(size.width / 2, size.height);
-        path.lineTo(0, size.height / 2);
-        path.close();
-        break;
-
-      case DocxShapePreset.star5:
-        _drawStar(path, size, 5);
-        break;
-
-      case DocxShapePreset.star4:
-        _drawStar(path, size, 4);
-        break;
-
-      case DocxShapePreset.star6:
-        _drawStar(path, size, 6);
-        break;
-
-      default:
-        // Fallback to rectangle
-        path.addRect(Rect.fromLTWH(0, 0, size.width, size.height));
+    if (fill != null) {
+      canvas.drawPath(
+          path,
+          Paint()
+            ..color = fill!
+            ..style = PaintingStyle.fill);
     }
-
-    canvas.drawPath(path, fillPaint);
-    if (shape.outlineColor != null) {
-      canvas.drawPath(path, strokePaint);
+    if (stroke != null) {
+      canvas.drawPath(
+        path,
+        Paint()
+          ..color = stroke!
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = strokeWidth
+          ..strokeJoin = StrokeJoin.round,
+      );
     }
-  }
-
-  void _drawStar(Path path, Size size, int points) {
-    final centerX = size.width / 2;
-    final centerY = size.height / 2;
-    final outerRadius = size.width / 2;
-    final innerRadius = outerRadius * 0.4;
-
-    for (int i = 0; i < points * 2; i++) {
-      final radius = i.isEven ? outerRadius : innerRadius;
-      final angle = (i * 3.14159 / points) - (3.14159 / 2);
-      final x = centerX +
-          radius * (1 + 0).toDouble() * (i == 0 ? 1 : 1) * _cos(angle);
-      final y = centerY + radius * _sin(angle);
-
-      if (i == 0) {
-        path.moveTo(x, y);
-      } else {
-        path.lineTo(x, y);
-      }
-    }
-    path.close();
-  }
-
-  double _cos(double angle) => angle == 0
-      ? 1
-      : (angle * 180 / 3.14159).abs() < 0.001
-          ? 1
-          : 1 - (angle * angle / 2) + (angle * angle * angle * angle / 24);
-  double _sin(double angle) =>
-      angle -
-      (angle * angle * angle / 6) +
-      (angle * angle * angle * angle * angle / 120);
-
-  Color? _resolveColor(
-      String? hex, String? themeColor, String? themeTint, String? themeShade) {
-    Color? baseColor;
-
-    if (themeColor != null && docxTheme != null) {
-      final themeHex = docxTheme!.colors.getColor(themeColor);
-      if (themeHex != null) {
-        baseColor = _parseHexColor(themeHex);
-      }
-    }
-
-    if (baseColor == null && hex != null && hex != 'auto') {
-      baseColor = _parseHexColor(hex);
-    }
-
-    if (baseColor == null) return null;
-
-    if (themeTint != null) {
-      final tintVal = int.tryParse(themeTint, radix: 16);
-      if (tintVal != null) {
-        final factor = tintVal / 255.0;
-        baseColor = Color.alphaBlend(
-            Colors.white.withValues(alpha: 1 - factor), baseColor);
-      }
-    }
-
-    if (themeShade != null) {
-      final shadeVal = int.tryParse(themeShade, radix: 16);
-      if (shadeVal != null) {
-        final factor = shadeVal / 255.0;
-        baseColor = Color.alphaBlend(
-            Colors.black.withValues(alpha: 1 - factor), baseColor);
-      }
-    }
-
-    return baseColor;
-  }
-
-  Color _parseHexColor(String hex) {
-    String cleanHex = hex.replaceAll('#', '').replaceAll('0x', '');
-    if (cleanHex.length == 6) {
-      return Color(int.parse('FF$cleanHex', radix: 16));
-    } else if (cleanHex.length == 8) {
-      return Color(int.parse(cleanHex, radix: 16));
-    }
-    return Colors.grey;
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _ShapePainter old) =>
+      old.path != path ||
+      old.fill != fill ||
+      old.stroke != stroke ||
+      old.strokeWidth != strokeWidth;
 }
