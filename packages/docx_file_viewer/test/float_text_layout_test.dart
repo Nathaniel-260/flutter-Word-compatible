@@ -144,5 +144,132 @@ void main() {
       );
       expect(rects, isEmpty);
     });
+
+    test('inside/outside resolve to a left/right band by page direction', () {
+      List<FloatRect> rectsFor(DrawingHAlign a, {required bool rtl}) =>
+          localSideFloatRects([floatImg(DocxTextWrap.square, hAlign: a)],
+              contentWidth: 400, pageIsRtl: rtl);
+
+      // inside → left edge in LTR, right edge in RTL.
+      expect(rectsFor(DrawingHAlign.inside, rtl: false).first.left,
+          closeTo(0, 0.5));
+      expect(rectsFor(DrawingHAlign.inside, rtl: true).first.right,
+          closeTo(400, 0.5));
+      // outside → mirror of inside.
+      expect(rectsFor(DrawingHAlign.outside, rtl: false).first.right,
+          closeTo(400, 0.5));
+      expect(rectsFor(DrawingHAlign.outside, rtl: true).first.left,
+          closeTo(0, 0.5));
+    });
+
+    test('a centered float carves no side band (rendered as a block)', () {
+      final rects = localSideFloatRects(
+        [floatImg(DocxTextWrap.square, hAlign: DrawingHAlign.center)],
+        contentWidth: 400,
+      );
+      expect(rects, isEmpty);
+    });
+  });
+
+  group('sideBandOf', () {
+    FloatPlacement place(DocxTextWrap wrap, {DrawingHAlign? hAlign}) =>
+        floatPlacementOf(DocxInlineImage(
+          bytes: Uint8List(0),
+          extension: 'png',
+          width: 90,
+          height: 60,
+          positionMode: DocxDrawingPosition.floating,
+          textWrap: wrap,
+          hAlign: hAlign,
+        ))!;
+
+    test('left/right map to their band; center/null → none', () {
+      expect(sideBandOf(place(DocxTextWrap.square, hAlign: DrawingHAlign.left)),
+          SideBand.left);
+      expect(sideBandOf(place(DocxTextWrap.square, hAlign: DrawingHAlign.right)),
+          SideBand.right);
+      expect(
+          sideBandOf(place(DocxTextWrap.square, hAlign: DrawingHAlign.center)),
+          SideBand.none);
+      // No alignment (offset-positioned) → centered block.
+      expect(sideBandOf(place(DocxTextWrap.square)), SideBand.none);
+    });
+
+    test('inside/outside flip with page direction', () {
+      final inside = place(DocxTextWrap.square, hAlign: DrawingHAlign.inside);
+      expect(sideBandOf(inside, pageIsRtl: false), SideBand.left);
+      expect(sideBandOf(inside, pageIsRtl: true), SideBand.right);
+      final outside = place(DocxTextWrap.square, hAlign: DrawingHAlign.outside);
+      expect(sideBandOf(outside, pageIsRtl: false), SideBand.right);
+      expect(sideBandOf(outside, pageIsRtl: true), SideBand.left);
+    });
+
+    test('non-side flow is never a band', () {
+      expect(
+          sideBandOf(
+              place(DocxTextWrap.topAndBottom, hAlign: DrawingHAlign.left)),
+          SideBand.none);
+      expect(
+          sideBandOf(place(DocxTextWrap.behindText, hAlign: DrawingHAlign.left)),
+          SideBand.none);
+    });
+  });
+
+  group('localCenterFloatsHeight', () {
+    DocxInlineImage floatImg(DocxTextWrap wrap, {DrawingHAlign? hAlign}) =>
+        DocxInlineImage(
+          bytes: Uint8List(0),
+          extension: 'png',
+          width: 90,
+          height: 60, // 60pt → 80px
+          positionMode: DocxDrawingPosition.floating,
+          textWrap: wrap,
+          hAlign: hAlign,
+        );
+
+    test('sums centered/offset side floats, ignores left/right bands', () {
+      final h = localCenterFloatsHeight([
+        floatImg(DocxTextWrap.square, hAlign: DrawingHAlign.center), // 80px
+        floatImg(DocxTextWrap.square, hAlign: DrawingHAlign.left), // band → 0
+        floatImg(DocxTextWrap.square), // offset → 80px
+      ]);
+      expect(h, closeTo(160, 0.5));
+    });
+
+    test('left/right-only paragraph reserves no centered height', () {
+      final h = localCenterFloatsHeight([
+        floatImg(DocxTextWrap.square, hAlign: DrawingHAlign.right),
+      ]);
+      expect(h, 0);
+    });
+  });
+
+  group('layoutFloatWrap strut', () {
+    test('threads the strut into the line pitch (matches a strut-applied painter)',
+        () {
+      const strut = StrutStyle(fontSize: 40, height: 1.0, forceStrutHeight: true);
+
+      // The line advance a plain strut-applied painter produces — the value the
+      // measurer/renderer expect for this paragraph.
+      final tp = TextPainter(
+        text: longText(),
+        textDirection: TextDirection.ltr,
+        textScaler: TextScaler.noScaling,
+        strutStyle: strut,
+      )..layout(maxWidth: contentWidth);
+      final expected = tp.computeLineMetrics().first.height;
+      tp.dispose();
+
+      final r = layoutFloatWrap(
+        text: longText(),
+        floats: const [],
+        contentWidth: contentWidth,
+        direction: TextDirection.ltr,
+        strut: strut,
+      )!;
+      final pitch = r.lines[1].top - r.lines[0].top;
+      expect(pitch, closeTo(expected, 0.5),
+          reason: 'the wrap pitch must equal the strut-applied painter pitch');
+    });
   });
 }

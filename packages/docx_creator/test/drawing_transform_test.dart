@@ -79,29 +79,70 @@ void main() {
   });
 
   group('VML (w:pict) image — Part H', () {
-    test('reads size from the v:shape style instead of defaulting to 100×100',
-        () {
-      final bytes = _gif1x1();
+    const ns =
+        'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '
+        'xmlns:v="urn:schemas-microsoft-com:vml" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"';
+
+    // Parses a `w:pict` whose `v:shape` carries [shapeStyle]; when [wrapperStyle]
+    // is given the shape is nested inside another styled element (to exercise
+    // ancestor walking / non-merging).
+    DocxInlineImage parsePict(String shapeStyle, {String? wrapperStyle}) {
+      final bytes = _gif1x1(); // 1×1 → intrinsic aspect ratio 1:1
       final archive = Archive()
         ..addFile(ArchiveFile('word/media/wm.png', bytes.length, bytes));
       final ctx = ReaderContext(archive);
       ctx.relationships['rId5'] = const DocxRelationship(
           id: 'rId5', type: 'image', target: 'media/wm.png');
 
-      const ns =
-          'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '
-          'xmlns:v="urn:schemas-microsoft-com:vml" '
-          'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"';
-      final run = XmlDocument.parse('<w:r $ns><w:pict>'
-          '<v:shape id="wm" type="#_x0000_t75" style="position:absolute;width:450pt;height:300pt;z-index:-1">'
-          '<v:imagedata r:id="rId5" o:title="watermark"/>'
-          '</v:shape></w:pict></w:r>');
-
+      final shape = '<v:shape id="wm" type="#_x0000_t75" style="$shapeStyle">'
+          '<v:imagedata r:id="rId5"/></v:shape>';
+      final inner = wrapperStyle == null
+          ? shape
+          : '<v:group style="$wrapperStyle">$shape</v:group>';
+      final run = XmlDocument.parse('<w:r $ns><w:pict>$inner</w:pict></w:r>');
       final parsed = InlineParser(ctx).parseRun(run.rootElement);
-      expect(parsed, isA<DocxInlineImage>());
-      final img = parsed as DocxInlineImage;
+      return parsed as DocxInlineImage;
+    }
+
+    test('reads size from the v:shape style instead of defaulting to 100×100',
+        () {
+      final img = parsePict('position:absolute;width:450pt;height:300pt;z-index:-1');
       expect(img.width, closeTo(450, 0.01));
       expect(img.height, closeTo(300, 0.01));
+    });
+
+    test('converts non-pt units (in/px) to points', () {
+      final inches = parsePict('width:6in;height:3in');
+      expect(inches.width, closeTo(432, 0.01)); // 6in × 72
+      expect(inches.height, closeTo(216, 0.01)); // 3in × 72
+
+      final px = parsePict('width:96px;height:48px');
+      expect(px.width, closeTo(72, 0.01)); // 96px × 72/96
+      expect(px.height, closeTo(36, 0.01)); // 48px × 72/96
+    });
+
+    test('derives the missing dimension from the image aspect ratio', () {
+      // width only → height from the 1:1 intrinsic ratio (≈ width), never 100.
+      final img = parsePict('width:200pt');
+      expect(img.width, closeTo(200, 0.01));
+      expect(img.height, closeTo(200, 0.5));
+    });
+
+    test('does not merge width and height from different ancestors', () {
+      // width on the v:shape, height on an unrelated wrapper: the height must be
+      // derived from the shape's own (intrinsic) ratio, not stolen from the
+      // wrapper (which would give 300).
+      final img = parsePict('width:200pt', wrapperStyle: 'height:300pt');
+      expect(img.width, closeTo(200, 0.01));
+      expect(img.height, closeTo(200, 0.5));
+      expect(img.height, isNot(closeTo(300, 0.5)));
+    });
+
+    test('unrecognised units fall back to the 100×100 default', () {
+      final img = parsePict('width:50%;height:auto');
+      expect(img.width, closeTo(100, 0.01));
+      expect(img.height, closeTo(100, 0.01));
     });
   });
 

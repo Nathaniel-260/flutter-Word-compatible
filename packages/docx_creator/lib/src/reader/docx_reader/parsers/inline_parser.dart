@@ -974,9 +974,16 @@ class InlineParser {
       if (n is! XmlElement) continue;
       final style = n.getAttribute('style');
       if (style == null) continue;
-      w ??= _cssPoints(style, 'width');
-      h ??= _cssPoints(style, 'height');
-      if (w != null && h != null) break;
+      final sw = _cssPoints(style, 'width');
+      final sh = _cssPoints(style, 'height');
+      // Take both dimensions from the *same* styled ancestor (Word emits
+      // `width`+`height` together on the owning `v:shape`); never merge a width
+      // from one element with a height from another, unrelated ancestor.
+      if (sw != null || sh != null) {
+        w = sw;
+        h = sh;
+        break;
+      }
     }
     if (w == null && h == null) return null;
     if (w != null && h != null) return (w, h);
