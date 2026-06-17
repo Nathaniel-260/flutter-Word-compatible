@@ -235,6 +235,49 @@ void main() {
       expect(s.fillColor!.hex, '4472C4');
     });
 
+    test('parses theme-colour (schemeClr) gradient stops', () {
+      // Word gradients are almost always theme colours; the scheme token is
+      // normalised to the alias the theme resolver understands (bg1→background1).
+      final s = parseShape('<a:prstGeom prst="rect"/>'
+          '<a:gradFill><a:gsLst>'
+          '<a:gs pos="0"><a:schemeClr val="accent1"/></a:gs>'
+          '<a:gs pos="100000"><a:schemeClr val="bg1"/></a:gs>'
+          '</a:gsLst><a:lin ang="0"/></a:gradFill>');
+      final g = s.gradientFill!;
+      expect(g.stops.length, 2);
+      expect(g.stops.first.color.themeColor, 'accent1');
+      expect(g.stops.last.color.themeColor, 'background1');
+    });
+
+    test('a solid schemeClr fill resolves to a theme colour', () {
+      final s = parseShape('<a:prstGeom prst="rect"/>'
+          '<a:solidFill><a:schemeClr val="accent2"/></a:solidFill>');
+      expect(s.fillColor!.themeColor, 'accent2');
+    });
+
+    test('round-trips a theme-colour gradient as schemeClr', () {
+      final shape = DocxShape(
+        width: 100,
+        height: 60,
+        gradientFill: DocxGradientFill(stops: [
+          DocxGradientStop(
+              position: 0, color: DocxColor('auto', themeColor: 'accent1')),
+          DocxGradientStop(
+              position: 1, color: DocxColor('auto', themeColor: 'accent2')),
+        ]),
+      );
+      final b = XmlBuilder();
+      shape.buildXml(b);
+      final xml = b.buildDocument().toXmlString();
+      expect(xml, contains('a:schemeClr'));
+      expect(xml, contains('val="accent1"'));
+
+      final re = InlineParser(ReaderContext(Archive()))
+          .parseRun(XmlDocument.parse(xml).rootElement) as DocxShape;
+      expect(re.gradientFill!.stops.first.color.themeColor, 'accent1');
+      expect(re.gradientFill!.stops.last.color.themeColor, 'accent2');
+    });
+
     test('round-trips a gradient through buildXml', () {
       final shape = DocxShape(
         width: 100,

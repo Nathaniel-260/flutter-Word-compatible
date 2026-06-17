@@ -87,6 +87,22 @@ void main() {
       expect(
           shapePresetPath(DocxShapePreset.straightConnector1, size), isNotNull);
     });
+
+    test('a wide line is horizontal at mid-height (not a diagonal)', () {
+      final b = shapePresetPath(DocxShapePreset.line, const Size(100, 4))!
+          .getBounds();
+      expect(b.width, closeTo(100, 0.01));
+      expect(b.height, closeTo(0, 0.01));
+      expect(b.center.dy, closeTo(2, 0.01));
+    });
+
+    test('a tall connector is vertical', () {
+      final b = shapePresetPath(
+              DocxShapePreset.straightConnector1, const Size(4, 100))!
+          .getBounds();
+      expect(b.height, closeTo(100, 0.01));
+      expect(b.width, closeTo(0, 0.01));
+    });
   });
 
   group('ShapeBuilder rendering', () {
@@ -132,6 +148,25 @@ void main() {
     testWidgets('flipH wraps the shape in a Transform', (tester) async {
       await pump(tester, shape(DocxShapePreset.rightArrow, flipH: true));
       expect(find.byType(Transform), findsWidgets);
+    });
+
+    testWidgets('flipH mirrors the shape but not the text', (tester) async {
+      await pump(
+          tester,
+          DocxShape(
+            width: 100,
+            height: 80,
+            preset: DocxShapePreset.rect,
+            text: 'AB',
+            flipH: true,
+          ));
+      expect(find.text('AB'), findsOneWidget);
+      // The flip Transform wraps the shape fill only; the text is a Stack
+      // sibling, so it is never inside the mirrored subtree.
+      expect(
+          find.descendant(
+              of: find.byType(Transform), matching: find.text('AB')),
+          findsNothing);
     });
   });
 

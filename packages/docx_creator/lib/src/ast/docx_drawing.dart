@@ -724,9 +724,7 @@ class DocxShape extends DocxInline {
           _buildGradientFill(builder, gradientFill!);
         } else if (fillColor != null) {
           builder.element('a:solidFill', nest: () {
-            builder.element('a:srgbClr', nest: () {
-              builder.attribute('val', fillColor!.hex);
-            });
+            _buildColorElement(builder, fillColor!);
           });
         } else {
           builder.element('a:noFill');
@@ -738,9 +736,7 @@ class DocxShape extends DocxInline {
           builder.element('a:ln', nest: () {
             builder.attribute('w', outlineEmu.toString());
             builder.element('a:solidFill', nest: () {
-              builder.element('a:srgbClr', nest: () {
-                builder.attribute('val', outlineColor!.hex);
-              });
+              _buildColorElement(builder, outlineColor!);
             });
           });
         } else {
@@ -798,9 +794,7 @@ class DocxShape extends DocxInline {
           builder.element('a:gs', nest: () {
             builder.attribute('pos',
                 (s.position.clamp(0.0, 1.0) * 100000).round().toString());
-            builder.element('a:srgbClr', nest: () {
-              builder.attribute('val', s.color.hex);
-            });
+            _buildColorElement(builder, s.color);
           });
         }
       });
@@ -815,6 +809,21 @@ class DocxShape extends DocxInline {
         });
       }
     });
+  }
+
+  /// Emits a DrawingML colour element: `a:schemeClr` for a theme colour, else an
+  /// explicit `a:srgbClr` (so a theme-coloured fill/stop round-trips as a theme
+  /// colour rather than a frozen hex).
+  void _buildColorElement(XmlBuilder builder, DocxColor color) {
+    if (color.themeColor != null) {
+      builder.element('a:schemeClr', nest: () {
+        builder.attribute('val', color.themeColor!);
+      });
+    } else {
+      builder.element('a:srgbClr', nest: () {
+        builder.attribute('val', color.hex);
+      });
+    }
   }
 }
 

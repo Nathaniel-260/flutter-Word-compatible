@@ -773,11 +773,7 @@ class InlineParser {
     }
     if (gradientFill == null) {
       final solidFill = spPr.findElements('a:solidFill').firstOrNull;
-      if (solidFill != null) {
-        final srgbClr = solidFill.findAllElements('a:srgbClr').firstOrNull;
-        final val = srgbClr?.getAttribute('val');
-        if (val != null) fillColor = DocxColor(val);
-      }
+      if (solidFill != null) fillColor = _ooxmlColor(solidFill);
     }
 
     // Read outline color and width
@@ -793,15 +789,7 @@ class InlineParser {
         }
       }
       final lnFill = ln.findAllElements('a:solidFill').firstOrNull;
-      if (lnFill != null) {
-        final srgbClr = lnFill.findAllElements('a:srgbClr').firstOrNull;
-        if (srgbClr != null) {
-          final val = srgbClr.getAttribute('val');
-          if (val != null) {
-            outlineColor = DocxColor(val);
-          }
-        }
-      }
+      if (lnFill != null) outlineColor = _ooxmlColor(lnFill);
     }
 
     // Read text content. A text box (`wsp:txbx`) carries real block content in
@@ -887,12 +875,10 @@ class InlineParser {
     final stops = <DocxGradientStop>[];
     for (final gs in gradFill.findAllElements('a:gs')) {
       final posRaw = int.tryParse(gs.getAttribute('pos') ?? '');
-      final val =
-          gs.findAllElements('a:srgbClr').firstOrNull?.getAttribute('val');
-      if (posRaw != null && val != null) {
+      final color = _ooxmlColor(gs);
+      if (posRaw != null && color != null) {
         stops.add(DocxGradientStop(
-            position: (posRaw / 100000.0).clamp(0.0, 1.0),
-            color: DocxColor(val)));
+            position: (posRaw / 100000.0).clamp(0.0, 1.0), color: color));
       }
     }
     if (stops.isEmpty) return null;
@@ -906,6 +892,36 @@ class InlineParser {
       stops: stops,
     );
   }
+
+  /// Reads the colour from a DrawingML fill/stop [container], supporting both an
+  /// explicit `a:srgbClr` and a theme `a:schemeClr` (Word's gradients/fills are
+  /// almost always theme colours). The scheme token is normalised to the alias
+  /// [DocxThemeColors.getColor] understands (`tx1`→`text1`, `bg1`→`background1`);
+  /// `lumMod`/`lumOff`/`shade`/`tint` transforms are not applied (base colour
+  /// only). Returns null when neither colour element is present.
+  DocxColor? _ooxmlColor(XmlElement container) {
+    final srgb =
+        container.findAllElements('a:srgbClr').firstOrNull?.getAttribute('val');
+    if (srgb != null) return DocxColor(srgb);
+    final scheme = container
+        .findAllElements('a:schemeClr')
+        .firstOrNull
+        ?.getAttribute('val');
+    if (scheme != null) {
+      return DocxColor('auto', themeColor: _schemeToken(scheme));
+    }
+    return null;
+  }
+
+  /// Maps a DrawingML `schemeClr` token to the alias [DocxThemeColors.getColor]
+  /// accepts; unknown tokens (incl. `phClr`) pass through and resolve to null.
+  String _schemeToken(String v) => switch (v) {
+        'tx1' => 'text1',
+        'tx2' => 'text2',
+        'bg1' => 'background1',
+        'bg2' => 'background2',
+        _ => v,
+      };
 
   /// Parses a drawing's transform (`a:xfrm` rotation/mirror + `a:srcRect` crop)
   /// from an element that contains them (the `pic:pic` for images, the `wsp:wsp`

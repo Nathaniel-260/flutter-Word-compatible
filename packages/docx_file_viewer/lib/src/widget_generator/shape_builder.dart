@@ -50,18 +50,20 @@ class ShapeBuilder {
     final gradient = _resolveGradient(shape.gradientFill);
     final size = Size(shape.width, shape.height);
 
-    Widget body;
+    // The shape fill/outline only — the text is overlaid separately so a flip
+    // does not mirror it (Word keeps the text readable under flipH/flipV).
+    Widget shapeFill;
     switch (shape.preset) {
       case DocxShapePreset.rect:
-        body = _decorated(shape, fill, gradient, outline, null);
+        shapeFill = _decorated(shape, fill, gradient, outline, null);
       case DocxShapePreset.roundRect:
         // Word's default corner radius is ~⅙ of the shorter side.
         final r = math.min(shape.width, shape.height) * 0.1667;
-        body = _decorated(
+        shapeFill = _decorated(
             shape, fill, gradient, outline, BorderRadius.circular(r));
       case DocxShapePreset.ellipse:
         // A true ellipse (not a stadium): elliptical corner radii = half-extent.
-        body = _decorated(
+        shapeFill = _decorated(
             shape,
             fill,
             gradient,
@@ -72,22 +74,30 @@ class ShapeBuilder {
         final path = shapePresetPath(shape.preset, size);
         if (path == null) {
           // Unsupported preset → a rounded box so it is visible (§8.2).
-          body = _decorated(
+          shapeFill = _decorated(
               shape, fill, gradient, outline, BorderRadius.circular(4));
         } else {
-          body = _painted(shape, path, fill, gradient, outline);
+          shapeFill = _painted(shape, path, fill, gradient, outline);
         }
     }
 
-    // Mirror (`a:xfrm@flipH/flipV`) then rotate (`@rot`), matching Word's order.
+    // Mirror (`a:xfrm@flipH/flipV`) — geometry only, not the text overlay.
     if (shape.flipH || shape.flipV) {
-      body = Transform(
+      shapeFill = Transform(
         alignment: Alignment.center,
         transform: Matrix4.diagonal3Values(
             shape.flipH ? -1 : 1, shape.flipV ? -1 : 1, 1),
-        child: body,
+        child: shapeFill,
       );
     }
+
+    // Overlay the (un-mirrored) text content on the shape box.
+    final text = _shapeTextContent(shape);
+    Widget body = text == null
+        ? shapeFill
+        : Stack(children: [shapeFill, Positioned.fill(child: text)]);
+
+    // Rotate (`@rot`) the whole shape including its text, as Word does.
     if (shape.rotation != 0) {
       body = Transform.rotate(
         angle: shape.rotation * math.pi / 180,
@@ -97,8 +107,8 @@ class ShapeBuilder {
     return body;
   }
 
-  /// A rect/roundRect/ellipse rendered with a [BoxDecoration]. A [gradient]
-  /// (when present) takes precedence over the solid [fill].
+  /// A rect/roundRect/ellipse fill/outline rendered with a [BoxDecoration]. A
+  /// [gradient] (when present) takes precedence over the solid [fill].
   Widget _decorated(
     DocxShape shape,
     Color? fill,
@@ -119,11 +129,10 @@ class ShapeBuilder {
             : null,
         borderRadius: radius,
       ),
-      child: _shapeTextContent(shape),
     );
   }
 
-  /// A geometric preset painted from [path], with the text content overlaid.
+  /// A geometric preset's fill/outline painted from [path].
   Widget _painted(DocxShape shape, Path path, Color? fill, Gradient? gradient,
       Color? outline) {
     final isLine = _isLinePreset(shape.preset);
@@ -137,10 +146,14 @@ class ShapeBuilder {
           // defaults an unfilled autoshape to a light grey).
           fill: isLine ? null : (fill ?? Colors.grey.shade200),
           gradient: isLine ? null : gradient,
-          stroke: isLine ? (outline ?? fill ?? Colors.black) : outline,
+          // Outline: a line strokes with its colour (or the fill/black); other
+          // presets stroke black when an outline colour is set (matching the
+          // BoxDecoration path), else none.
+          stroke: isLine
+              ? (outline ?? fill ?? Colors.black)
+              : (shape.outlineColor != null ? (outline ?? Colors.black) : null),
           strokeWidth: shape.outlineWidth,
         ),
-        child: _shapeTextContent(shape),
       ),
     );
   }
@@ -344,9 +357,16 @@ Path? shapePresetPath(DocxShapePreset preset, Size size) {
       return _plus(size);
     case DocxShapePreset.line:
     case DocxShapePreset.straightConnector1:
-      return Path()
-        ..moveTo(0, 0)
-        ..lineTo(w, h);
+      // A connector is a stroke along its longer axis — horizontal for a wide
+      // (often near-zero-height) box, vertical for a tall one — not a
+      // corner-to-corner diagonal.
+      return w >= h
+          ? (Path()
+            ..moveTo(0, h / 2)
+            ..lineTo(w, h / 2))
+          : (Path()
+            ..moveTo(w / 2, 0)
+            ..lineTo(w / 2, h));
     default:
       return null;
   }
@@ -367,7 +387,7 @@ Path _regularPolygon(Size size, int n) {
 }
 
 /// A [points]-pointed star inscribed in [size]'s ellipse, first point at the top.
-Path _star(Size size, int points, {double innerRatio = 0.4}) {
+Path _star(Size size, int points, {double innerRatio = 0.38}) {
   final cx = size.width / 2;
   final cy = size.height / 2;
   final path = Path();
