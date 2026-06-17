@@ -107,7 +107,8 @@ void main() {
 
     test('reads size from the v:shape style instead of defaulting to 100×100',
         () {
-      final img = parsePict('position:absolute;width:450pt;height:300pt;z-index:-1');
+      final img =
+          parsePict('position:absolute;width:450pt;height:300pt;z-index:-1');
       expect(img.width, closeTo(450, 0.01));
       expect(img.height, closeTo(300, 0.01));
     });
@@ -143,6 +144,82 @@ void main() {
       final img = parsePict('width:50%;height:auto');
       expect(img.width, closeTo(100, 0.01));
       expect(img.height, closeTo(100, 0.01));
+    });
+  });
+
+  group('Shape gradient fill (a:gradFill) — Part H', () {
+    const ns =
+        'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '
+        'xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" '
+        'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" '
+        'xmlns:wsp="http://schemas.microsoft.com/office/word/2010/wordprocessingShape"';
+
+    DocxShape parseShape(String spPrInner) {
+      final run = XmlDocument.parse('<w:r $ns><w:drawing><wp:inline>'
+          '<wp:extent cx="1270000" cy="635000"/>'
+          '<a:graphic><a:graphicData><wsp:wsp>'
+          '<wsp:spPr>$spPrInner</wsp:spPr>'
+          '</wsp:wsp></a:graphicData></a:graphic>'
+          '</wp:inline></w:drawing></w:r>');
+      return InlineParser(ReaderContext(Archive())).parseRun(run.rootElement)
+          as DocxShape;
+    }
+
+    test('parses a linear gradient (stops + angle), gradient wins over solid',
+        () {
+      final s = parseShape('<a:prstGeom prst="rect"/>'
+          '<a:gradFill><a:gsLst>'
+          '<a:gs pos="0"><a:srgbClr val="FF0000"/></a:gs>'
+          '<a:gs pos="100000"><a:srgbClr val="0000FF"/></a:gs>'
+          '</a:gsLst><a:lin ang="5400000" scaled="1"/></a:gradFill>');
+      final g = s.gradientFill!;
+      expect(g.type, DocxGradientType.linear);
+      expect(g.angle, closeTo(90, 0.01)); // 5400000 / 60000
+      expect(g.stops.length, 2);
+      expect(g.stops.first.position, closeTo(0, 0.001));
+      expect(g.stops.first.color.hex, 'FF0000');
+      expect(g.stops.last.position, closeTo(1, 0.001));
+      expect(s.fillColor, isNull);
+    });
+
+    test('parses a radial gradient', () {
+      final s = parseShape('<a:prstGeom prst="ellipse"/>'
+          '<a:gradFill><a:gsLst>'
+          '<a:gs pos="0"><a:srgbClr val="FFFFFF"/></a:gs>'
+          '<a:gs pos="100000"><a:srgbClr val="000000"/></a:gs>'
+          '</a:gsLst><a:path path="circle"/></a:gradFill>');
+      expect(s.gradientFill!.type, DocxGradientType.radial);
+    });
+
+    test('a solid fill still parses (no regression)', () {
+      final s = parseShape('<a:prstGeom prst="rect"/>'
+          '<a:solidFill><a:srgbClr val="4472C4"/></a:solidFill>');
+      expect(s.gradientFill, isNull);
+      expect(s.fillColor!.hex, '4472C4');
+    });
+
+    test('round-trips a gradient through buildXml', () {
+      final shape = DocxShape(
+        width: 100,
+        height: 60,
+        gradientFill: DocxGradientFill(angle: 45, stops: [
+          DocxGradientStop(position: 0, color: DocxColor('FF0000')),
+          DocxGradientStop(position: 1, color: DocxColor('00FF00')),
+        ]),
+      );
+      final b = XmlBuilder();
+      shape.buildXml(b);
+      final xml = b.buildDocument().toXmlString();
+      expect(xml, contains('a:gradFill'));
+
+      final reparsed = InlineParser(ReaderContext(Archive()))
+          .parseRun(XmlDocument.parse(xml).rootElement) as DocxShape;
+      final g = reparsed.gradientFill!;
+      expect(g.type, DocxGradientType.linear);
+      expect(g.angle, closeTo(45, 0.01));
+      expect(g.stops.length, 2);
+      expect(g.stops.first.color.hex, 'FF0000');
+      expect(g.stops.last.position, closeTo(1, 0.001));
     });
   });
 

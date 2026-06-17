@@ -728,16 +728,22 @@ class InlineParser {
       }
     }
 
-    // Read fill color
+    // Read fill: a gradient (`a:gradFill`) wins over a solid colour. Scope the
+    // search to the shape's own `wsp:spPr` so a fill inside the text body
+    // (`w:txbxContent`) is never mistaken for the shape fill.
+    final spPr = wsp.findAllElements('wsp:spPr').firstOrNull ?? wsp;
     DocxColor? fillColor;
-    final solidFill = wsp.findAllElements('a:solidFill').firstOrNull;
-    if (solidFill != null) {
-      final srgbClr = solidFill.findAllElements('a:srgbClr').firstOrNull;
-      if (srgbClr != null) {
-        final val = srgbClr.getAttribute('val');
-        if (val != null) {
-          fillColor = DocxColor(val);
-        }
+    DocxGradientFill? gradientFill;
+    final gradFill = spPr.findElements('a:gradFill').firstOrNull;
+    if (gradFill != null) {
+      gradientFill = _parseGradientFill(gradFill);
+    }
+    if (gradientFill == null) {
+      final solidFill = spPr.findElements('a:solidFill').firstOrNull;
+      if (solidFill != null) {
+        final srgbClr = solidFill.findAllElements('a:srgbClr').firstOrNull;
+        final val = srgbClr?.getAttribute('val');
+        if (val != null) fillColor = DocxColor(val);
       }
     }
 
@@ -821,6 +827,7 @@ class InlineParser {
       preset: preset,
       position: position,
       fillColor: fillColor,
+      gradientFill: gradientFill,
       outlineColor: outlineColor,
       outlineWidth: outlineWidth,
       text: text,
@@ -836,6 +843,34 @@ class InlineParser {
       rotation: tf.rotation,
       flipH: tf.flipH,
       flipV: tf.flipV,
+    );
+  }
+
+  /// Parses an `a:gradFill` into a [DocxGradientFill]: its `a:gs` stops (pos in
+  /// 1/1000 %), and the direction — `a:lin@ang` (1/60000°) for a linear
+  /// gradient, or `a:path` for a radial one. Returns null when no usable stop is
+  /// found.
+  DocxGradientFill? _parseGradientFill(XmlElement gradFill) {
+    final stops = <DocxGradientStop>[];
+    for (final gs in gradFill.findAllElements('a:gs')) {
+      final posRaw = int.tryParse(gs.getAttribute('pos') ?? '');
+      final val =
+          gs.findAllElements('a:srgbClr').firstOrNull?.getAttribute('val');
+      if (posRaw != null && val != null) {
+        stops.add(DocxGradientStop(
+            position: (posRaw / 100000.0).clamp(0.0, 1.0),
+            color: DocxColor(val)));
+      }
+    }
+    if (stops.isEmpty) return null;
+    final isRadial = gradFill.findAllElements('a:path').isNotEmpty;
+    final angRaw = int.tryParse(
+        gradFill.findAllElements('a:lin').firstOrNull?.getAttribute('ang') ??
+            '');
+    return DocxGradientFill(
+      type: isRadial ? DocxGradientType.radial : DocxGradientType.linear,
+      angle: angRaw != null ? angRaw / 60000.0 : 0,
+      stops: stops,
     );
   }
 

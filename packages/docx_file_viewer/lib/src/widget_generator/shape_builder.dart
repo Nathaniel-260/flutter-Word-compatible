@@ -47,21 +47,24 @@ class ShapeBuilder {
   Widget _buildShape(DocxShape shape) {
     final fill = _resolveColor(shape.fillColor);
     final outline = _resolveColor(shape.outlineColor);
+    final gradient = _resolveGradient(shape.gradientFill);
     final size = Size(shape.width, shape.height);
 
     Widget body;
     switch (shape.preset) {
       case DocxShapePreset.rect:
-        body = _decorated(shape, fill, outline, null);
+        body = _decorated(shape, fill, gradient, outline, null);
       case DocxShapePreset.roundRect:
         // Word's default corner radius is ~⅙ of the shorter side.
         final r = math.min(shape.width, shape.height) * 0.1667;
-        body = _decorated(shape, fill, outline, BorderRadius.circular(r));
+        body = _decorated(
+            shape, fill, gradient, outline, BorderRadius.circular(r));
       case DocxShapePreset.ellipse:
         // A true ellipse (not a stadium): elliptical corner radii = half-extent.
         body = _decorated(
             shape,
             fill,
+            gradient,
             outline,
             BorderRadius.all(
                 Radius.elliptical(shape.width / 2, shape.height / 2)));
@@ -69,9 +72,10 @@ class ShapeBuilder {
         final path = shapePresetPath(shape.preset, size);
         if (path == null) {
           // Unsupported preset → a rounded box so it is visible (§8.2).
-          body = _decorated(shape, fill, outline, BorderRadius.circular(4));
+          body = _decorated(
+              shape, fill, gradient, outline, BorderRadius.circular(4));
         } else {
-          body = _painted(shape, path, fill, outline);
+          body = _painted(shape, path, fill, gradient, outline);
         }
     }
 
@@ -93,10 +97,12 @@ class ShapeBuilder {
     return body;
   }
 
-  /// A rect/roundRect/ellipse rendered with a [BoxDecoration].
+  /// A rect/roundRect/ellipse rendered with a [BoxDecoration]. A [gradient]
+  /// (when present) takes precedence over the solid [fill].
   Widget _decorated(
     DocxShape shape,
     Color? fill,
+    Gradient? gradient,
     Color? outline,
     BorderRadius? radius,
   ) {
@@ -105,7 +111,8 @@ class ShapeBuilder {
       height: shape.height,
       clipBehavior: radius != null ? Clip.antiAlias : Clip.hardEdge,
       decoration: BoxDecoration(
-        color: fill ?? Colors.grey.shade200,
+        color: gradient != null ? null : (fill ?? Colors.grey.shade200),
+        gradient: gradient,
         border: shape.outlineColor != null
             ? Border.all(
                 color: outline ?? Colors.black, width: shape.outlineWidth)
@@ -117,7 +124,8 @@ class ShapeBuilder {
   }
 
   /// A geometric preset painted from [path], with the text content overlaid.
-  Widget _painted(DocxShape shape, Path path, Color? fill, Color? outline) {
+  Widget _painted(DocxShape shape, Path path, Color? fill, Gradient? gradient,
+      Color? outline) {
     final isLine = _isLinePreset(shape.preset);
     return SizedBox(
       width: shape.width,
@@ -128,11 +136,44 @@ class ShapeBuilder {
           // A line/connector has no area to fill; everything else fills (Word
           // defaults an unfilled autoshape to a light grey).
           fill: isLine ? null : (fill ?? Colors.grey.shade200),
+          gradient: isLine ? null : gradient,
           stroke: isLine ? (outline ?? fill ?? Colors.black) : outline,
           strokeWidth: shape.outlineWidth,
         ),
         child: _shapeTextContent(shape),
       ),
+    );
+  }
+
+  /// Converts a [DocxGradientFill] to a Flutter [Gradient] (linear via [angle],
+  /// or radial), or null when there is nothing to draw. Stops are sorted and
+  /// clamped; a single stop is duplicated so the gradient has the ≥2 colours
+  /// Flutter requires.
+  Gradient? _resolveGradient(DocxGradientFill? g) {
+    if (g == null || g.stops.isEmpty) return null;
+    final sorted = [...g.stops]
+      ..sort((a, b) => a.position.compareTo(b.position));
+    var colors = [
+      for (final s in sorted) _resolveColor(s.color) ?? _parseHex(s.color.hex)
+    ];
+    var stops = [for (final s in sorted) s.position.clamp(0.0, 1.0)];
+    if (colors.length == 1) {
+      colors = [colors.first, colors.first];
+      stops = [0.0, 1.0];
+    }
+    if (g.type == DocxGradientType.radial) {
+      return RadialGradient(colors: colors, stops: stops);
+    }
+    // OOXML `ang` is clockwise from the +x axis; map it to begin/end points on
+    // the unit square through the centre.
+    final rad = g.angle * math.pi / 180;
+    final dx = math.cos(rad);
+    final dy = math.sin(rad);
+    return LinearGradient(
+      begin: Alignment(-dx, -dy),
+      end: Alignment(dx, dy),
+      colors: colors,
+      stops: stops,
     );
   }
 
@@ -483,23 +524,32 @@ Path _plus(Size size) {
     ..close();
 }
 
-/// Paints a preset [path]: fills [fill] (when set) then strokes [stroke].
+/// Paints a preset [path]: fills with [gradient] (preferred) or [fill], then
+/// strokes [stroke].
 class _ShapePainter extends CustomPainter {
   final Path path;
   final Color? fill;
+  final Gradient? gradient;
   final Color? stroke;
   final double strokeWidth;
 
   _ShapePainter({
     required this.path,
     required this.fill,
+    this.gradient,
     required this.stroke,
     required this.strokeWidth,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (fill != null) {
+    if (gradient != null) {
+      canvas.drawPath(
+          path,
+          Paint()
+            ..shader = gradient!.createShader(Offset.zero & size)
+            ..style = PaintingStyle.fill);
+    } else if (fill != null) {
       canvas.drawPath(
           path,
           Paint()
@@ -522,6 +572,7 @@ class _ShapePainter extends CustomPainter {
   bool shouldRepaint(covariant _ShapePainter old) =>
       old.path != path ||
       old.fill != fill ||
+      old.gradient != gradient ||
       old.stroke != stroke ||
       old.strokeWidth != strokeWidth;
 }

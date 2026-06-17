@@ -154,6 +154,35 @@ enum DocxShapePreset {
   actionButtonInformation,
 }
 
+/// The geometry of a gradient fill (`a:gradFill`).
+enum DocxGradientType { linear, radial }
+
+/// One colour stop of a [DocxGradientFill] (`a:gs`).
+class DocxGradientStop {
+  /// Position along the gradient, normalised to `0..1` (`a:gs@pos` is 1/1000 %).
+  final double position;
+
+  /// The stop colour.
+  final DocxColor color;
+
+  const DocxGradientStop({required this.position, required this.color});
+}
+
+/// A gradient shape fill (`a:gradFill`): an ordered list of colour [stops] plus
+/// direction. [angle] is degrees clockwise from the +x axis (linear only;
+/// `a:lin@ang` is stored as 1/60000°). Radial gradients ignore [angle].
+class DocxGradientFill {
+  final DocxGradientType type;
+  final double angle;
+  final List<DocxGradientStop> stops;
+
+  const DocxGradientFill({
+    this.type = DocxGradientType.linear,
+    this.angle = 0,
+    required this.stops,
+  });
+}
+
 /// Represents a DrawingML shape in the document.
 ///
 /// Based on python-docx drawing module structure.
@@ -171,8 +200,11 @@ class DocxShape extends DocxInline {
   /// Position mode (inline or floating).
   final DocxDrawingPosition position;
 
-  /// Fill color (null for no fill).
+  /// Fill color (null for no fill or when a [gradientFill] is used).
   final DocxColor? fillColor;
+
+  /// Gradient fill (`a:gradFill`); takes precedence over [fillColor] when set.
+  final DocxGradientFill? gradientFill;
 
   /// Outline/stroke color (null for no outline).
   final DocxColor? outlineColor;
@@ -232,6 +264,7 @@ class DocxShape extends DocxInline {
     this.preset = DocxShapePreset.rect,
     this.position = DocxDrawingPosition.inline,
     this.fillColor,
+    this.gradientFill,
     this.outlineColor,
     this.outlineWidth = 1,
     this.text,
@@ -686,8 +719,10 @@ class DocxShape extends DocxInline {
           builder.element('a:avLst');
         });
 
-        // Fill
-        if (fillColor != null) {
+        // Fill: a gradient (`a:gradFill`) wins over a solid colour; else noFill.
+        if (gradientFill != null) {
+          _buildGradientFill(builder, gradientFill!);
+        } else if (fillColor != null) {
           builder.element('a:solidFill', nest: () {
             builder.element('a:srgbClr', nest: () {
               builder.attribute('val', fillColor!.hex);
@@ -752,6 +787,33 @@ class DocxShape extends DocxInline {
         builder.attribute('anchor', 'ctr');
         builder.attribute('anchorCtr', '0');
       });
+    });
+  }
+
+  /// Emits an `a:gradFill` (gradient stop list + direction) for [g].
+  void _buildGradientFill(XmlBuilder builder, DocxGradientFill g) {
+    builder.element('a:gradFill', nest: () {
+      builder.element('a:gsLst', nest: () {
+        for (final s in g.stops) {
+          builder.element('a:gs', nest: () {
+            builder.attribute('pos',
+                (s.position.clamp(0.0, 1.0) * 100000).round().toString());
+            builder.element('a:srgbClr', nest: () {
+              builder.attribute('val', s.color.hex);
+            });
+          });
+        }
+      });
+      if (g.type == DocxGradientType.radial) {
+        builder.element('a:path', nest: () {
+          builder.attribute('path', 'circle');
+        });
+      } else {
+        builder.element('a:lin', nest: () {
+          builder.attribute('ang', (g.angle * 60000).round().toString());
+          builder.attribute('scaled', '1');
+        });
+      }
     });
   }
 }

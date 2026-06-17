@@ -134,4 +134,54 @@ void main() {
       expect(find.byType(Transform), findsWidgets);
     });
   });
+
+  group('ShapeBuilder gradient', () {
+    DocxShape gradientShape(DocxShapePreset preset, {DocxGradientType? type}) =>
+        DocxShape(
+          width: 100,
+          height: 80,
+          preset: preset,
+          gradientFill: DocxGradientFill(
+            type: type ?? DocxGradientType.linear,
+            angle: 90,
+            stops: [
+              DocxGradientStop(position: 0, color: DocxColor('FF0000')),
+              DocxGradientStop(position: 1, color: DocxColor('0000FF')),
+            ],
+          ),
+        );
+
+    Future<void> pump(WidgetTester tester, DocxShape s) async {
+      final w =
+          ShapeBuilder(config: const DocxViewConfig()).buildInlineShape(s);
+      await tester
+          .pumpWidget(MaterialApp(home: Scaffold(body: Center(child: w))));
+    }
+
+    testWidgets('an ellipse gradient becomes a BoxDecoration LinearGradient',
+        (tester) async {
+      await pump(tester, gradientShape(DocxShapePreset.ellipse));
+      final container = tester.widget<Container>(find.descendant(
+          of: find.byType(Center).last, matching: find.byType(Container)));
+      final deco = container.decoration as BoxDecoration;
+      expect(deco.gradient, isA<LinearGradient>());
+      expect(deco.color, isNull); // gradient replaces the solid colour
+    });
+
+    testWidgets('a radial gradient maps to RadialGradient', (tester) async {
+      await pump(tester,
+          gradientShape(DocxShapePreset.rect, type: DocxGradientType.radial));
+      final container = tester.widget<Container>(find.descendant(
+          of: find.byType(Center).last, matching: find.byType(Container)));
+      expect((container.decoration as BoxDecoration).gradient,
+          isA<RadialGradient>());
+    });
+
+    testWidgets('a painted preset with a gradient still renders (no throw)',
+        (tester) async {
+      await pump(tester, gradientShape(DocxShapePreset.star5));
+      expect(find.byType(CustomPaint), findsWidgets);
+      expect(tester.takeException(), isNull);
+    });
+  });
 }
