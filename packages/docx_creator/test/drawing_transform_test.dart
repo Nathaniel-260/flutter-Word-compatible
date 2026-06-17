@@ -145,6 +145,43 @@ void main() {
       expect(img.width, closeTo(100, 0.01));
       expect(img.height, closeTo(100, 0.01));
     });
+
+    test('a watermark (z-index<0, centered) → floating behindText image', () {
+      final img = parsePict('position:absolute;width:415pt;height:207pt;'
+          'z-index:-251658240;mso-position-horizontal:center;'
+          'mso-position-horizontal-relative:margin;mso-position-vertical:center;'
+          'mso-position-vertical-relative:margin');
+      expect(img.positionMode, DocxDrawingPosition.floating);
+      expect(img.textWrap, DocxTextWrap.behindText);
+      expect(img.hAlign, DrawingHAlign.center);
+      expect(img.vAlign, DrawingVAlign.center);
+      expect(img.hPositionFrom, DocxHorizontalPositionFrom.margin);
+      expect(img.vPositionFrom, DocxVerticalPositionFrom.margin);
+    });
+
+    test('an absolute VML shape with z-index≥0 floats in front (wrap none)',
+        () {
+      final img = parsePict('position:absolute;width:100pt;height:50pt;'
+          'z-index:5;mso-position-horizontal:left;'
+          'mso-position-horizontal-relative:page');
+      expect(img.positionMode, DocxDrawingPosition.floating);
+      expect(img.textWrap, DocxTextWrap.none);
+      expect(img.hAlign, DrawingHAlign.left);
+      expect(img.hPositionFrom, DocxHorizontalPositionFrom.page);
+    });
+
+    test('a non-absolute VML image stays inline', () {
+      final img = parsePict('width:100pt;height:50pt');
+      expect(img.positionMode, DocxDrawingPosition.inline);
+    });
+
+    test('margin offsets drive the position when no alignment is given', () {
+      final img = parsePict('position:absolute;width:80pt;height:40pt;'
+          'margin-left:36pt;margin-top:72pt;z-index:-1');
+      expect(img.positionMode, DocxDrawingPosition.floating);
+      expect(img.x, closeTo(36, 0.01));
+      expect(img.y, closeTo(72, 0.01));
+    });
   });
 
   group('Shape gradient fill (a:gradFill) — Part H', () {

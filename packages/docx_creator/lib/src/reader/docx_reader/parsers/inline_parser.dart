@@ -664,6 +664,39 @@ class InlineParser {
               );
             }
 
+            // VML (`w:pict`) images carry no `wp:anchor`; an absolutely
+            // positioned `v:shape` (a watermark/legacy float) encodes its
+            // placement in the CSS `style` (`position:absolute`, `z-index`,
+            // `mso-position-*`). Map that to a floating image so a watermark
+            // sits *behind the text* (negative z-order) instead of inline.
+            final isVml = blip.name.local == 'imagedata';
+            if (isVml) {
+              final vml = _parseVmlPlacement(blip);
+              if (vml != null) {
+                return DocxInlineImage(
+                  bytes: imageBytes,
+                  extension: ext,
+                  width: width,
+                  height: height,
+                  positionMode: DocxDrawingPosition.floating,
+                  textWrap: vml.wrap,
+                  x: vml.xPt,
+                  y: vml.yPt,
+                  hAlign: vml.hAlign,
+                  vAlign: vml.vAlign,
+                  hPositionFrom: vml.hFrom,
+                  vPositionFrom: vml.vFrom,
+                  rotation: tf.rotation,
+                  flipH: tf.flipH,
+                  flipV: tf.flipV,
+                  cropLeft: tf.cropLeft,
+                  cropTop: tf.cropTop,
+                  cropRight: tf.cropRight,
+                  cropBottom: tf.cropBottom,
+                );
+              }
+            }
+
             // Inline image
             return DocxInlineImage(
               bytes: imageBytes,
@@ -1042,7 +1075,7 @@ class InlineParser {
   /// match nothing → null, so the caller keeps its fallback.
   double? _cssPoints(String style, String prop) {
     final m =
-        RegExp('(?:^|;)\\s*$prop\\s*:\\s*([0-9.]+)\\s*(pt|px|in|cm|mm|pc)')
+        RegExp('(?:^|;)\\s*$prop\\s*:\\s*(-?[0-9.]+)\\s*(pt|px|in|cm|mm|pc)')
             .firstMatch(style.toLowerCase());
     if (m == null) return null;
     final value = double.tryParse(m.group(1)!);
@@ -1056,6 +1089,86 @@ class InlineParser {
       'pc' => value * 12.0, // 1 pica = 12 pt
       _ => null,
     };
+  }
+
+  /// Reads the floating placement of an absolutely-positioned VML (`w:pict`)
+  /// shape that owns the [blip], from its ancestor `v:shape` CSS `style`. Returns
+  /// null when the shape is not `position:absolute` (→ keep it inline).
+  ///
+  /// Mapping: `z-index<0` → behind the text (the watermark norm) else a front
+  /// layer; `mso-position-horizontal/-vertical` (+ `-relative`) → align/from;
+  /// `margin-left/-top` → offsets (used only when no align is given, as Word
+  /// uses one or the other).
+  _VmlPlacement? _parseVmlPlacement(XmlElement blip) {
+    XmlElement? shapeEl;
+    for (XmlNode? n = blip.parent; n != null; n = n.parent) {
+      if (n is XmlElement && n.getAttribute('style') != null) {
+        shapeEl = n;
+        break;
+      }
+    }
+    if (shapeEl == null) return null;
+    final styleStr = shapeEl.getAttribute('style')!;
+    final style = _parseCssStyle(styleStr);
+    if (style['position'] != 'absolute') return null;
+
+    final z = int.tryParse(style['z-index'] ?? '');
+    final wrap =
+        (z != null && z < 0) ? DocxTextWrap.behindText : DocxTextWrap.none;
+
+    final hAlign = switch (style['mso-position-horizontal']) {
+      'center' => DrawingHAlign.center,
+      'left' => DrawingHAlign.left,
+      'right' => DrawingHAlign.right,
+      'inside' => DrawingHAlign.inside,
+      'outside' => DrawingHAlign.outside,
+      _ => null,
+    };
+    final vAlign = switch (style['mso-position-vertical']) {
+      'top' => DrawingVAlign.top,
+      'center' => DrawingVAlign.center,
+      'bottom' => DrawingVAlign.bottom,
+      'inside' => DrawingVAlign.inside,
+      'outside' => DrawingVAlign.outside,
+      _ => null,
+    };
+    final hFrom = switch (style['mso-position-horizontal-relative']) {
+      'margin' => DocxHorizontalPositionFrom.margin,
+      'page' => DocxHorizontalPositionFrom.page,
+      'left-margin-area' => DocxHorizontalPositionFrom.leftMargin,
+      'right-margin-area' => DocxHorizontalPositionFrom.rightMargin,
+      'char' => DocxHorizontalPositionFrom.character,
+      _ => DocxHorizontalPositionFrom.column,
+    };
+    final vFrom = switch (style['mso-position-vertical-relative']) {
+      'margin' => DocxVerticalPositionFrom.margin,
+      'page' => DocxVerticalPositionFrom.page,
+      'top-margin-area' => DocxVerticalPositionFrom.topMargin,
+      'bottom-margin-area' => DocxVerticalPositionFrom.bottomMargin,
+      'line' => DocxVerticalPositionFrom.line,
+      _ => DocxVerticalPositionFrom.paragraph,
+    };
+
+    return _VmlPlacement(
+      wrap: wrap,
+      hAlign: hAlign,
+      vAlign: vAlign,
+      xPt: hAlign == null ? _cssPoints(styleStr, 'margin-left') : null,
+      yPt: vAlign == null ? _cssPoints(styleStr, 'margin-top') : null,
+      hFrom: hFrom,
+      vFrom: vFrom,
+    );
+  }
+
+  /// Splits a CSS-style `key:value;key:value` string into a lower-cased map.
+  Map<String, String> _parseCssStyle(String s) {
+    final map = <String, String>{};
+    for (final decl in s.toLowerCase().split(';')) {
+      final i = decl.indexOf(':');
+      if (i <= 0) continue;
+      map[decl.substring(0, i).trim()] = decl.substring(i + 1).trim();
+    }
+    return map;
   }
 }
 
@@ -1099,4 +1212,24 @@ class _FloatAnchor {
   final double? vOffset;
   final DocxTextWrap wrapMode;
   final bool behindDoc;
+}
+
+/// Parsed VML (`w:pict`) absolute placement — see [InlineParser._parseVmlPlacement].
+class _VmlPlacement {
+  const _VmlPlacement({
+    required this.wrap,
+    required this.hAlign,
+    required this.vAlign,
+    required this.xPt,
+    required this.yPt,
+    required this.hFrom,
+    required this.vFrom,
+  });
+  final DocxTextWrap wrap;
+  final DrawingHAlign? hAlign;
+  final DrawingVAlign? vAlign;
+  final double? xPt;
+  final double? yPt;
+  final DocxHorizontalPositionFrom hFrom;
+  final DocxVerticalPositionFrom vFrom;
 }
