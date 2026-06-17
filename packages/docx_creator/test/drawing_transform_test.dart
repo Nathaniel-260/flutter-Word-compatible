@@ -87,7 +87,8 @@ void main() {
     // Parses a `w:pict` whose `v:shape` carries [shapeStyle]; when [wrapperStyle]
     // is given the shape is nested inside another styled element (to exercise
     // ancestor walking / non-merging).
-    DocxInlineImage parsePict(String shapeStyle, {String? wrapperStyle}) {
+    DocxInlineImage parsePict(String shapeStyle,
+        {String? wrapperStyle, String shapeChildren = ''}) {
       final bytes = _gif1x1(); // 1×1 → intrinsic aspect ratio 1:1
       final archive = Archive()
         ..addFile(ArchiveFile('word/media/wm.png', bytes.length, bytes));
@@ -96,7 +97,7 @@ void main() {
           id: 'rId5', type: 'image', target: 'media/wm.png');
 
       final shape = '<v:shape id="wm" type="#_x0000_t75" style="$shapeStyle">'
-          '<v:imagedata r:id="rId5"/></v:shape>';
+          '<v:imagedata r:id="rId5"/>$shapeChildren</v:shape>';
       final inner = wrapperStyle == null
           ? shape
           : '<v:group style="$wrapperStyle">$shape</v:group>';
@@ -181,6 +182,27 @@ void main() {
       expect(img.positionMode, DocxDrawingPosition.floating);
       expect(img.x, closeTo(36, 0.01));
       expect(img.y, closeTo(72, 0.01));
+    });
+
+    test('rotation in the VML style is read (a diagonal watermark)', () {
+      final img = parsePict(
+          'position:absolute;width:200pt;height:100pt;rotation:315;z-index:-1');
+      expect(img.rotation, closeTo(315, 0.01));
+    });
+
+    test('a front VML float honours <w10:wrap type="square">', () {
+      final img = parsePict(
+          'position:absolute;width:100pt;height:50pt;z-index:3',
+          shapeChildren: '<w10:wrap type="square"/>');
+      expect(img.positionMode, DocxDrawingPosition.floating);
+      expect(img.textWrap, DocxTextWrap.square);
+    });
+
+    test('a behind watermark stays behindText even with a w10:wrap', () {
+      final img = parsePict(
+          'position:absolute;width:100pt;height:50pt;z-index:-1',
+          shapeChildren: '<w10:wrap type="square"/>');
+      expect(img.textWrap, DocxTextWrap.behindText);
     });
   });
 

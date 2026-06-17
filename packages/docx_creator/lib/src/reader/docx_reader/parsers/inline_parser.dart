@@ -678,6 +678,7 @@ class InlineParser {
                   extension: ext,
                   width: width,
                   height: height,
+                  altText: vml.altText,
                   positionMode: DocxDrawingPosition.floating,
                   textWrap: vml.wrap,
                   x: vml.xPt,
@@ -686,7 +687,8 @@ class InlineParser {
                   vAlign: vml.vAlign,
                   hPositionFrom: vml.hFrom,
                   vPositionFrom: vml.vFrom,
-                  rotation: tf.rotation,
+                  // VML keeps rotation in the CSS style, not an `a:xfrm`.
+                  rotation: vml.rotation,
                   flipH: tf.flipH,
                   flipV: tf.flipV,
                   cropLeft: tf.cropLeft,
@@ -1129,8 +1131,24 @@ class InlineParser {
     if (style['position'] != 'absolute') return null;
 
     final z = int.tryParse(style['z-index'] ?? '');
-    final wrap =
-        (z != null && z < 0) ? DocxTextWrap.behindText : DocxTextWrap.none;
+    // A negative z-order is a watermark behind the text; otherwise honour an
+    // explicit `<w10:wrap type="...">` (square/tight/…), defaulting to a front
+    // layer (`none`) when the shape declares no wrap.
+    final wrapType =
+        shapeEl.findAllElements('w10:wrap').firstOrNull?.getAttribute('type');
+    final DocxTextWrap wrap = (z != null && z < 0)
+        ? DocxTextWrap.behindText
+        : switch (wrapType) {
+            'square' => DocxTextWrap.square,
+            'tight' => DocxTextWrap.tight,
+            'through' => DocxTextWrap.through,
+            'topAndBottom' => DocxTextWrap.topAndBottom,
+            _ => DocxTextWrap.none,
+          };
+
+    // VML keeps rotation in the CSS `style` (degrees), not an `a:xfrm`.
+    final rotation = double.tryParse(style['rotation'] ?? '') ?? 0;
+    final altText = shapeEl.getAttribute('alt');
 
     final hAlign = switch (style['mso-position-horizontal']) {
       'center' => DrawingHAlign.center,
@@ -1173,6 +1191,8 @@ class InlineParser {
       yPt: vAlign == null ? _cssPoints(styleStr, 'margin-top') : null,
       hFrom: hFrom,
       vFrom: vFrom,
+      rotation: rotation,
+      altText: altText,
     );
   }
 
@@ -1240,6 +1260,8 @@ class _VmlPlacement {
     required this.yPt,
     required this.hFrom,
     required this.vFrom,
+    required this.rotation,
+    required this.altText,
   });
   final DocxTextWrap wrap;
   final DrawingHAlign? hAlign;
@@ -1248,4 +1270,6 @@ class _VmlPlacement {
   final double? yPt;
   final DocxHorizontalPositionFrom hFrom;
   final DocxVerticalPositionFrom vFrom;
+  final double rotation;
+  final String? altText;
 }
