@@ -2,10 +2,12 @@ import 'package:docx_creator/docx_creator.dart';
 import 'package:flutter/material.dart';
 
 import '../docx_view_config.dart';
+import '../layout/column_layout.dart';
 import '../layout/float_layout.dart';
 import '../layout/numbering_resolver.dart';
 import '../layout/span_factory.dart';
 import '../layout/text_measurer.dart';
+import '../pagination/block_slice.dart';
 import '../pagination/field_substitution.dart';
 import '../pagination/page_context.dart';
 import '../pagination/page_model.dart';
@@ -472,9 +474,31 @@ class DocxWidgetGenerator {
         if (_isLayerFloat(pf.drawing)) pf
     ];
     final stripSet = <DocxInline>{for (final pf in layerFloats) pf.drawing};
-    final bodyBlocks = _stripFloats(sliceBlocks, stripSet);
-    final content = _generateBlockWidgets(bodyBlocks, counter: counter);
     final backgroundImages = _collectBehindTextImages(sliceBlocks);
+
+    // Multi-column layout (Plan §I): if the page's section defines >1 column,
+    // group slices by column index and render them side-by-side.
+    final colDef = page.section.columns;
+    final isMultiCol =
+        colDef != null && colDef.count > 1 && page.slices.isNotEmpty;
+
+    final List<Widget> singleColContent;
+    final Widget? multiColBody;
+    if (isMultiCol) {
+      singleColContent = const [];
+      multiColBody = _buildMultiColumnBody(
+        page.slices,
+        stripSet,
+        colDef,
+        page.geometry,
+        page.section.isRtlSection,
+        counter: counter,
+      );
+    } else {
+      final bodyBlocks = _stripFloats(sliceBlocks, stripSet);
+      singleColContent = _generateBlockWidgets(bodyBlocks, counter: counter);
+      multiColBody = null;
+    }
 
     final pageContext = PageContext(
       pageNumber: page.pageNumber,
@@ -485,7 +509,7 @@ class DocxWidgetGenerator {
     );
 
     return _buildPageContainer(
-      content,
+      singleColContent,
       doc,
       geometry: page.geometry,
       sectionOverride: page.section,
@@ -497,6 +521,7 @@ class DocxWidgetGenerator {
       floats: layerFloats,
       footnotes: page.footnotes,
       footnotesHeight: page.footnotesHeight,
+      bodyChild: multiColBody,
     );
   }
 
@@ -684,7 +709,8 @@ class DocxWidgetGenerator {
       List<DocxInlineImage> backgroundImages = const [],
       List<PlacedFloat> floats = const [],
       List<PlacedFootnote> footnotes = const [],
-      double footnotesHeight = 0}) {
+      double footnotesHeight = 0,
+      Widget? bodyChild}) {
     // The page's own section (multi-section docs); falls back to the document
     // default. Drives geometry and header/footer variant selection.
     final section = sectionOverride ?? doc.section;
@@ -767,13 +793,18 @@ class DocxWidgetGenerator {
     final Widget bodyRegion = PageBody(
       alignment: bodyAlignment,
       stretch: stretch,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: stretch ? MainAxisSize.max : MainAxisSize.min,
-        mainAxisAlignment:
-            stretch ? MainAxisAlignment.spaceBetween : MainAxisAlignment.start,
-        children: content,
-      ),
+      // Multi-column (Plan §I): [bodyChild] is a Row of columns built by
+      // [_buildMultiColumnBody]; single-column falls back to the standard
+      // Column of block widgets.
+      child: bodyChild ??
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: stretch ? MainAxisSize.max : MainAxisSize.min,
+            mainAxisAlignment: stretch
+                ? MainAxisAlignment.spaceBetween
+                : MainAxisAlignment.start,
+            children: content,
+          ),
     );
 
     // Footnote area (Plan §J): the paginator reserved [footnotesHeight] at the
@@ -885,6 +916,79 @@ class DocxWidgetGenerator {
             ),
         ],
       ),
+    );
+  }
+
+  /// Builds the body widget for a multi-column page (Plan §I.4–5).
+  ///
+  /// Groups [slices] by their [BlockSlice.columnIndex], generates block widgets
+  /// per column, and arranges them in a [Row]. A vertical separator line is
+  /// drawn between columns when `w:sep` is set. For RTL sections (`w:bidi`)
+  /// the visual order is reversed so column 0 (first content) appears on the
+  /// right.
+  Widget _buildMultiColumnBody(
+    List<BlockSlice> slices,
+    Set<DocxInline> stripSet,
+    DocxColumns colDef,
+    PageGeometry geometry,
+    bool isRtl, {
+    BlockIndexCounter? counter,
+  }) {
+    final colWidths = resolveColumnWidths(colDef, geometry.contentWidth);
+    final gapPx = columnGapPx(colDef);
+    final n = colWidths.length;
+
+    // Group slice blocks by column index.
+    final colBlocks = List.generate(n, (_) => <DocxNode>[]);
+    for (final slice in slices) {
+      final ci = slice.columnIndex.clamp(0, n - 1);
+      colBlocks[ci].add(slice.block);
+    }
+
+    // Build one Column widget per document column.
+    final colWidgets = <Widget>[
+      for (var i = 0; i < n; i++)
+        SizedBox(
+          width: colWidths[i],
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: _generateBlockWidgets(
+                _stripFloats(colBlocks[i], stripSet),
+                counter: counter),
+          ),
+        ),
+    ];
+
+    // Interleave spacer / separator widgets between columns.
+    final rowChildren = <Widget>[];
+    for (var i = 0; i < colWidgets.length; i++) {
+      rowChildren.add(colWidgets[i]);
+      if (i < colWidgets.length - 1) {
+        if (colDef.separator) {
+          rowChildren.add(SizedBox(
+            width: gapPx,
+            child: Center(
+              child: Container(
+                width: 1,
+                color: (theme.defaultTextStyle.color ?? Colors.grey)
+                    .withValues(alpha: 0.35),
+              ),
+            ),
+          ));
+        } else {
+          rowChildren.add(SizedBox(width: gapPx));
+        }
+      }
+    }
+
+    // RTL section: first column (index 0) is on the right.
+    final orderedChildren = isRtl ? rowChildren.reversed.toList() : rowChildren;
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: orderedChildren,
     );
   }
 

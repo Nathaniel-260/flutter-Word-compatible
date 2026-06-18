@@ -10,7 +10,7 @@ import 'package:docx_creator/docx_creator.dart';
 /// (conscious deviation from the pure range model of §2.4.1, documented in
 /// §8.2 #13). Either way the renderer just renders [block] directly.
 class BlockSlice {
-  const BlockSlice(this.block, this.height);
+  const BlockSlice(this.block, this.height, {this.columnIndex = 0});
 
   /// The AST node to render: a whole document block, or a sliced sub-block
   /// (see the class doc). Shared by reference; never mutated.
@@ -21,10 +21,17 @@ class BlockSlice {
   /// after-spacing (not the before-spacing).
   final double height;
 
-  BlockSlice copyWith({double? height}) =>
-      BlockSlice(block, height ?? this.height);
+  /// 0-based column index within the page (Plan §I). Zero for single-column
+  /// pages and for the first column in multi-column layouts.
+  final int columnIndex;
+
+  BlockSlice copyWith({double? height, int? columnIndex}) => BlockSlice(
+        block,
+        height ?? this.height,
+        columnIndex: columnIndex ?? this.columnIndex,
+      );
 
   @override
   String toString() =>
-      'BlockSlice(${block.runtimeType} h=${height.toStringAsFixed(1)})';
+      'BlockSlice(${block.runtimeType} h=${height.toStringAsFixed(1)} col=$columnIndex)';
 }

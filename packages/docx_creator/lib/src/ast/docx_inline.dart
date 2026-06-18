@@ -794,6 +794,7 @@ class DocxText extends DocxInline {
     if (underlineStyle != null) return underlineStyle;
     return isUnderline ? DocxUnderlineStyle.single : null;
   }
+
   DocxTextDecoration get decoration =>
       decorations.isNotEmpty ? decorations.first : DocxTextDecoration.none;
   bool get isLink => href != null;
@@ -1153,11 +1154,17 @@ class DocxText extends DocxInline {
 
 /// A line break.
 class DocxLineBreak extends DocxInline {
-  /// האם זהו מעבר עמוד (`w:br w:type="page"`) ולא מעבר שורה רגיל.
-  /// מנוע התצוגה משתמש בזה כדי לשבור לעמוד חדש במצב paged.
+  /// `w:br w:type="page"` — מעבר עמוד.
   final bool isPageBreak;
 
-  const DocxLineBreak({super.id, this.isPageBreak = false});
+  /// `w:br w:type="column"` — מעבר לעמודה הבאה (חלק I).
+  final bool isColumnBreak;
+
+  const DocxLineBreak({
+    super.id,
+    this.isPageBreak = false,
+    this.isColumnBreak = false,
+  });
 
   @override
   void accept(DocxVisitor visitor) => visitor.visitText(this);
@@ -1169,6 +1176,7 @@ class DocxLineBreak extends DocxInline {
       nest: () {
         builder.element('w:br', nest: () {
           if (isPageBreak) builder.attribute('w:type', 'page');
+          if (isColumnBreak) builder.attribute('w:type', 'column');
         });
       },
     );

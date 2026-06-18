@@ -209,8 +209,11 @@ class InlineParser {
     // Check for line break — מבחין בין מעבר שורה למעבר עמוד (w:type="page").
     final br = run.findAllElements('w:br').firstOrNull;
     if (br != null) {
-      final isPage = br.getAttribute('w:type') == 'page';
-      return DocxLineBreak(isPageBreak: isPage);
+      final type = br.getAttribute('w:type');
+      return DocxLineBreak(
+        isPageBreak: type == 'page',
+        isColumnBreak: type == 'column',
+      );
     }
     // w:cr is a hard line break, like a plain w:br.
     if (run.getElement('w:cr') != null) {

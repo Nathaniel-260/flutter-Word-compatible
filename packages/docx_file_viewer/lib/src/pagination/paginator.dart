@@ -2,6 +2,7 @@ import 'package:docx_creator/docx_creator.dart';
 import 'package:flutter/widgets.dart';
 
 import '../docx_view_config.dart';
+import '../layout/column_layout.dart';
 import '../layout/float_layout.dart';
 import '../layout/float_text_layout.dart';
 import '../layout/list_layout.dart';
@@ -119,6 +120,14 @@ class Paginator {
   int _openDisplayNumber = 1;
   int _openAbsoluteIndex = 0;
 
+  // --- Multi-column state (Plan §I) -----------------------------------------
+  // _colCount=1 means single-column (no columns layout). _colIndex is the
+  // 0-based index of the column currently being filled. _colWidths holds the
+  // resolved pixel width of each column; empty for single-column pages.
+  int _colCount = 1;
+  int _colIndex = 0;
+  List<double> _colWidths = const [];
+
   // Stable wrapper paragraphs for list items, so the measurement cache (keyed by
   // object identity) hits across calls instead of allocating a fresh paragraph
   // each time (§4.3).
@@ -127,6 +136,47 @@ class Paginator {
   // Body height still free for content: the full body height minus what is
   // already used and the footnote band reserved at the bottom (Plan §J.2).
   double get _remaining => _geo.bodyHeight - _used - _footnotesBand;
+
+  /// Active content width: the current column's width in multi-column sections,
+  /// or the full page content width in single-column sections (Plan §I.1).
+  double get _activeContentWidth =>
+      _colCount > 1 && _colIndex < _colWidths.length
+          ? _colWidths[_colIndex]
+          : _geo.contentWidth;
+
+  /// Advances to the next column, or to the next page when the last column is
+  /// full (Plan §I.1). In a single-column section this is equivalent to a page
+  /// break (so column breaks degrade gracefully in single-column docs).
+  void _advanceColumn() {
+    if (_colCount <= 1) {
+      _newPage();
+      return;
+    }
+    _colIndex++;
+    if (_colIndex >= _colCount) {
+      // Last column overflowed — open the next page (resets _colIndex via
+      // _openPage which calls _applyColumnLayout).
+      _newPage();
+    } else {
+      // Same page, next column: reset the used-height cursor for this column.
+      _used = 0;
+    }
+  }
+
+  /// (Re)computes the column layout for [section] on the open page. Called
+  /// from [_openPage] and from [_beginSection] for continuous-break transitions
+  /// so that a mid-page section change (e.g. single→multi-column) is respected.
+  void _applyColumnLayout(DocxSectionDef section) {
+    final cols = section.columns;
+    if (cols != null && cols.count > 1) {
+      _colCount = cols.count;
+      _colWidths = resolveColumnWidths(cols, _geo.contentWidth);
+    } else {
+      _colCount = 1;
+      _colWidths = const [];
+    }
+    _colIndex = 0;
+  }
 
   // Vertical space the footnote separator occupies (the ⅓-width rule plus a
   // little breathing room above the first note), and the gap between notes.
@@ -226,6 +276,9 @@ class Paginator {
     _pageFootnoteIds.clear();
     _footnotesBand = 0;
     _used = 0;
+    _colCount = 1;
+    _colIndex = 0;
+    _colWidths = const [];
     _pendingFirstOfSection = true;
     _onPage = null;
     _shouldContinue = null;
@@ -386,13 +439,17 @@ class Paginator {
     if (sectionIndex > 0) {
       final type = def.breakType;
       if (type == DocxSectionBreak.continuous) {
-        // Continuous: keep filling the current page; the new section's geometry
-        // takes effect only when the next page is opened (best-effort — column
-        // changes are Part I). We deliberately do NOT set _pendingFirstOfSection
-        // here: the section starts mid-page on the *already-open* page (which
-        // keeps the previous section's chrome/index), so no page is the section's
-        // "first page" in the title-page sense. (§8.2 #14)
+        // Continuous: keep filling the current page, but update the column
+        // layout so a single→multi-column (or multi→single) transition mid-page
+        // is respected (Plan §I.3 best-effort; §8.2 #14). We do NOT reset
+        // _pendingFirstOfSection: the section starts mid-page on the already-open
+        // page (which keeps the previous section's chrome/index).
         _pendingSectionIndex = sectionIndex;
+        if (_hasOpenPage) {
+          _applyColumnLayout(def);
+          // _used intentionally preserved: the new column fills from where the
+          // old content left off (column 0, existing cursor position).
+        }
         // Fall through with the page still open.
       } else {
         _closePage();
@@ -456,6 +513,8 @@ class Paginator {
       _footnoteNumber = 1;
     }
     _used = 0;
+    // Initialise column layout for this page (Plan §I.1).
+    _applyColumnLayout(section);
     _pageSection = section;
     _pageSectionIndex = sectionIndex;
     _pageIsFirstOfSection = isFirst;
@@ -564,7 +623,7 @@ class Paginator {
     if (group.length > 1) {
       _ensurePage();
       final groupHeight = group.fold<double>(
-          0, (h, b) => h + _measureBlock(b, _geo.contentWidth));
+          0, (h, b) => h + _measureBlock(b, _activeContentWidth));
       // Move the whole group to a fresh page only when it does not fit here but
       // would fit on an empty page; otherwise place individually (which allows
       // each block to split normally — keepNext is best-effort, §D.2.3).
@@ -589,10 +648,36 @@ class Paginator {
       if (_stop) return;
     }
 
-    // Inline page break (`w:br w:type="page"`): split the paragraph at the first
-    // break so the remainder starts a new page (Plan §D.2.5). The break inline
-    // itself is dropped; an empty pre-break part does not waste a page.
     if (block is DocxParagraph) {
+      // Inline column break (`w:br w:type="column"`, Plan §I.2): advance to the
+      // next column (or next page when already on the last column). Mirrors the
+      // page-break handling below.
+      final ci = block.children
+          .indexWhere((c) => c is DocxLineBreak && c.isColumnBreak);
+      if (ci >= 0) {
+        final pre = block.children.sublist(0, ci);
+        final post = block.children.sublist(ci + 1);
+        if (pre.isNotEmpty) {
+          _placeBlock(block.copyWith(
+            children: pre,
+            spacingAfter: 0,
+            pageBreakBefore: false,
+          ));
+        }
+        if (_used > 0 || _colIndex > 0) _advanceColumn();
+        if (post.isNotEmpty) {
+          _placeBlock(block.copyWith(
+            children: post,
+            spacingBefore: 0,
+            pageBreakBefore: false,
+          ));
+        }
+        return;
+      }
+
+      // Inline page break (`w:br w:type="page"`): split the paragraph at the
+      // first break so the remainder starts a new page (Plan §D.2.5). The break
+      // inline itself is dropped; an empty pre-break part does not waste a page.
       final bi =
           block.children.indexWhere((c) => c is DocxLineBreak && c.isPageBreak);
       if (bi >= 0) {
@@ -618,22 +703,21 @@ class Paginator {
     }
 
     // Word suppresses a paragraph's "space before" when it lands at the top of a
-    // page: the first block hugs the top margin instead of being pushed down by
-    // its before-spacing. Mirror that here (after any page break above, so a
-    // pageBreakBefore/heading paragraph also sits at the new page top). Storing
-    // the suppressed copy as the slice keeps measurement ≡ rendering.
+    // column or page: the first block hugs the margin instead of being pushed
+    // down by its before-spacing. Mirror that here. Storing the suppressed copy
+    // as the slice keeps measurement ≡ rendering.
     //
-    // Also clear pageBreakBefore at the page top: the new page already realises
-    // the break, so the renderer must not additionally draw a leading break
-    // Divider (paragraph_builder) — that 32px is never accounted for by the
-    // measurer and would push the body past the packed area (QA F1).
+    // Also clear pageBreakBefore at the column/page top: the new column already
+    // realises the break, so the renderer must not additionally draw a leading
+    // break Divider (paragraph_builder) — that 32px is never accounted for by
+    // the measurer and would push the body past the packed area (QA F1).
     if (_used == 0 &&
         block is DocxParagraph &&
         ((block.spacingBefore ?? 0) != 0 || block.pageBreakBefore)) {
       block = block.copyWith(spacingBefore: 0, pageBreakBefore: false);
     }
 
-    final height = _measureBlock(block, _geo.contentWidth);
+    final height = _measureBlock(block, _activeContentWidth);
 
     // Footnotes referenced by this block grow the reserved bottom band, so they
     // count against the remaining space too (Plan §J.2): a line whose note no
@@ -648,37 +732,39 @@ class Paginator {
 
     // Does not fit in the remaining space. Reserve the block's whole footnote
     // band before splitting so the head (which carries a subset of these notes)
-    // cannot overflow; the tail's notes are reserved again on the next page —
-    // conservative, but it never overflows the page (§8.2).
+    // cannot overflow; the tail's notes are reserved again on the next column/
+    // page — conservative, but it never overflows (§8.2).
     final split =
         _trySplit(block, _remaining - fnGrowth, atPageStart: _used == 0);
     if (split != null) {
       if (split.head != null) {
         final top = _used;
-        _slices.add(split.head!);
+        // Tag the head with the column it lands in (Plan §I).
+        _slices.add(split.head!.copyWith(columnIndex: _colIndex));
         _used += split.head!.height;
         _recordAnchors(split.head!.block);
         _recordFloats(split.head!.block, top);
       }
-      _newPage();
+      _advanceColumn();
       _placeBlock(split.tail);
       return;
     }
 
-    // Not splittable. On a fresh page, clamp (place anyway, overflow tolerated).
+    // Not splittable. On a fresh column/page, clamp (place anyway, overflow
+    // tolerated).
     if (_used == 0) {
       _addWhole(block, height);
       return;
     }
 
-    // Otherwise move the whole block to a fresh page and retry.
-    _newPage();
+    // Otherwise move the whole block to the next column/page and retry.
+    _advanceColumn();
     _placeBlock(block);
   }
 
   void _addWhole(DocxNode block, double height) {
     final top = _used;
-    _slices.add(BlockSlice(block, height));
+    _slices.add(BlockSlice(block, height, columnIndex: _colIndex));
     _used += height;
     _recordAnchors(block);
     _recordFloats(block, top);
@@ -801,13 +887,14 @@ class Paginator {
     if (p.keepLines) return null; // never split this paragraph
 
     final dir = _directionOf(p);
-    final m = measurer.measureParagraph(p, _geo.contentWidth, direction: dir);
+    final w = _activeContentWidth;
+    final m = measurer.measureParagraph(p, w, direction: dir);
     if (m.lineCount <= 1) return null; // a single line cannot be split
 
     final contentAvail = remaining - m.spacingBefore;
     if (contentAvail <= 0) return null; // not even the before-spacing fits
 
-    final layout = measurer.layoutForSplit(p, _geo.contentWidth, dir);
+    final layout = measurer.layoutForSplit(p, w, dir);
     final total = layout.lineCount;
     if (total <= 1) return null;
 
@@ -881,7 +968,7 @@ class Paginator {
     if (bodyRows.length <= 1) return null; // nothing to split between
 
     final cols = resolveTableColumnWidths(table,
-            availableWidth: _geo.contentWidth,
+            availableWidth: _activeContentWidth,
             minColumnWidths: _minWidthsOf(table))
         .columns;
     final headerHeight = _measureRows(headerRows, table, cols);
