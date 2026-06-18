@@ -217,8 +217,16 @@ class InlineParser {
   List<DocxInline> _fieldNodes(String instr, List<DocxInline> cached) {
     final hl = FieldInstruction.parseHyperlink(instr);
     if (hl != null) {
-      final href =
-          hl.anchor != null && hl.anchor!.isNotEmpty ? '#${hl.anchor}' : hl.url;
+      final url = hl.url;
+      final anchor = hl.anchor;
+      // Prefer the url; an anchor alongside it is an external sub-location
+      // (`url#frag`). A bare anchor is an internal `#frag` link.
+      String? href;
+      if (url != null && url.isNotEmpty) {
+        href = (anchor != null && anchor.isNotEmpty) ? '$url#$anchor' : url;
+      } else if (anchor != null && anchor.isNotEmpty) {
+        href = '#$anchor';
+      }
       if (href != null && href.isNotEmpty) return _linkify(cached, href);
       return List.of(cached); // no usable target — keep the visible text
     }
@@ -247,11 +255,17 @@ class InlineParser {
     ];
   }
 
+  /// The OMML math namespace. `m:t` runs are matched by namespace + local name
+  /// (not the literal `m:` prefix) so a document that binds the math namespace to
+  /// a different prefix still resolves.
+  static const _mathNs =
+      'http://schemas.openxmlformats.org/officeDocument/2006/math';
+
   /// Concatenates the `m:t` text of an OMML element in document order (the
   /// "linear" form of the equation) — Plan §K.6 placeholder.
   static String _ommlLinearText(XmlElement omml) {
     final buf = StringBuffer();
-    for (final t in omml.findAllElements('m:t')) {
+    for (final t in omml.findAllElements('t', namespace: _mathNs)) {
       buf.write(t.innerText);
     }
     return buf.toString();

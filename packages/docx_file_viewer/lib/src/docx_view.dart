@@ -267,13 +267,26 @@ class _DocxViewState extends State<DocxView> {
     // The estimate scrolls the target page into view; once it is laid out, snap
     // its top edge to the viewport top exactly (instant — ensureVisible jumps
     // when given a zero duration).
+    _snapToPageWhenBuilt(index, attemptsLeft: 10);
+    return true;
+  }
+
+  /// After an estimated jump, snaps page [index]'s top edge to the viewport top
+  /// exactly once it has been laid out. A far jump in a virtualized list may not
+  /// build the target page in the very next frame, so retry across a bounded
+  /// number of frames instead of giving up after one (which would leave the view
+  /// on the pixel estimate, off by the accumulated error of varying section
+  /// heights).
+  void _snapToPageWhenBuilt(int index, {required int attemptsLeft}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       final built = _pageKeys[index]?.currentContext;
       if (built != null && built.mounted) {
         Scrollable.ensureVisible(built, alignment: 0.0);
+      } else if (attemptsLeft > 1) {
+        _snapToPageWhenBuilt(index, attemptsLeft: attemptsLeft - 1);
       }
     });
-    return true;
   }
 
   Future<void> _loadDocument() async {

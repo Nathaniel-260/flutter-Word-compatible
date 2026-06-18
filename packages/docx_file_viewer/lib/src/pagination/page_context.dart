@@ -28,11 +28,12 @@ class PageContext {
 
   /// `STYLEREF` values for this page, keyed by [normalizeStyleKey] of the style
   /// name: the text of the *last* paragraph of that style up to the end of this
-  /// page (the default running-head value). Empty until pagination computes it.
+  /// page — the value `STYLEREF \l` resolves to. Empty until pagination computes
+  /// it.
   final Map<String, String> styleRefLast;
 
   /// Like [styleRefLast] but the *first* matching paragraph on the page — the
-  /// value `STYLEREF \l` resolves to (Plan §K.3).
+  /// default running-head value (a STYLEREF without `\l`) (Plan §K.3).
   final Map<String, String> styleRefFirst;
 
   const PageContext({
@@ -45,11 +46,11 @@ class PageContext {
     this.styleRefFirst = const {},
   }) : sectionPages = sectionPages ?? totalPages;
 
-  /// Normalizes a style name/id for STYLEREF matching: lower-cased with all
-  /// non-alphanumerics removed, so the field's `"Heading 1"` matches a
-  /// paragraph's `Heading1` styleId regardless of spacing/case. Kept
-  /// Unicode-aware (only ASCII separators stripped) so non-Latin style names
-  /// match too.
+  /// Normalizes a style name/id for STYLEREF matching: lower-cased with ASCII
+  /// whitespace, underscores and hyphens removed, so the field's `"Heading 1"`
+  /// matches a paragraph's `Heading1` styleId regardless of spacing/case. Only
+  /// those ASCII separators are stripped (it stays Unicode-aware) so non-Latin
+  /// style names match too.
   static String normalizeStyleKey(String s) =>
       s.toLowerCase().replaceAll(RegExp(r'[\s_\-]'), '');
 }

@@ -15,22 +15,28 @@
 abstract final class SymbolFontMap {
   /// The Unicode equivalent of [glyph] in [font], or null when there is no known
   /// mapping (the caller then renders the raw glyph). [font] is matched
-  /// case-insensitively by family stem, so "Wingdings", "WINGDINGS" and a
-  /// localized variant all resolve.
+  /// case-insensitively ("Wingdings" / "WINGDINGS" both resolve).
   static String? map(String? font, int glyph) {
     if (font == null) return null;
-    final f = font.toLowerCase();
-    if (f.contains('wingdings') || f.contains('webdings')) {
+    final f = font.toLowerCase().trim();
+    // Only the original Wingdings ("Wingdings 1") is mapped. Webdings and
+    // Wingdings 2/3 use entirely different glyph layouts, so routing them through
+    // this table would confidently render the *wrong* character — worse than the
+    // raw-glyph fallback — so they are intentionally left unmapped.
+    if (f == 'wingdings') {
       return _wingdings[glyph];
     }
-    if (f.contains('symbol')) {
+    // Adobe "Symbol" (and its PostScript "SymbolMT" alias) — a stable Greek/math
+    // layout. Matched exactly (not by stem) so a Unicode font whose name merely
+    // contains "symbol" (e.g. "Symbola") is not misrouted through this table.
+    if (f == 'symbol' || f == 'symbolmt') {
       return _symbol[glyph];
     }
     return null;
   }
 
-  /// Common Wingdings/Webdings glyphs (the checkbox family, smileys). Keyed by
-  /// the font's own code point.
+  /// Common Wingdings glyphs (the checkbox family, smileys). Keyed by the font's
+  /// own code point.
   static const Map<int, String> _wingdings = {
     0x4A: '☺', // ☺ smiling face
     0x4B: '\u{1F610}', // 😐 neutral face

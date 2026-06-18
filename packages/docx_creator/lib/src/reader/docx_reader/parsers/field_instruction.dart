@@ -34,12 +34,13 @@ abstract final class FieldInstruction {
         );
       case 'STYLEREF':
         // STYLEREF "<style>" [\l] [\n \w \r \t \p \* …] — only the style name and
-        // the \l (search-from-top) switch affect the displayed running head text.
+        // the \l switch (use the last matching paragraph on the page instead of
+        // the first) affect the displayed running-head text.
         final style = _firstArg(tokens);
         if (style == null) return null;
         return DocxStyleRef(
           style,
-          searchFromTop: tokens.contains(r'\l'),
+          useLastOnPage: tokens.contains(r'\l'),
           cachedText: cachedText,
         );
       default:
@@ -58,16 +59,33 @@ abstract final class FieldInstruction {
 
   /// Parses a `HYPERLINK` instruction into its `(url, anchor)` (Plan §K.2/§K.3).
   /// `HYPERLINK "http://…"` → external url; `HYPERLINK \l "name"` → an internal
-  /// anchor (a bookmark). Returns null when [instruction] is not a HYPERLINK.
+  /// anchor (a bookmark); `HYPERLINK "http://…" \l "frag"` → both (an external
+  /// link into a sub-location). Returns null when [instruction] is not a
+  /// HYPERLINK.
   static ({String? url, String? anchor})? parseHyperlink(String instruction) {
     final tokens = tokenize(instruction);
     if (tokens.isEmpty || tokens.first.toUpperCase() != 'HYPERLINK') {
       return null;
     }
     final li = tokens.indexOf(r'\l');
-    final anchor = (li != -1 && li + 1 < tokens.length) ? tokens[li + 1] : null;
-    final url = _firstArg(tokens);
-    return (url: anchor == null ? url : null, anchor: anchor);
+    final anchorIndex = (li != -1 && li + 1 < tokens.length) ? li + 1 : -1;
+    final anchor = anchorIndex != -1 ? tokens[anchorIndex] : null;
+    // The url is the first bare argument that is neither a switch nor the value
+    // of one: `\l`/`\o`/`\t` each consume the following token (anchor / screen
+    // tip / target frame). So a bare `HYPERLINK \l "frag"` has no url, while
+    // `HYPERLINK \o "tip" "url"` and `HYPERLINK "url" \l "frag"` both resolve it.
+    const valueSwitches = {r'\l', r'\o', r'\t'};
+    String? url;
+    for (var i = 1; i < tokens.length; i++) {
+      final tok = tokens[i];
+      if (tok.startsWith(r'\')) {
+        if (valueSwitches.contains(tok)) i++; // skip the switch's argument
+        continue;
+      }
+      url = tok;
+      break;
+    }
+    return (url: url, anchor: anchor);
   }
 
   /// The page-number format from a `\* SWITCH` pair, or null to inherit.

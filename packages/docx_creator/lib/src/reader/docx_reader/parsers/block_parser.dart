@@ -21,6 +21,11 @@ class BlockParser {
   /// Tracks the number of items encountered for each numId to enable list continuity.
   final Map<int, int> _numIdItemCounts = {};
 
+  /// The OMML math namespace; `m:t` runs are matched by namespace + local name
+  /// (not the literal `m:` prefix) so a non-`m` prefix still resolves.
+  static const _mathNs =
+      'http://schemas.openxmlformats.org/officeDocument/2006/math';
+
   /// Parse body element into list of DocxNodes.
   List<DocxNode> parseBody(XmlElement body) {
     return parseBlocks(body.children);
@@ -113,9 +118,12 @@ class BlockParser {
             child.name.local == 'oMathPara') {
           // Display equation (OMML): out of scope for layout (Plan §K.6) — keep
           // the linear text (`m:t` runs) as a placeholder paragraph so the
-          // equation's content is not lost.
-          final text =
-              child.findAllElements('m:t').map((t) => t.innerText).join();
+          // equation's content is not lost. Match `t` by the math namespace so a
+          // non-`m` prefix still resolves.
+          final text = child
+              .findAllElements('t', namespace: _mathNs)
+              .map((t) => t.innerText)
+              .join();
           if (text.isNotEmpty) {
             flushPendingList();
             result.add(DocxParagraph(children: [DocxText(text)]));

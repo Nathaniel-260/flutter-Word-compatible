@@ -75,8 +75,10 @@ abstract final class FieldSubstitution {
 
   static String _styleRef(DocxStyleRef ref, PageContext ctx) {
     final key = PageContext.normalizeStyleKey(ref.styleName);
+    // Default STYLEREF shows the first matching paragraph on the page; `\l`
+    // (useLastOnPage) shows the last one — Word's "\l … instead of the first".
     final value =
-        ref.searchFromTop ? ctx.styleRefFirst[key] : ctx.styleRefLast[key];
+        ref.useLastOnPage ? ctx.styleRefLast[key] : ctx.styleRefFirst[key];
     // Fall back to Word's cached value when pagination found no matching
     // paragraph (e.g. a style only used after this page).
     return value ?? ref.cachedText ?? '';

@@ -102,7 +102,7 @@ void main() {
     });
 
     group('STYLEREF (Plan §K.3)', () {
-      test('default resolves to the last matching paragraph on the page', () {
+      test('default resolves to the first matching paragraph on the page', () {
         final header = <DocxBlock>[
           DocxParagraph(children: const [DocxStyleRef('Heading 1')]),
         ];
@@ -112,13 +112,13 @@ void main() {
           styleRefLast: {'heading1': 'Genesis'},
           styleRefFirst: {'heading1': 'Exodus'},
         );
-        expect(textOf(FieldSubstitution.apply(header, ctx).first), 'Genesis');
+        expect(textOf(FieldSubstitution.apply(header, ctx).first), 'Exodus');
       });
 
-      test('\\l switch resolves to the first matching paragraph', () {
+      test('\\l switch resolves to the last matching paragraph', () {
         final header = <DocxBlock>[
           DocxParagraph(
-              children: const [DocxStyleRef('Heading 1', searchFromTop: true)]),
+              children: const [DocxStyleRef('Heading 1', useLastOnPage: true)]),
         ];
         const ctx = PageContext(
           pageNumber: 2,
@@ -126,7 +126,7 @@ void main() {
           styleRefLast: {'heading1': 'Genesis'},
           styleRefFirst: {'heading1': 'Exodus'},
         );
-        expect(textOf(FieldSubstitution.apply(header, ctx).first), 'Exodus');
+        expect(textOf(FieldSubstitution.apply(header, ctx).first), 'Genesis');
       });
 
       test('normalized key matches "Heading 1" against styleId Heading1', () {
@@ -138,7 +138,7 @@ void main() {
         final ctx = PageContext(
           pageNumber: 1,
           totalPages: 1,
-          styleRefLast: {PageContext.normalizeStyleKey('Heading1'): 'בראשית'},
+          styleRefFirst: {PageContext.normalizeStyleKey('Heading1'): 'בראשית'},
         );
         expect(textOf(FieldSubstitution.apply(header, ctx).first), 'בראשית');
       });

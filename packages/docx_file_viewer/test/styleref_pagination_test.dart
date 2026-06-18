@@ -85,10 +85,10 @@ void main() {
     }
   });
 
-  test(
-      '\\l (first-on-page) differs from default when two headings share a page',
-      () {
+  test('first/last on page differ when two headings share a page', () {
     // Two headings with little content between them so both land on page 1.
+    // styleRefFirst is the default STYLEREF value (first on page); styleRefLast
+    // is what STYLEREF \l resolves to (last on page).
     final elements = <DocxNode>[
       heading('First'),
       filler(0),

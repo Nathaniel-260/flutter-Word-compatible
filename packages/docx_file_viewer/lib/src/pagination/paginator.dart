@@ -97,6 +97,11 @@ class Paginator {
   // Snapshot of [_runningStyleText] at page open, so a page with no matching
   // paragraph still resolves to the carried-over value.
   Map<String, String> _styleTextAtPageStart = const {};
+  // True once any field inline (PAGE/NUMPAGES/SECTIONPAGES/PAGEREF/STYLEREF) is
+  // seen in the body, so the renderer can skip the per-page field-substitution
+  // scan entirely for a field-less document (exposed as
+  // [PaginationResult.hasBodyField]).
+  bool _hasBodyField = false;
 
   // Streaming sink: invoked as each page is closed so the UI can display pages
   // as they are born (Plan §D.2.9 / §4.4). Null for the synchronous path.
@@ -280,6 +285,7 @@ class Paginator {
       footnoteLabels: Map.unmodifiable(_footnoteLabels),
       endnoteLabels: Map.unmodifiable(_endnoteLabels),
       truncated: _truncated,
+      hasBodyField: _hasBodyField,
     );
   }
 
@@ -316,6 +322,7 @@ class Paginator {
     _pageStyleFirst.clear();
     _pageStyleLast.clear();
     _styleTextAtPageStart = const {};
+    _hasBodyField = false;
   }
 
   // ===========================================================================
@@ -1004,6 +1011,15 @@ class Paginator {
 
   void _scanInlines(List<DocxInline> inlines) {
     for (final inline in inlines) {
+      if (!_hasBodyField &&
+          (inline is DocxPageNumber ||
+              inline is DocxPageCount ||
+              inline is DocxPageRef ||
+              inline is DocxStyleRef)) {
+        // A field somewhere in the body: the renderer must run field
+        // substitution per page (apply still no-ops the pages that carry none).
+        _hasBodyField = true;
+      }
       if (inline is DocxBookmark) {
         _bookmarkPages.putIfAbsent(inline.name, () => _openDisplayNumber);
         _bookmarkPageIndex.putIfAbsent(inline.name, () => _openAbsoluteIndex);

@@ -37,6 +37,22 @@ void main() {
       expect(SymbolFontMap.map(null, 0x41), isNull);
     });
 
+    test('Webdings / Wingdings 2-3 are not mapped (different glyph layouts)',
+        () {
+      // Routing these through the Wingdings-1 table would show the wrong glyph,
+      // which is worse than the raw-glyph fallback — so they stay unmapped.
+      expect(SymbolFontMap.map('Webdings', 0x4A), isNull);
+      expect(SymbolFontMap.map('Wingdings 2', 0x4A), isNull);
+      expect(SymbolFontMap.map('Wingdings 3', 0x4A), isNull);
+    });
+
+    test('a Unicode font merely containing "symbol" is not misrouted', () {
+      // "Symbola" is a real Unicode font — it must not go through the Adobe
+      // Symbol table (0x61 there is α). SymbolMT (the PostScript alias) does.
+      expect(SymbolFontMap.map('Symbola', 0x61), isNull);
+      expect(SymbolFontMap.map('SymbolMT', 0x61), 'α');
+    });
+
     test('DocxSymbol.glyphIndex strips the F000 private-use offset', () {
       const sym = DocxSymbol(charCode: 0xF04A, font: 'Wingdings');
       expect(sym.glyphIndex, 0x4A);

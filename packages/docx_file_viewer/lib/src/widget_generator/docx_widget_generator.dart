@@ -525,12 +525,15 @@ class DocxWidgetGenerator {
     } else {
       final bodyBlocks = _stripFloats(sliceBlocks, stripSet);
       // Resolve body fields (live PAGEREF for a TOC, STYLEREF, PAGE) against this
-      // page's context (Plan §K.1/§K.3). Returns the same list when no block
-      // carries a field, so ordinary body paragraphs are untouched and the search
+      // page's context (Plan §K.1/§K.3). Skip the scan entirely for a document the
+      // paginator saw no body field in (null → still streaming → run it, which is
+      // safe); otherwise apply returns the same list when a given page carries no
+      // field, so ordinary body paragraphs are untouched and the search
       // block-index counter stays aligned.
-      singleColContent = _generateBlockWidgets(
-          FieldSubstitution.apply(bodyBlocks, pageContext),
-          counter: counter);
+      final resolved = (_lastPagination?.hasBodyField ?? true)
+          ? FieldSubstitution.apply(bodyBlocks, pageContext)
+          : bodyBlocks;
+      singleColContent = _generateBlockWidgets(resolved, counter: counter);
       multiColBody = null;
     }
 

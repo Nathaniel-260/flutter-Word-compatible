@@ -76,13 +76,13 @@ void main() {
       expect(node, isA<DocxStyleRef>());
       final ref = node as DocxStyleRef;
       expect(ref.styleName, 'Heading 1');
-      expect(ref.searchFromTop, isFalse);
+      expect(ref.useLastOnPage, isFalse);
     });
 
-    test('STYLEREF \\l sets searchFromTop', () {
+    test('STYLEREF \\l sets useLastOnPage', () {
       final ref =
           FieldInstruction.parse(r' STYLEREF "Heading 1" \l ') as DocxStyleRef;
-      expect(ref.searchFromTop, isTrue);
+      expect(ref.useLastOnPage, isTrue);
     });
 
     test('parseHyperlink distinguishes external url and internal anchor', () {
@@ -94,6 +94,18 @@ void main() {
           FieldInstruction.parseHyperlink(r' HYPERLINK \l "anchor" ');
       expect(intern?.anchor, 'anchor');
       expect(intern?.url, isNull);
+
+      // url + \l anchor → both kept (an external link into a sub-location).
+      final both = FieldInstruction.parseHyperlink(
+          r' HYPERLINK "http://x.com" \l "frag" ');
+      expect(both?.url, 'http://x.com');
+      expect(both?.anchor, 'frag');
+
+      // A \o "screen tip" before the url must not be mistaken for the url.
+      final tipped = FieldInstruction.parseHyperlink(
+          r' HYPERLINK \o "tip" "http://x.com" ');
+      expect(tipped?.url, 'http://x.com');
+      expect(tipped?.anchor, isNull);
 
       expect(FieldInstruction.parseHyperlink(' PAGE '), isNull);
     });

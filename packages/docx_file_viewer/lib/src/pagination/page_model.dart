@@ -184,12 +184,12 @@ class PageModel {
 
   /// `STYLEREF` values for this page (Plan §K.3), keyed by
   /// `PageContext.normalizeStyleKey` of the style name: the text of the *last*
-  /// paragraph of that style up to the end of this page (the default running-head
-  /// value). Only styles referenced by a STYLEREF field are tracked.
+  /// paragraph of that style up to the end of this page — the value `STYLEREF \l`
+  /// resolves to. Only styles referenced by a STYLEREF field are tracked.
   final Map<String, String> styleRefLast;
 
   /// Like [styleRefLast] but the *first* matching paragraph on the page — the
-  /// value `STYLEREF \l` resolves to.
+  /// default running-head value (a STYLEREF without `\l`).
   final Map<String, String> styleRefFirst;
 }
 
@@ -205,6 +205,7 @@ class PaginationResult {
     this.footnoteLabels = const {},
     this.endnoteLabels = const {},
     this.truncated = false,
+    this.hasBodyField = false,
   });
 
   /// All pages, in order (including blank even/odd filler pages).
@@ -239,6 +240,11 @@ class PaginationResult {
 
   /// `endnoteId → display label`, computed like [footnoteLabels].
   final Map<int, String> endnoteLabels;
+
+  /// True when the document body contains at least one automatic field inline
+  /// (`PAGE`/`NUMPAGES`/`SECTIONPAGES`/`PAGEREF`/`STYLEREF`). When false the
+  /// renderer can skip per-page field substitution on the body entirely.
+  final bool hasBodyField;
 
   /// Total page count (`NUMPAGES`).
   int get pageCount => pages.length;

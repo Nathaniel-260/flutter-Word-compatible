@@ -970,25 +970,29 @@ class DocxBookmark extends DocxInline {
 /// a religious text shows the current entry/chapter in the header).
 ///
 /// The value is **pagination-dependent**, like `PAGE`: by default it is the text
-/// of the *last* paragraph of that style up to the end of the current page;
-/// [searchFromTop] (the `\l` switch) selects the *first* such paragraph on the
-/// page instead. When pagination cannot resolve it the [cachedText] (Word's
-/// last-computed value) is shown so the header is never blank.
+/// of the *first* paragraph of that style on the current page; [useLastOnPage]
+/// (the `\l` switch) selects the *last* such paragraph on the page instead.
+/// (Word: "\l — inserts the text of the last paragraph … on the page, instead of
+/// the first.") When no such paragraph appears on the page the value carried in
+/// from before it is used; when pagination cannot resolve it at all the
+/// [cachedText] (Word's last-computed value) is shown so the header is never
+/// blank.
 ///
 /// [styleName] is the value Word stores in the field — usually the style's
 /// display name (e.g. `Heading 1`), sometimes its id; the viewer matches either.
 class DocxStyleRef extends DocxInline {
   final String styleName;
 
-  /// `\l` switch — search from the top of the page (first matching paragraph)
-  /// rather than the default bottom-up search (last matching paragraph).
-  final bool searchFromTop;
+  /// `\l` switch — use the *last* matching paragraph on the page rather than the
+  /// default *first*. The classic dictionary header pairs a default STYLEREF
+  /// (first entry on the page) with a `\l` one (last entry on the page).
+  final bool useLastOnPage;
 
   final String? cachedText;
 
   const DocxStyleRef(
     this.styleName, {
-    this.searchFromTop = false,
+    this.useLastOnPage = false,
     this.cachedText,
     super.id,
   });
@@ -999,7 +1003,7 @@ class DocxStyleRef extends DocxInline {
   @override
   void buildXml(XmlBuilder builder) {
     // Quote the style name so a multi-word name (e.g. "Heading 1") round-trips.
-    final l = searchFromTop ? r' \l' : '';
+    final l = useLastOnPage ? r' \l' : '';
     _buildFieldXml(builder, ' STYLEREF "$styleName"$l ');
   }
 }
