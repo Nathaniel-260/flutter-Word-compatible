@@ -71,6 +71,28 @@ List<ScriptRun> classifyScript(String text, {bool hintComplex = false}) {
   final n = text.length;
   if (n == 0) return const [];
 
+  // Fast path for the overwhelmingly common single-script run: one cheap scan to
+  // see whether both scripts actually appear. A run is one segment unless a
+  // strong Latin *and* a strong complex char coexist (or, when hinted complex,
+  // a strong Latin char forces a split off the complex neutrals). This avoids
+  // the array allocation and multi-pass neutral resolution below.
+  var hasLatin = false;
+  var hasComplex = false;
+  for (var i = 0; i < n; i++) {
+    final c = _classOf(text.codeUnitAt(i));
+    if (c == _latin) {
+      hasLatin = true;
+    } else if (c == _complex) {
+      hasComplex = true;
+    }
+  }
+  final single = hintComplex ? !hasLatin : !(hasLatin && hasComplex);
+  if (single) {
+    final script =
+        (hintComplex || hasComplex) ? DocxScript.complex : DocxScript.latin;
+    return [ScriptRun(0, n, script)];
+  }
+
   final cls = List<int>.filled(n, _neutral);
   for (var i = 0; i < n; i++) {
     cls[i] = _classOf(text.codeUnitAt(i));

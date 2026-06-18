@@ -1003,6 +1003,18 @@ void _collectFromInlines(Iterable<DocxInline> inlines, Set<String> out) {
       add(inline.fonts?.hAnsi);
       add(inline.fonts?.cs);
       add(inline.fonts?.eastAsia);
+    } else if (inline is DocxSymbol) {
+      // A `w:sym` glyph keeps its own symbol font (Wingdings/…) when unmapped —
+      // include it so an *embedded* symbol font is not lazily skipped.
+      add(inline.font);
+    } else if (inline is DocxShape) {
+      // Text-box content lives in nested blocks, not the paragraph's runs; a font
+      // used only inside a floating text box must still be seen (QA §3).
+      final blocks = inline.textBlocks;
+      if (blocks != null) _collectFontFamilies(blocks, out);
+    } else if (inline is DocxUnknownField) {
+      // Computed-field result (TOC/REF/…) carries its own runs.
+      _collectFromInlines(inline.cachedResult, out);
     }
   }
 }

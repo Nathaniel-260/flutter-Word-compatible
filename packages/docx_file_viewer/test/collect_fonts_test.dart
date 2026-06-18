@@ -66,4 +66,30 @@ void main() {
     );
     expect(families, isNot(contains('')));
   });
+
+  test('collects fonts nested in a text box and a w:sym glyph (QA §3)', () {
+    // A font used only inside a floating text box, or only as a symbol-glyph
+    // font, must still be collected so a lazily-loaded embedded face for it is
+    // not skipped (which would tofu instead of just mis-spacing).
+    final doc = DocxBuiltDocument(
+      elements: [
+        DocxParagraph(children: [
+          const DocxText('body'),
+          DocxShape(
+            textBlocks: [
+              DocxParagraph(
+                  children: [DocxText('x', fontFamily: 'TextboxFont')]),
+            ],
+          ),
+          const DocxSymbol(charCode: 0xF0FC, font: 'Wingdings'),
+        ]),
+      ],
+    );
+
+    final families = collectDocumentFontFamilies(doc);
+    expect(families, contains('TextboxFont'),
+        reason: 'a font used only in a text box must be collected');
+    expect(families, contains('Wingdings'),
+        reason: 'an unmapped symbol-glyph font may be embedded');
+  });
 }
