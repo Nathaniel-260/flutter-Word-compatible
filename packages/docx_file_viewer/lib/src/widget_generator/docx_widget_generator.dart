@@ -132,6 +132,8 @@ class DocxWidgetGenerator {
     if (identical(_buildersFor, doc)) return;
     _buildersFor = doc;
     _finalSectionCounts = null; // belongs to the previous document
+    _lastPagination =
+        null; // a stale map must not resolve this doc's note marks
     _paragraphBuilder = ParagraphBuilder(
       theme: theme,
       config: config,
@@ -450,6 +452,17 @@ class DocxWidgetGenerator {
     BlockIndexCounter? counter,
     List<Widget>? firstPageHeaderWidgets,
   }) {
+    // Footnote/endnote reference marks render the number the paginator computed
+    // (format + restart, Plan §J.4), not the raw id. A footnote's reference and
+    // its note are always on the same page, so the page's own notes resolve the
+    // body marks; endnote marks resolve against the document-wide map. Set before
+    // building the body so the marks pick the labels up.
+    _paragraphBuilder.footnoteLabels = {
+      for (final fn in page.footnotes) fn.id: fn.label
+    };
+    _paragraphBuilder.endnoteLabels =
+        _lastPagination?.endnoteLabels ?? const {};
+
     final sliceBlocks = [for (final s in page.slices) s.block];
     // Floats rendered as a positioned layer (Plan §H.2 step 4): topAndBottom +
     // front (wrapNone/inFront). Side floats stay on the in-flow Row path and
@@ -482,6 +495,79 @@ class DocxWidgetGenerator {
       pageContext: pageContext,
       backgroundImages: backgroundImages,
       floats: layerFloats,
+      footnotes: page.footnotes,
+      footnotesHeight: page.footnotesHeight,
+    );
+  }
+
+  /// Builds the footnote area drawn at the foot of the body region (Plan §J): a
+  /// short separator line followed by each note, its computed number as a leading
+  /// superscript. Returns null when the page has no footnotes. Laid out at the
+  /// page content width — the same width the paginator measured the notes at, so
+  /// the reserved band matches the painted height.
+  Widget? _buildFootnoteArea(List<PlacedFootnote> footnotes, bool rtl) {
+    if (footnotes.isEmpty) return null;
+    final align = rtl ? CrossAxisAlignment.end : CrossAxisAlignment.start;
+    return Column(
+      crossAxisAlignment: align,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Word's default footnote separator: a short rule (~⅓ width) above the
+        // notes, on the leading edge. A custom separator from footnotes.xml is a
+        // future refinement (§8.2) — the reader drops the separator note's type.
+        Padding(
+          padding: const EdgeInsets.only(top: 5, bottom: 5),
+          child: Align(
+            alignment: rtl ? Alignment.centerRight : Alignment.centerLeft,
+            child: FractionallySizedBox(
+              widthFactor: 1 / 3,
+              // Derive the rule colour from the body text colour so it stays
+              // visible on a dark theme instead of a fixed grey.
+              child: Container(
+                height: 1,
+                color: (theme.defaultTextStyle.color ?? Colors.grey.shade600)
+                    .withValues(alpha: 0.45),
+              ),
+            ),
+          ),
+        ),
+        for (final fn in footnotes) _buildFootnoteEntry(fn, rtl: rtl),
+      ],
+    );
+  }
+
+  /// One footnote at the page foot: the note's content with its number prepended
+  /// as a superscript to the first paragraph (so the text indents past the mark
+  /// the way Word renders it). Non-paragraph first blocks get the number on a
+  /// short leading line instead. [rtl] aligns the note column to the leading edge
+  /// for Hebrew/RTL notes (otherwise the content would hug the left).
+  Widget _buildFootnoteEntry(PlacedFootnote fn, {required bool rtl}) {
+    final content = fn.content;
+    final List<DocxNode> display;
+    if (content.isNotEmpty && content.first is DocxParagraph) {
+      final first = content.first as DocxParagraph;
+      display = [
+        first.copyWith(children: [
+          DocxText('${fn.label} ', isSuperscript: true),
+          ...first.children,
+        ]),
+        ...content.skip(1),
+      ];
+    } else {
+      display = [
+        DocxParagraph(
+            children: [DocxText('${fn.label} ', isSuperscript: true)]),
+        ...content,
+      ];
+    }
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: Column(
+        crossAxisAlignment:
+            rtl ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: _generateBlockWidgets(display),
+      ),
     );
   }
 
@@ -596,7 +682,9 @@ class DocxWidgetGenerator {
       bool isEvenPage = false,
       DocxSectionDef? sectionOverride,
       List<DocxInlineImage> backgroundImages = const [],
-      List<PlacedFloat> floats = const []}) {
+      List<PlacedFloat> floats = const [],
+      List<PlacedFootnote> footnotes = const [],
+      double footnotesHeight = 0}) {
     // The page's own section (multi-section docs); falls back to the document
     // default. Drives geometry and header/footer variant selection.
     final section = sectionOverride ?? doc.section;
@@ -688,6 +776,17 @@ class DocxWidgetGenerator {
       ),
     );
 
+    // Footnote area (Plan §J): the paginator reserved [footnotesHeight] at the
+    // bottom of the body region, so the body is inset by it and the notes are
+    // painted in that band. RTL notes (Hebrew sacred texts) put the separator on
+    // the right.
+    final bool notesRtl = footnotes.isNotEmpty &&
+        (section?.isRtlSection == true ||
+            (footnotes.first.content.isNotEmpty &&
+                footnotes.first.content.first is DocxParagraph &&
+                (footnotes.first.content.first as DocxParagraph).isRtl));
+    final Widget? footnoteArea = _buildFootnoteArea(footnotes, notesRtl);
+
     return Container(
       width: pageWidth,
       // Fixed page height (Plan §D.2.6/§E.2): content is measured to fit, and any
@@ -723,9 +822,19 @@ class DocxWidgetGenerator {
             left: padLeft,
             top: bodyTop,
             right: padRight,
-            bottom: bodyBottom,
+            // The footnote band is reserved at the bottom of the body region,
+            // so the body content stops above it (Plan §J.2).
+            bottom: bodyBottom + footnotesHeight,
             child: bodyRegion,
           ),
+          if (footnoteArea != null)
+            Positioned(
+              left: padLeft,
+              right: padRight,
+              bottom: bodyBottom,
+              height: footnotesHeight,
+              child: footnoteArea,
+            ),
           // Floating drawings layer (Plan §H.2): topAndBottom + front floats,
           // positioned in page coordinates from their body-relative rect, painted
           // over the body in z-order (`relativeHeight`).

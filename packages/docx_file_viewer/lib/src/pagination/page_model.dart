@@ -78,6 +78,33 @@ class PageGeometry {
   );
 }
 
+/// A footnote resolved onto the foot of a page (Plan §J): its computed display
+/// [label] (already formatted per the section's footnote numbering), the note's
+/// content blocks, and the measured [height] of that content at the page content
+/// width. The renderer draws these below a separator inside the band the
+/// paginator reserved at the bottom of the body region — so the page-packing
+/// height (which subtracts the band) exactly matches the painted layout.
+class PlacedFootnote {
+  const PlacedFootnote({
+    required this.id,
+    required this.label,
+    required this.content,
+    required this.height,
+  });
+
+  /// The footnote id (links the body reference to its note).
+  final int id;
+
+  /// The display number/mark as Word would render it (e.g. `1`, `iv`, `ב`).
+  final String label;
+
+  /// The note's content blocks (paragraphs etc.), shared by reference.
+  final List<DocxBlock> content;
+
+  /// Measured height of [content] at the page content width, in pixels.
+  final double height;
+}
+
 /// A single laid-out page: a thin list of [BlockSlice]s plus the metadata the
 /// renderer needs to draw its chrome (Plan §D.1 / §4.2).
 ///
@@ -97,6 +124,8 @@ class PageModel {
     this.isEvenPage = false,
     this.isBlank = false,
     this.floats = const [],
+    this.footnotes = const [],
+    this.footnotesHeight = 0,
   });
 
   /// The resolved pixel geometry of this page (size, margins, body region,
@@ -139,6 +168,17 @@ class PageModel {
   /// over/under the body in z-order; they hold no widgets, only a reference to
   /// the AST drawing plus its rectangle.
   final List<PlacedFloat> floats;
+
+  /// Footnotes whose references land on this page, in document order (Plan §J).
+  /// Drawn at the foot of the body region below a separator, in the reserved
+  /// [footnotesHeight] band.
+  final List<PlacedFootnote> footnotes;
+
+  /// Total height in pixels the paginator reserved at the bottom of the body
+  /// region for [footnotes] (separator + note contents + inter-note gaps). Zero
+  /// when the page has no footnotes. The renderer insets the body by this band
+  /// and paints the notes within it, so packed area ≡ painted area.
+  final double footnotesHeight;
 }
 
 /// Output of [Paginator.paginate]: the page list plus the lookup maps that
@@ -149,6 +189,8 @@ class PaginationResult {
     required this.bookmarkPages,
     required this.footnotePages,
     required this.endnotePages,
+    this.footnoteLabels = const {},
+    this.endnoteLabels = const {},
     this.truncated = false,
   });
 
@@ -171,6 +213,15 @@ class PaginationResult {
   /// `endnoteId → absolute page index` of the page that references it.
   final Map<int, int> endnotePages;
 
+  /// `footnoteId → display label` (e.g. `1`, `iv`, `ב`) computed during
+  /// pagination from the section's footnote numbering (format + restart, Plan
+  /// §J.4). The body reference mark and the note at the page foot both render
+  /// this, so a `hebrew1`/`eachPage` document shows the same mark Word does.
+  final Map<int, String> footnoteLabels;
+
+  /// `endnoteId → display label`, computed like [footnoteLabels].
+  final Map<int, String> endnoteLabels;
+
   /// Total page count (`NUMPAGES`).
   int get pageCount => pages.length;
 
@@ -179,5 +230,7 @@ class PaginationResult {
     bookmarkPages: {},
     footnotePages: {},
     endnotePages: {},
+    footnoteLabels: {},
+    endnoteLabels: {},
   );
 }

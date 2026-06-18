@@ -48,6 +48,14 @@ class ParagraphBuilder {
   /// [_buildInlineShape] falls back to a plain fill/outline box.
   ShapeBuilder? shapeBuilder;
 
+  /// `footnoteId → display label` and `endnoteId → display label` computed by the
+  /// paginator (Plan §J.4). Set by the generator after pagination so a reference
+  /// mark renders the number Word shows (which depends on numbering format and
+  /// per-page/section restart, not the raw id). Empty before pagination /
+  /// standalone use, where the mark falls back to the id.
+  Map<int, String> footnoteLabels = const {};
+  Map<int, String> endnoteLabels = const {};
+
   // Used for search highlighting
 
   ParagraphBuilder({
@@ -1057,7 +1065,7 @@ class ParagraphBuilder {
 
   TextSpan _buildFootnoteRef(DocxFootnoteRef ref) {
     return TextSpan(
-      text: '${ref.footnoteId}',
+      text: footnoteLabels[ref.footnoteId] ?? '${ref.footnoteId}',
       style: TextStyle(
         fontSize: (theme.defaultTextStyle.fontSize ?? 14) * 0.6,
         color: theme.linkStyle.color,
@@ -1072,7 +1080,7 @@ class ParagraphBuilder {
 
   TextSpan _buildEndnoteRef(DocxEndnoteRef ref) {
     return TextSpan(
-      text: '${ref.endnoteId}',
+      text: endnoteLabels[ref.endnoteId] ?? '${ref.endnoteId}',
       style: TextStyle(
         fontSize: (theme.defaultTextStyle.fontSize ?? 14) * 0.6,
         color: theme.linkStyle.color,

@@ -47,6 +47,28 @@ class Paginator {
   final Map<String, int> _bookmarkPages = {};
   final Map<int, int> _footnotePages = {};
   final Map<int, int> _endnotePages = {};
+  final Map<int, String> _footnoteLabels = {};
+  final Map<int, String> _endnoteLabels = {};
+
+  // --- Footnote state (Plan §J) --------------------------------------------
+  // Notes indexed by id for content lookup (separators with id ≤ 0 are kept but
+  // never referenced, so they never reach a page). Built once per paginate call.
+  Map<int, DocxFootnote> _footnotesById = const {};
+  Map<int, DocxEndnote> _endnotesById = const {};
+  // Measured note-content heights at the active content width, memoised by id so
+  // a note checked for fit and then committed is not re-measured.
+  final Map<int, double> _footnoteHeightCache = {};
+  // Running display number for the next footnote reference, per the effective
+  // restart mode (reset at section/page boundaries by [_resetFootnoteNumbering]).
+  int _footnoteNumber = 1;
+  // Running display number for the next endnote reference. Endnotes are numbered
+  // continuously across the document (Word's default) and collected at the end.
+  int _endnoteNumber = 1;
+  // Effective footnote properties for the active section (its own `w:footnotePr`
+  // overrides the document-level default).
+  DocxNoteProperties? _activeFootnoteProps;
+  DocxNoteProperties? _docFootnoteProps;
+  DocxNoteProperties? _docEndnoteProps;
 
   // Per-table content-width floors (longest-word px per grid column), memoised by
   // table identity so a table measured and then split is not recomputed. The
@@ -84,6 +106,11 @@ class Paginator {
   bool _openIsBlank = false;
   List<BlockSlice> _slices = [];
   List<PlacedFloat> _floats = [];
+  // Footnotes whose references have committed to the open page, in order, plus
+  // the height band they reserve at the bottom of the body (Plan §J.2).
+  List<PlacedFootnote> _pageFootnotes = [];
+  final Set<int> _pageFootnoteIds = {};
+  double _footnotesBand = 0;
   double _used = 0;
   PageGeometry _geo = PageGeometry.zero;
   DocxSectionDef _pageSection = const DocxSectionDef();
@@ -97,17 +124,27 @@ class Paginator {
   // each time (§4.3).
   final Expando<DocxParagraph> _listItemParagraph = Expando<DocxParagraph>();
 
-  double get _remaining => _geo.bodyHeight - _used;
+  // Body height still free for content: the full body height minus what is
+  // already used and the footnote band reserved at the bottom (Plan §J.2).
+  double get _remaining => _geo.bodyHeight - _used - _footnotesBand;
+
+  // Vertical space the footnote separator occupies (the ⅓-width rule plus a
+  // little breathing room above the first note), and the gap between notes.
+  static const double _footnoteSeparatorBand = 11.0;
+  static const double _footnoteGapPx = 2.0;
 
   /// Lays [doc] out into pages and the bookmark/footnote position maps,
   /// synchronously (used by tests and small documents).
   PaginationResult paginate(DocxBuiltDocument doc) {
     _reset();
+    _prepareNotes(doc);
     final sections = _splitSections(doc);
     for (var si = 0; si < sections.length; si++) {
       _beginSection(sections[si], si);
       _fillBlocks(sections[si].blocks);
     }
+    // Endnotes flow at the document end, after the body (Plan §J.5).
+    _fillBlocks(_buildEndnoteBlocks());
     _closePage();
     return _finalize(doc);
   }
@@ -132,6 +169,7 @@ class Paginator {
     bool Function()? shouldContinue,
   }) async {
     _reset();
+    _prepareNotes(doc);
     _onPage = onPage;
     _shouldContinue = shouldContinue;
     final sw = Stopwatch()..start();
@@ -140,6 +178,10 @@ class Paginator {
       _beginSection(sections[si], si);
       await _fillBlocksAsync(sections[si].blocks, sw, sliceBudgetMs);
       if (_stop) break;
+    }
+    // Endnotes flow at the document end, after the body (Plan §J.5).
+    if (!_stop) {
+      await _fillBlocksAsync(_buildEndnoteBlocks(), sw, sliceBudgetMs);
     }
     _closePage();
     return _finalize(doc);
@@ -158,6 +200,8 @@ class Paginator {
       bookmarkPages: Map.unmodifiable(_bookmarkPages),
       footnotePages: Map.unmodifiable(_footnotePages),
       endnotePages: Map.unmodifiable(_endnotePages),
+      footnoteLabels: Map.unmodifiable(_footnoteLabels),
+      endnoteLabels: Map.unmodifiable(_endnoteLabels),
       truncated: _truncated,
     );
   }
@@ -167,17 +211,150 @@ class Paginator {
     _bookmarkPages.clear();
     _footnotePages.clear();
     _endnotePages.clear();
+    _footnoteLabels.clear();
+    _endnoteLabels.clear();
+    _footnoteHeightCache.clear();
+    _fnCacheWidth = double.nan;
+    _footnoteNumber = 1;
+    _endnoteNumber = 1;
     _displayNumber = 1;
     _absoluteIndex = 0;
     _hasOpenPage = false;
     _slices = [];
     _floats = [];
+    _pageFootnotes = [];
+    _pageFootnoteIds.clear();
+    _footnotesBand = 0;
     _used = 0;
     _pendingFirstOfSection = true;
     _onPage = null;
     _shouldContinue = null;
     _cancelled = false;
     _truncated = false;
+  }
+
+  // ===========================================================================
+  // Footnotes (Plan §J)
+  // ===========================================================================
+
+  /// Indexes the document's notes by id and captures the document-level note
+  /// properties (a section's own `w:footnotePr` overrides these). Called once
+  /// per paginate, after [_reset].
+  void _prepareNotes(DocxBuiltDocument doc) {
+    _footnotesById = {
+      for (final f in doc.footnotes ?? const <DocxFootnote>[]) f.footnoteId: f,
+    };
+    _endnotesById = {
+      for (final e in doc.endnotes ?? const <DocxEndnote>[]) e.endnoteId: e,
+    };
+    _docFootnoteProps = doc.footnoteProperties;
+    _activeFootnoteProps = doc.footnoteProperties;
+    _docEndnoteProps = doc.endnoteProperties;
+  }
+
+  /// The effective endnote number format (default: `decimal`).
+  DocxPageNumberFormat get _endnoteFormat =>
+      _docEndnoteProps?.format ?? DocxPageNumberFormat.decimal;
+
+  /// Builds the flowed blocks for the document's endnotes (Plan §J.5), in body
+  /// reference order, each note's number prepended to its first paragraph as a
+  /// superscript. Returns an empty list when no endnote was referenced. Endnotes
+  /// are placed at the document end (`w:pos="docEnd"`, the default); the rarer
+  /// `sectEnd` position is a documented deviation (§8.2).
+  List<DocxNode> _buildEndnoteBlocks() {
+    if (_endnoteLabels.isEmpty) return const [];
+    final blocks = <DocxNode>[];
+    // `_endnoteLabels` preserves reference order (insertion-ordered map).
+    for (final entry in _endnoteLabels.entries) {
+      final note = _endnotesById[entry.key];
+      if (note == null || note.content.isEmpty) continue;
+      final prefix = DocxText('${entry.value} ', isSuperscript: true);
+      final first = note.content.first;
+      if (first is DocxParagraph) {
+        blocks.add(first.copyWith(children: [prefix, ...first.children]));
+        blocks.addAll(note.content.skip(1));
+      } else {
+        blocks.add(DocxParagraph(children: [prefix]));
+        blocks.addAll(note.content);
+      }
+    }
+    return blocks;
+  }
+
+  /// The effective footnote restart mode (default: `continuous`).
+  DocxNoteNumberRestart get _footnoteRestart =>
+      _activeFootnoteProps?.numRestart ?? DocxNoteNumberRestart.continuous;
+
+  /// The effective footnote number format (default: `decimal`).
+  DocxPageNumberFormat get _footnoteFormat =>
+      _activeFootnoteProps?.format ?? DocxPageNumberFormat.decimal;
+
+  /// Resets the running footnote number at a section boundary when the section
+  /// restarts numbering `eachSect` (Plan §J.4). `eachPage` is reset in
+  /// [_openPage]; `continuous` never resets.
+  void _resetFootnoteNumberingForSection() {
+    if (_footnoteRestart == DocxNoteNumberRestart.eachSect) _footnoteNumber = 1;
+  }
+
+  /// The measured height of footnote [id]'s content at the active content width,
+  /// memoised. The cache is invalidated when the content width changes (a
+  /// multi-section document can switch page geometry). A note with no content
+  /// (or an unknown id) measures as zero.
+  double _footnoteContentHeight(int id) {
+    if (_fnCacheWidth != _geo.contentWidth) {
+      _footnoteHeightCache.clear();
+      _fnCacheWidth = _geo.contentWidth;
+    }
+    return _footnoteHeightCache.putIfAbsent(id, () {
+      final note = _footnotesById[id];
+      if (note == null || note.content.isEmpty) return 0;
+      return _measureBlocks(note.content, _geo.contentWidth);
+    });
+  }
+
+  double _fnCacheWidth = double.nan;
+
+  /// Footnote ids newly referenced by [block] that are not already committed to
+  /// the open page, in document order (so the band growth and the committed set
+  /// agree). Recurses into table cells, matching [_recordAnchors].
+  List<int> _newFootnoteIds(DocxNode block) {
+    final ids = <int>[];
+    void scan(DocxNode b) {
+      if (b is DocxParagraph) {
+        for (final inline in b.children) {
+          if (inline is DocxFootnoteRef &&
+              !_pageFootnoteIds.contains(inline.footnoteId) &&
+              !ids.contains(inline.footnoteId) &&
+              _footnotesById.containsKey(inline.footnoteId)) {
+            ids.add(inline.footnoteId);
+          }
+        }
+      } else if (b is DocxTable) {
+        for (final row in b.rows) {
+          for (final cell in row.cells) {
+            for (final cb in cell.children) {
+              scan(cb);
+            }
+          }
+        }
+      }
+    }
+
+    scan(block);
+    return ids;
+  }
+
+  /// Height the footnote band would grow by if [newIds] were placed on the open
+  /// page (separator on the first note + each note's content + an inter-note
+  /// gap). Used to test fit before committing a block (Plan §J.2).
+  double _footnoteGrowth(List<int> newIds) {
+    if (newIds.isEmpty) return 0;
+    var growth = 0.0;
+    if (_pageFootnoteIds.isEmpty) growth += _footnoteSeparatorBand;
+    for (final id in newIds) {
+      growth += _footnoteContentHeight(id) + _footnoteGapPx;
+    }
+    return growth;
   }
 
   // ===========================================================================
@@ -232,6 +409,12 @@ class Paginator {
       _displayNumber = def.pageNumberStart!;
     }
 
+    // Footnote numbering: the section's own `w:footnotePr` overrides the
+    // document default; restart the counter when this section restarts
+    // `eachSect` (Plan §J.4).
+    _activeFootnoteProps = def.footnoteProperties ?? _docFootnoteProps;
+    _resetFootnoteNumberingForSection();
+
     _activeSection = def;
   }
 
@@ -263,6 +446,15 @@ class Paginator {
     _geo = _computeGeometry(section, isFirstOfSection: isFirst, isEven: isEven);
     _slices = [];
     _floats = [];
+    _pageFootnotes = [];
+    _pageFootnoteIds.clear();
+    _footnotesBand = 0;
+    // `eachPage` footnote numbering restarts at the top of every page (Plan
+    // §J.4); the height cache is content-only (width-independent here) so it
+    // survives across pages.
+    if (_footnoteRestart == DocxNoteNumberRestart.eachPage) {
+      _footnoteNumber = 1;
+    }
     _used = 0;
     _pageSection = section;
     _pageSectionIndex = sectionIndex;
@@ -298,6 +490,8 @@ class Paginator {
       isEvenPage: _openDisplayNumber.isEven,
       isBlank: _openIsBlank,
       floats: List.unmodifiable(_floats),
+      footnotes: List.unmodifiable(_pageFootnotes),
+      footnotesHeight: _pageFootnotes.isEmpty ? 0 : _footnotesBand,
     );
     _pages.add(page);
     _displayNumber++;
@@ -441,13 +635,23 @@ class Paginator {
 
     final height = _measureBlock(block, _geo.contentWidth);
 
-    if (height <= _remaining) {
+    // Footnotes referenced by this block grow the reserved bottom band, so they
+    // count against the remaining space too (Plan §J.2): a line whose note no
+    // longer fits pushes the line (and its note) to the next page.
+    final newFnIds = _newFootnoteIds(block);
+    final fnGrowth = _footnoteGrowth(newFnIds);
+
+    if (height + fnGrowth <= _remaining) {
       _addWhole(block, height);
       return;
     }
 
-    // Does not fit in the remaining space. Try to split it.
-    final split = _trySplit(block, _remaining, atPageStart: _used == 0);
+    // Does not fit in the remaining space. Reserve the block's whole footnote
+    // band before splitting so the head (which carries a subset of these notes)
+    // cannot overflow; the tail's notes are reserved again on the next page —
+    // conservative, but it never overflows the page (§8.2).
+    final split =
+        _trySplit(block, _remaining - fnGrowth, atPageStart: _used == 0);
     if (split != null) {
       if (split.head != null) {
         final top = _used;
@@ -531,10 +735,43 @@ class Paginator {
         // Footnote and endnote ids are independent sequences — keep them in
         // separate maps so id 1 of each does not collide (Part J consumer).
         _footnotePages.putIfAbsent(inline.footnoteId, () => _openAbsoluteIndex);
+        _commitFootnote(inline.footnoteId);
       } else if (inline is DocxEndnoteRef) {
         _endnotePages.putIfAbsent(inline.endnoteId, () => _openAbsoluteIndex);
+        // Number endnotes continuously in reference order; the note bodies are
+        // flowed at the document end (Plan §J.5).
+        _endnoteLabels.putIfAbsent(
+          inline.endnoteId,
+          () => NumberFormatter.formatPage(_endnoteNumber++, _endnoteFormat),
+        );
       }
     }
+  }
+
+  /// Commits footnote [id] to the open page (Plan §J): assigns its display label
+  /// from the running number, grows the reserved band (separator on the first
+  /// note + the note's content + a gap), and records it for rendering. Idempotent
+  /// per page; called from [_scanInlines] as a block is added to the page, so the
+  /// number follows document order and the band matches the fit check in
+  /// [_placeBlock].
+  void _commitFootnote(int id) {
+    if (_pageFootnoteIds.contains(id)) return;
+    final note = _footnotesById[id];
+    // Dangling ref / separator note → nothing to place.
+    if (note == null) return;
+    final label =
+        NumberFormatter.formatPage(_footnoteNumber++, _footnoteFormat);
+    _footnoteLabels[id] = label;
+    final height = _footnoteContentHeight(id);
+    if (_pageFootnoteIds.isEmpty) _footnotesBand += _footnoteSeparatorBand;
+    _footnotesBand += height + _footnoteGapPx;
+    _pageFootnoteIds.add(id);
+    _pageFootnotes.add(PlacedFootnote(
+      id: id,
+      label: label,
+      content: note.content,
+      height: height,
+    ));
   }
 
   // ===========================================================================
@@ -742,8 +979,8 @@ class Paginator {
     // would place `inside`/`outside` floats differently here than in the
     // renderer, breaking measure ≡ render.
     final pageIsRtl = direction == TextDirection.rtl;
-    final sideRects =
-        localSideFloatRects(p.children, contentWidth: width, pageIsRtl: pageIsRtl);
+    final sideRects = localSideFloatRects(p.children,
+        contentWidth: width, pageIsRtl: pageIsRtl);
     // Centered/offset floats render as a stacked block (not a side band), so the
     // renderer adds their height to the paragraph column — mirror that here.
     final centerFloatsHeight =
