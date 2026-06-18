@@ -31,6 +31,13 @@ class DocxViewConfig {
   /// Font fallbacks when embedded fonts are unavailable.
   final List<String> customFontFallbacks;
 
+  /// Overrides the built-in Word→available-family substitution table (Plan §L.2).
+  /// Keys are Word font names (matched case-insensitively, e.g. `'Calibri'`),
+  /// values the family the host app actually registered (e.g. a metric clone or
+  /// a Hebrew font). An entry here wins over the document's own font and the
+  /// built-in table, so the host can force a specific font for any Word name.
+  final Map<String, String> fontSubstitutions;
+
   /// Theme for styling the document view.
   final DocxViewTheme? theme;
 
@@ -85,6 +92,7 @@ class DocxViewConfig {
     this.minScale = 0.5,
     this.maxScale = 4.0,
     this.customFontFallbacks = const ['Roboto', 'Arial', 'Helvetica'],
+    this.fontSubstitutions = const {},
     this.theme,
     this.padding = const EdgeInsets.all(16.0),
     this.backgroundColor,
@@ -106,6 +114,7 @@ class DocxViewConfig {
     double? minScale,
     double? maxScale,
     List<String>? customFontFallbacks,
+    Map<String, String>? fontSubstitutions,
     DocxViewTheme? theme,
     EdgeInsets? padding,
     Color? backgroundColor,
@@ -126,6 +135,7 @@ class DocxViewConfig {
       minScale: minScale ?? this.minScale,
       maxScale: maxScale ?? this.maxScale,
       customFontFallbacks: customFontFallbacks ?? this.customFontFallbacks,
+      fontSubstitutions: fontSubstitutions ?? this.fontSubstitutions,
       theme: theme ?? this.theme,
       padding: padding ?? this.padding,
       backgroundColor: backgroundColor ?? this.backgroundColor,

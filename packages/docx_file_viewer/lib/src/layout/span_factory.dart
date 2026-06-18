@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../docx_view_config.dart';
 import '../font_loader/font_metrics_registry.dart';
+import '../font_loader/font_resolver.dart';
 import '../theme/docx_view_theme.dart';
 import 'float_layout.dart';
 import 'symbol_map.dart';
@@ -59,6 +60,22 @@ class SpanSegment {
   int get end => start + length;
 }
 
+/// One script-homogeneous slice of a [DocxText] run, already resolved to its
+/// final [TextStyle] (Plan §L.1). A run mixing Latin and Hebrew/Arabic is cut
+/// into several of these so each is laid out with the script's own font
+/// (`w:ascii` vs `w:cs`), size (`w:sz` vs `w:szCs`) and bold/italic. [start] and
+/// [end] are offsets into the run's resolved content (post caps-transform); the
+/// slices tile the content exactly, so a single-script run yields one segment
+/// identical to the pre-Part-L span.
+class RunSegment {
+  const RunSegment(this.text, this.style, this.start, this.end);
+
+  final String text;
+  final TextStyle style;
+  final int start;
+  final int end;
+}
+
 /// Single source of truth for turning a [DocxText] run into a Flutter
 /// [TextStyle] and an [InlineSpan] (Plan §C.1).
 ///
@@ -78,6 +95,14 @@ class SpanFactory {
   final DocxViewTheme theme;
   final DocxViewConfig config;
   final DocxTheme? docxTheme;
+
+  /// Resolves Word font names to available families and per-script fallback
+  /// chains (Plan §L.2/§L.3). Built once from the config; the availability check
+  /// reads the process-wide embedded/system font registries.
+  late final FontResolver _fontResolver = FontResolver(
+    substitutions: config.fontSubstitutions,
+    extraFallbacks: config.customFontFallbacks,
+  );
 
   /// Resolves the [TextStyle.height] multiplier for `auto` line spacing
   /// (`lineSpacing / 240`, where 240 twips = one single line). For
@@ -131,14 +156,28 @@ class SpanFactory {
   /// is shared by measurement and rendering. [lineHeight] is the paragraph's
   /// resolved line-height scale (`TextStyle.height`), or null for the theme
   /// default.
-  TextStyle resolveRunStyle(DocxText text, {double? lineHeight}) {
-    final fontWeight = text.fontWeight == DocxFontWeight.bold
-        ? FontWeight.bold
-        : FontWeight.normal;
+  ///
+  /// [script] selects which of the run's per-script properties apply (Plan
+  /// §L.1): a complex-script segment uses the `w:cs` font, `w:szCs` size and
+  /// `w:bCs`/`w:iCs` bold/italic (each falling back to the Latin property when
+  /// the complex one is unset, matching documents that only set `w:b`/`w:sz`),
+  /// while a Latin segment uses the `w:ascii`/`w:hAnsi` font, `w:sz` and
+  /// `w:b`/`w:i`. For a single-script run this is identical to the pre-Part-L
+  /// style.
+  TextStyle resolveRunStyle(
+    DocxText text, {
+    double? lineHeight,
+    DocxScript script = DocxScript.latin,
+  }) {
+    final isComplex = script == DocxScript.complex;
 
-    final fontStyle = text.fontStyle == DocxFontStyle.italic
-        ? FontStyle.italic
-        : FontStyle.normal;
+    final bool boldEffective =
+        isComplex ? (text.boldCs ?? text.isBold) : text.isBold;
+    final fontWeight = boldEffective ? FontWeight.bold : FontWeight.normal;
+
+    final bool italicEffective =
+        isComplex ? (text.italicCs ?? text.isItalic) : text.isItalic;
+    final fontStyle = italicEffective ? FontStyle.italic : FontStyle.normal;
 
     // Decorations (underline pattern + strike). Flutter shares a single
     // decorationStyle/colour/thickness across all decorations on a span, so the
@@ -199,41 +238,47 @@ class SpanFactory {
       backgroundColor = highlightToColor(text.highlight);
     }
 
-    double? fontSize = text.fontSize;
-    if (fontSize != null) {
-      fontSize = fontSize * 1.333;
+    final double? rawPt =
+        isComplex ? (text.fontSizeCs ?? text.fontSize) : text.fontSize;
+    double? fontSize =
+        rawPt != null ? rawPt * 1.333 : theme.defaultTextStyle.fontSize;
+
+    // Per-script requested family (Plan §L.1): a complex segment reads the
+    // `w:cs`/`w:csTheme` slot, a Latin segment the `w:ascii`/`w:hAnsi` slots.
+    // Each falls back to the run's other font slots and the legacy `fontFamily`
+    // so text is never left without a family.
+    String? requested;
+    if (isComplex) {
+      if (docxTheme != null && text.fonts?.csTheme != null) {
+        requested = docxTheme!.fonts.getFont(text.fonts!.csTheme!);
+      }
+      requested ??= text.fonts?.cs;
+      requested ??= text.fonts?.ascii ?? text.fonts?.hAnsi;
     } else {
-      fontSize = theme.defaultTextStyle.fontSize;
-    }
-
-    String? fontFamily; // null → granular resolution / theme default
-
-    if (docxTheme != null) {
-      String? themeFontName;
-      if (text.fonts?.asciiTheme != null) {
-        themeFontName = text.fonts!.asciiTheme;
-      } else if (text.fonts?.hAnsiTheme != null) {
-        themeFontName = text.fonts!.hAnsiTheme;
-      } else if (text.fonts?.eastAsiaTheme != null) {
-        themeFontName = text.fonts!.eastAsiaTheme;
+      if (docxTheme != null) {
+        final themeFontName = text.fonts?.asciiTheme ??
+            text.fonts?.hAnsiTheme ??
+            text.fonts?.eastAsiaTheme;
+        if (themeFontName != null) {
+          requested = docxTheme!.fonts.getFont(themeFontName);
+        }
       }
-      if (themeFontName != null) {
-        final resolved = docxTheme!.fonts.getFont(themeFontName);
-        if (resolved != null) fontFamily = resolved;
+      requested ??=
+          text.fonts?.ascii ?? text.fonts?.hAnsi ?? text.fonts?.family;
+    }
+    requested ??= text.fontFamily;
+
+    // Map the requested name to a family Flutter can render (embedded / system /
+    // metric clone), then attach the per-script fallback chain so a stray glyph
+    // degrades gracefully instead of dropping to a tofu box (§L.2/§L.3).
+    String? fontFamily = _fontResolver.resolve(requested);
+    final fontFamilyFallback = _fontResolver.fallbacksFor(script);
+    if (fontFamily == null) {
+      if (fontFamilyFallback.isNotEmpty) {
+        fontFamily = fontFamilyFallback.first;
+      } else if (config.customFontFallbacks.isNotEmpty) {
+        fontFamily = config.customFontFallbacks.first;
       }
-    }
-
-    if (text.fonts?.ascii != null) {
-      fontFamily = text.fonts!.ascii;
-    } else if (text.fonts?.hAnsi != null) {
-      fontFamily = text.fonts!.hAnsi;
-    } else if (text.fonts?.family != null) {
-      fontFamily = text.fonts!.family;
-    }
-
-    fontFamily ??= text.fontFamily;
-    if (fontFamily == null && config.customFontFallbacks.isNotEmpty) {
-      fontFamily = config.customFontFallbacks.first;
     }
 
     if (text.isSuperscript || text.isSubscript) {
@@ -325,7 +370,7 @@ class SpanFactory {
           text.characterSpacing != null ? text.characterSpacing! / 15.0 : null,
       fontSize: fontSize,
       fontFamily: fontFamily,
-      fontFamilyFallback: config.customFontFallbacks,
+      fontFamilyFallback: fontFamilyFallback,
       // Single spacing → the run font's own line-height ratio (what Word uses),
       // so density matches Word per-font instead of a fixed multiplier. Explicit
       // multiples (1.5/double) keep their value; unknown fonts fall back to the
@@ -336,6 +381,43 @@ class SpanFactory {
       shadows: shadows,
       fontFeatures: fontFeatures,
     );
+  }
+
+  /// Splits a [DocxText] run's resolved content into script-homogeneous
+  /// [RunSegment]s, each with its own resolved [TextStyle] (Plan §L.1). A
+  /// run mixing Hebrew/Arabic and Latin is cut so each script is laid out with
+  /// the correct font/size/weight (what Word does); a single-script run returns
+  /// exactly one segment, byte-identical to the pre-Part-L single span. Used by
+  /// both the measurer and the renderer so measure ≡ render.
+  ///
+  /// An empty run returns an empty list (it contributes no glyphs).
+  List<RunSegment> resolveRunSegments(DocxText text, {double? lineHeight}) {
+    final content = resolveContent(text);
+    if (content.isEmpty) return const [];
+
+    final runs = classifyScript(content, hintComplex: text.fonts?.hint == 'cs');
+    // Common case: one script → one style. Avoids per-segment substring/style
+    // work for the bulk of (single-script) runs.
+    if (runs.length == 1) {
+      return [
+        RunSegment(
+          content,
+          resolveRunStyle(text,
+              lineHeight: lineHeight, script: runs.first.script),
+          0,
+          content.length,
+        ),
+      ];
+    }
+    return [
+      for (final r in runs)
+        RunSegment(
+          content.substring(r.start, r.end),
+          resolveRunStyle(text, lineHeight: lineHeight, script: r.script),
+          r.start,
+          r.end,
+        ),
+    ];
   }
 
   /// Builds the canonical span tree + placeholder dims for a paragraph's
@@ -419,12 +501,16 @@ class SpanFactory {
     for (final inline in inlines) {
       if (inline is DocxText) {
         if (skipHidden && inline.hidden) continue; // w:vanish.
-        final content = resolveContent(inline);
-        spans.add(TextSpan(
-          text: content,
-          style: resolveRunStyle(inline, lineHeight: lineHeight),
-        ));
-        seg(content.length, inline, atomic: false); // splittable text run
+        // Script-split into per-script spans (Plan §L.1); the slices tile the
+        // resolved content exactly, so the painter text — and therefore the
+        // split-point mapping below — is unchanged from a single span.
+        final segs = resolveRunSegments(inline, lineHeight: lineHeight);
+        var total = 0;
+        for (final s in segs) {
+          spans.add(TextSpan(text: s.text, style: s.style));
+          total += s.text.length;
+        }
+        seg(total, inline, atomic: false); // splittable text run
       } else if (inline is DocxLineBreak) {
         spans.add(const TextSpan(text: '\n'));
         seg(1, inline);

@@ -871,154 +871,153 @@ class ParagraphBuilder {
     );
   }
 
-  /// Build a TextSpan from a [DocxText] element.
-  /// Returns a list because one DocxText might be split into multiple spans for search highlights.
+  /// Build the spans for a [DocxText] element. Returns a list because one run is
+  /// split into multiple spans — by script (Hebrew/Latin, Plan §L.1) and again
+  /// by search-match boundaries.
   List<InlineSpan> _buildTextSpan(
     DocxText text, {
     double? lineHeight,
     List<SearchMatch>? matches,
     int offset = 0,
   }) {
-    // Content transform + run style come from the shared [SpanFactory] so the
-    // measurer (Part C) builds byte-identical geometry. Link colour, search
+    // Script-split run segments come from the shared [SpanFactory] so the
+    // measurer (Part C/L) builds byte-identical geometry. Link colour, search
     // highlight and text-border are layered on below — all geometry-neutral.
-    final content = _spanFactory.resolveContent(text);
-    final baseStyle =
-        _spanFactory.resolveRunStyle(text, lineHeight: lineHeight);
-    final backgroundColor = baseStyle.backgroundColor;
+    final segments =
+        _spanFactory.resolveRunSegments(text, lineHeight: lineHeight);
+    if (segments.isEmpty) return const [];
 
-    // Tap handler
+    // Tap handler (one per run; applies to every segment).
     TapGestureRecognizer? tapRecognizer;
     Color? linkColor;
     TextDecoration? linkDecoration;
-
     if (text.href != null && text.href!.isNotEmpty) {
       linkColor = theme.linkStyle.color;
       linkDecoration = TextDecoration.underline;
       final href = text.href!;
-      tapRecognizer = TapGestureRecognizer()
-        ..onTap = () {
-          _onLinkTap(href);
-        };
+      tapRecognizer = TapGestureRecognizer()..onTap = () => _onLinkTap(href);
     }
 
-    // Split text based on matches
-    if (matches == null || matches.isEmpty) {
-      // Normal case
-      // Check for TextBorder
-      if (text.textBorder != null) {
-        final side = _buildBorderSide(text.textBorder!);
-        if (side != BorderSide.none) {
-          final textBorder = Border.all(
-              color: side.color, width: side.width, style: side.style);
-          return [
-            WidgetSpan(
-                alignment: PlaceholderAlignment.middle,
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 2, vertical: 0),
-                  decoration: BoxDecoration(
-                    border: textBorder,
-                    color: backgroundColor,
+    // Text border boxes the whole run; search highlighting takes precedence over
+    // it (matching the pre-Part-L behaviour). Mixed-script bordered text keeps
+    // its per-script styles via a rich child.
+    if (text.textBorder != null && (matches == null || matches.isEmpty)) {
+      final side = _buildBorderSide(text.textBorder!);
+      if (side != BorderSide.none) {
+        return [
+          WidgetSpan(
+            alignment: PlaceholderAlignment.middle,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 0),
+              decoration: BoxDecoration(
+                border: Border.all(
+                    color: side.color, width: side.width, style: side.style),
+                color: segments.first.style.backgroundColor,
+              ),
+              child: Text.rich(TextSpan(children: [
+                for (final s in segments)
+                  TextSpan(
+                    text: s.text,
+                    style: s.style.copyWith(
+                      color: linkColor ?? s.style.color,
+                      decoration: linkDecoration ?? s.style.decoration,
+                    ),
                   ),
-                  child: Text(content,
-                      style: baseStyle.copyWith(
-                        color: linkColor ?? baseStyle.color,
-                        decoration: linkDecoration ?? baseStyle.decoration,
-                        backgroundColor: null, // moved to container
-                      )),
-                ))
-          ];
-        }
+              ])),
+            ),
+          )
+        ];
       }
-
-      return [
-        TextSpan(
-          text: content,
-          style: baseStyle.copyWith(
-            color: linkColor ?? baseStyle.color,
-            decoration: linkDecoration ?? baseStyle.decoration,
-          ),
-          recognizer: tapRecognizer,
-        )
-      ];
     }
 
-    // Splitting logic
-    final resultSpans = <InlineSpan>[];
-    int currentLocalIndex = 0;
-    final int textLength = content.length;
-    final int globalStart = offset;
-    final int globalEnd = offset + textLength;
+    final out = <InlineSpan>[];
+    for (final s in segments) {
+      out.addAll(_overlaySegment(
+        s.text,
+        s.style,
+        offset + s.start,
+        matches,
+        tapRecognizer,
+        linkColor,
+        linkDecoration,
+      ));
+    }
+    return out;
+  }
 
-    // Filter matches that overlap with this text node
-    final relevantMatches = matches
+  /// Lays the link colour/decoration and search-match highlighting over one
+  /// script segment's [content] (whose first character is at painter-text offset
+  /// [globalStart]). Geometry is untouched — colour and the underline are the
+  /// only overlays — so this stays byte-identical to what the measurer laid out.
+  List<InlineSpan> _overlaySegment(
+    String content,
+    TextStyle segStyle,
+    int globalStart,
+    List<SearchMatch>? matches,
+    TapGestureRecognizer? tapRecognizer,
+    Color? linkColor,
+    TextDecoration? linkDecoration,
+  ) {
+    final base = segStyle.copyWith(
+      color: linkColor ?? segStyle.color,
+      decoration: linkDecoration ?? segStyle.decoration,
+    );
+
+    if (matches == null || matches.isEmpty) {
+      return [TextSpan(text: content, style: base, recognizer: tapRecognizer)];
+    }
+
+    final result = <InlineSpan>[];
+    final textLength = content.length;
+    final globalEnd = globalStart + textLength;
+
+    final relevant = matches
         .where((m) => m.endOffset > globalStart && m.startOffset < globalEnd)
-        .toList();
+        .toList()
+      ..sort((a, b) => a.startOffset.compareTo(b.startOffset));
 
-    // Sort matches (should be sorted but ensure)
-    relevantMatches.sort((a, b) => a.startOffset.compareTo(b.startOffset));
+    var cursor = 0;
+    for (final match in relevant) {
+      var ms = match.startOffset - globalStart;
+      var me = match.endOffset - globalStart;
+      if (ms < 0) ms = 0;
+      if (me > textLength) me = textLength;
 
-    for (final match in relevantMatches) {
-      // Calculate overlap
-      int matchStartInNode = match.startOffset - globalStart;
-      int matchEndInNode = match.endOffset - globalStart;
-
-      // Clamp to node bounds
-      if (matchStartInNode < 0) matchStartInNode = 0;
-      if (matchEndInNode > textLength) matchEndInNode = textLength;
-
-      if (matchStartInNode > currentLocalIndex) {
-        // Unmatched segment before
-        resultSpans.add(TextSpan(
-          text: content.substring(currentLocalIndex, matchStartInNode),
-          style: baseStyle.copyWith(
-            color: linkColor ?? baseStyle.color,
-            decoration: linkDecoration ?? baseStyle.decoration,
-          ),
+      if (ms > cursor) {
+        result.add(TextSpan(
+          text: content.substring(cursor, ms),
+          style: base,
           recognizer: tapRecognizer,
         ));
       }
-
-      // Matched segment
-      if (matchEndInNode > matchStartInNode) {
-        bool isCurrent = false;
+      if (me > ms) {
+        var isCurrent = false;
         if (searchController != null) {
-          // Check if this match is the currently selected one
-          final currentMatchIndex = searchController!.currentMatchIndex;
-          if (currentMatchIndex >= 0 &&
-              currentMatchIndex < searchController!.matches.length) {
-            isCurrent = match == searchController!.matches[currentMatchIndex];
+          final i = searchController!.currentMatchIndex;
+          if (i >= 0 && i < searchController!.matches.length) {
+            isCurrent = match == searchController!.matches[i];
           }
         }
-
-        resultSpans.add(TextSpan(
-          text: content.substring(matchStartInNode, matchEndInNode),
-          style: baseStyle.copyWith(
-            color: linkColor ?? baseStyle.color,
-            decoration: linkDecoration ?? baseStyle.decoration,
+        result.add(TextSpan(
+          text: content.substring(ms, me),
+          style: base.copyWith(
             backgroundColor:
                 isCurrent ? Colors.orange.shade300 : Colors.yellow.shade200,
           ),
           recognizer: tapRecognizer,
         ));
       }
-      currentLocalIndex = matchEndInNode;
+      cursor = me;
     }
 
-    // Remaining text
-    if (currentLocalIndex < textLength) {
-      resultSpans.add(TextSpan(
-        text: content.substring(currentLocalIndex),
-        style: baseStyle.copyWith(
-          color: linkColor ?? baseStyle.color,
-          decoration: linkDecoration ?? baseStyle.decoration,
-        ),
+    if (cursor < textLength) {
+      result.add(TextSpan(
+        text: content.substring(cursor),
+        style: base,
         recognizer: tapRecognizer,
       ));
     }
-
-    return resultSpans;
+    return result;
   }
 
   /// Resolves the TextStyle line-height scale via the shared [SpanFactory], so

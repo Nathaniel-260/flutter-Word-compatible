@@ -316,7 +316,19 @@ class _DocxViewState extends State<DocxView> {
       // Load document using docx_creator
       final doc = await DocxReader.loadFromBytes(bytes);
 
+      // Every font family the document actually references (runs + theme
+      // defaults), seeded with the configured fallbacks.
+      final families = collectDocumentFontFamilies(doc,
+          extra: widget.config.customFontFallbacks);
+
+      // Lazy embedded-font load (Plan §L.5): only register an embedded font when
+      // the document really uses it — a `.docx` can embed many faces while a run
+      // touches few, and each registered face costs RAM. Matched
+      // case-insensitively against the referenced set.
+      final referenced = {for (final f in families) f.trim().toLowerCase()};
       for (final font in doc.fonts) {
+        final key = font.familyName.trim().toLowerCase();
+        if (!referenced.contains(key)) continue;
         await EmbeddedFontLoader.loadFont(
           font.familyName,
           font.bytes,
@@ -328,8 +340,6 @@ class _DocxViewState extends State<DocxView> {
       // (Arial/David/… are not embedded), so single-spaced text lays out at
       // Word's per-font line height. Best-effort + desktop-only (web no-ops);
       // embedded fonts were already registered above from their bytes.
-      final families = collectDocumentFontFamilies(doc,
-          extra: widget.config.customFontFallbacks);
       await registerSystemFonts(families);
 
       // Pre-process notes for quick lookup
@@ -928,6 +938,23 @@ Set<String> collectDocumentFontFamilies(
   Iterable<String> extra = const [],
 }) {
   final families = <String>{...extra};
+  // The theme's major/minor fonts are the document's defaults — every `*Theme`
+  // run slot (minorHAnsi, majorBidi, …) resolves to one of these — so include
+  // them. This also makes the set a safe superset for the lazy embedded-font
+  // load below (a font used only through a style/theme is still seen).
+  final tf = doc.theme?.fonts;
+  if (tf != null) {
+    for (final f in [
+      tf.majorLatin,
+      tf.minorLatin,
+      tf.majorComplexScript,
+      tf.minorComplexScript,
+      tf.majorEastAsia,
+      tf.minorEastAsia,
+    ]) {
+      if (f.trim().isNotEmpty) families.add(f);
+    }
+  }
   _collectFontFamilies(doc.elements, families);
   _collectFontFamilies(doc.section?.header?.children ?? const [], families);
   _collectFontFamilies(doc.section?.footer?.children ?? const [], families);

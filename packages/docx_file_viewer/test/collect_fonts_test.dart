@@ -35,4 +35,35 @@ void main() {
         collectDocumentFontFamilies(doc, extra: const ['FallbackFont']);
     expect(families, containsAll(['BodyFont', 'FallbackFont']));
   });
+
+  test('includes the theme major/minor fonts (Plan §L.5 lazy-load superset)',
+      () {
+    // A font used only through the theme defaults (e.g. a `minorHAnsi` run) must
+    // still be collected so the lazy embedded-font load below sees it.
+    final doc = DocxBuiltDocument(
+      elements: [runWithFont('BodyFont')],
+      theme: const DocxTheme(
+        fonts: DocxThemeFonts(
+          majorLatin: 'HeadingFont',
+          minorLatin: 'ThemeBodyFont',
+          majorComplexScript: 'HebrewHeadingFont',
+          minorComplexScript: 'HebrewBodyFont',
+          // empty east-asia slots must be skipped, not added as ''
+        ),
+      ),
+    );
+
+    final families = collectDocumentFontFamilies(doc);
+    expect(
+      families,
+      containsAll([
+        'BodyFont',
+        'HeadingFont',
+        'ThemeBodyFont',
+        'HebrewHeadingFont',
+        'HebrewBodyFont',
+      ]),
+    );
+    expect(families, isNot(contains('')));
+  });
 }
