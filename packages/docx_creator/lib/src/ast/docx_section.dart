@@ -964,3 +964,42 @@ class DocxBookmark extends DocxInline {
     });
   }
 }
+
+/// `STYLEREF` field — the text of the nearest paragraph carrying [styleName]
+/// (Plan §K.3). Common in the running heads of reference books (a dictionary or
+/// a religious text shows the current entry/chapter in the header).
+///
+/// The value is **pagination-dependent**, like `PAGE`: by default it is the text
+/// of the *last* paragraph of that style up to the end of the current page;
+/// [searchFromTop] (the `\l` switch) selects the *first* such paragraph on the
+/// page instead. When pagination cannot resolve it the [cachedText] (Word's
+/// last-computed value) is shown so the header is never blank.
+///
+/// [styleName] is the value Word stores in the field — usually the style's
+/// display name (e.g. `Heading 1`), sometimes its id; the viewer matches either.
+class DocxStyleRef extends DocxInline {
+  final String styleName;
+
+  /// `\l` switch — search from the top of the page (first matching paragraph)
+  /// rather than the default bottom-up search (last matching paragraph).
+  final bool searchFromTop;
+
+  final String? cachedText;
+
+  const DocxStyleRef(
+    this.styleName, {
+    this.searchFromTop = false,
+    this.cachedText,
+    super.id,
+  });
+
+  @override
+  void accept(DocxVisitor visitor) => visitor.visitText(this);
+
+  @override
+  void buildXml(XmlBuilder builder) {
+    // Quote the style name so a multi-word name (e.g. "Heading 1") round-trips.
+    final l = searchFromTop ? r' \l' : '';
+    _buildFieldXml(builder, ' STYLEREF "$styleName"$l ');
+  }
+}

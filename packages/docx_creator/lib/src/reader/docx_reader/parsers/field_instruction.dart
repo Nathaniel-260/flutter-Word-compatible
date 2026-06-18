@@ -32,9 +32,42 @@ abstract final class FieldInstruction {
           format: format,
           cachedText: cachedText,
         );
+      case 'STYLEREF':
+        // STYLEREF "<style>" [\l] [\n \w \r \t \p \* …] — only the style name and
+        // the \l (search-from-top) switch affect the displayed running head text.
+        final style = _firstArg(tokens);
+        if (style == null) return null;
+        return DocxStyleRef(
+          style,
+          searchFromTop: tokens.contains(r'\l'),
+          cachedText: cachedText,
+        );
       default:
         return null;
     }
+  }
+
+  /// The first non-switch argument after the field name (e.g. the style name in
+  /// `STYLEREF`, the target in `HYPERLINK`), or null when there is none.
+  static String? _firstArg(List<String> tokens) {
+    for (var i = 1; i < tokens.length; i++) {
+      if (!tokens[i].startsWith(r'\')) return tokens[i];
+    }
+    return null;
+  }
+
+  /// Parses a `HYPERLINK` instruction into its `(url, anchor)` (Plan §K.2/§K.3).
+  /// `HYPERLINK "http://…"` → external url; `HYPERLINK \l "name"` → an internal
+  /// anchor (a bookmark). Returns null when [instruction] is not a HYPERLINK.
+  static ({String? url, String? anchor})? parseHyperlink(String instruction) {
+    final tokens = tokenize(instruction);
+    if (tokens.isEmpty || tokens.first.toUpperCase() != 'HYPERLINK') {
+      return null;
+    }
+    final li = tokens.indexOf(r'\l');
+    final anchor = (li != -1 && li + 1 < tokens.length) ? tokens[li + 1] : null;
+    final url = _firstArg(tokens);
+    return (url: anchor == null ? url : null, anchor: anchor);
   }
 
   /// The page-number format from a `\* SWITCH` pair, or null to inherit.

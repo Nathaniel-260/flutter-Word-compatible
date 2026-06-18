@@ -33,10 +33,7 @@ class InlineParser {
 
     void finalizeField() {
       final instr = fieldInstr!.toString();
-      final node =
-          FieldInstruction.parse(instr, cachedText: _cachedText(cached));
-      children
-          .add(node ?? DocxUnknownField(instr, cachedResult: List.of(cached)));
+      children.addAll(_fieldNodes(instr, cached));
       fieldInstr = null;
       inResult = false;
       cached.clear();
@@ -136,10 +133,8 @@ class InlineParser {
         final instr = child.getAttribute('w:instr') ?? '';
         final inner = parseChildren(child.children,
             parentStyle: parentStyle, paragraphStyleId: paragraphStyleId);
-        final node =
-            FieldInstruction.parse(instr, cachedText: _cachedText(inner));
-        final field = node ?? DocxUnknownField(instr, cachedResult: inner);
-        (fieldInstr != null ? cached : children).add(field);
+        (fieldInstr != null ? cached : children)
+            .addAll(_fieldNodes(instr, inner));
         continue;
       }
 
@@ -166,6 +161,17 @@ class InlineParser {
         final parsed = parseChildren(contentNodes,
             parentStyle: parentStyle, paragraphStyleId: paragraphStyleId);
         (fieldInstr != null ? cached : children).addAll(parsed);
+        continue;
+      }
+
+      // OMML (math): out of scope for layout (Plan §K.6) — render the linear
+      // text (`m:t` runs concatenated) as a placeholder so the equation's content
+      // is not lost. `oMathPara` wraps one or more `oMath`.
+      if (local == 'oMath' || local == 'oMathPara') {
+        final text = _ommlLinearText(child);
+        if (text.isNotEmpty) {
+          (fieldInstr != null ? cached : children).add(DocxText(text));
+        }
         continue;
       }
 
@@ -201,6 +207,54 @@ class InlineParser {
     }
     final text = buf.toString().trim();
     return text.isEmpty ? null : text;
+  }
+
+  /// Resolves a finalized field [instr] (with its [cached] result runs) into the
+  /// inline nodes to emit. A `HYPERLINK` field becomes its result runs turned
+  /// into links (external url or `#anchor`); a known automatic field becomes its
+  /// node; anything else is kept as a [DocxUnknownField] so its cached text and
+  /// the original code survive (Plan §K).
+  List<DocxInline> _fieldNodes(String instr, List<DocxInline> cached) {
+    final hl = FieldInstruction.parseHyperlink(instr);
+    if (hl != null) {
+      final href =
+          hl.anchor != null && hl.anchor!.isNotEmpty ? '#${hl.anchor}' : hl.url;
+      if (href != null && href.isNotEmpty) return _linkify(cached, href);
+      return List.of(cached); // no usable target — keep the visible text
+    }
+    final node = FieldInstruction.parse(instr, cachedText: _cachedText(cached));
+    return [node ?? DocxUnknownField(instr, cachedResult: List.of(cached))];
+  }
+
+  /// Applies [href] (an external url or an internal `#anchor`) to the text runs
+  /// in [inlines], styling them as a link — the same transform a `w:hyperlink`
+  /// element receives, so a `HYPERLINK` field and a hyperlink element render
+  /// identically.
+  static List<DocxInline> _linkify(List<DocxInline> inlines, String href) {
+    return [
+      for (final inline in inlines)
+        if (inline is DocxText)
+          inline.copyWith(
+            href: href,
+            decorations:
+                inline.decorations.contains(DocxTextDecoration.underline)
+                    ? inline.decorations
+                    : [...inline.decorations, DocxTextDecoration.underline],
+            color: DocxColor.blue,
+          )
+        else
+          inline,
+    ];
+  }
+
+  /// Concatenates the `m:t` text of an OMML element in document order (the
+  /// "linear" form of the equation) — Plan §K.6 placeholder.
+  static String _ommlLinearText(XmlElement omml) {
+    final buf = StringBuffer();
+    for (final t in omml.findAllElements('m:t')) {
+      buf.write(t.innerText);
+    }
+    return buf.toString();
   }
 
   /// Parse a single run (w:r) element.
@@ -402,6 +456,12 @@ class InlineParser {
     if (rId != null) {
       final rel = context.getRelationship(rId);
       if (rel != null) href = rel.target;
+    }
+    // Internal link to a bookmark (`w:anchor`, no relationship): encode as a
+    // URI fragment so the viewer routes it to the bookmark map (Plan §K.2).
+    final anchor = hyperlink.getAttribute('w:anchor');
+    if (href == null && anchor != null && anchor.isNotEmpty) {
+      href = '#$anchor';
     }
 
     for (var grandChild in hyperlink.findAllElements('w:r')) {

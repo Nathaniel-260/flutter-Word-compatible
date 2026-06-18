@@ -63,6 +63,12 @@ class DocxViewConfig {
   /// If null, defaults to page width * 1.414 (A4 ratio).
   final double? pageHeight;
 
+  /// Called when an external hyperlink in the document is tapped, with its url
+  /// (Plan §K.2). When null the viewer launches the url via `url_launcher`.
+  /// Internal links (anchors to a bookmark) are handled by the viewer itself
+  /// (it scrolls to the bookmark's page) and never reach this callback.
+  final void Function(String url)? onOpenLink;
+
   /// Paged mode only: scale each page down to fit the viewport width when the
   /// window is narrower than the page, so the whole page is visible instead of
   /// being clipped. Crucially this is **purely visual zoom** — the document is
@@ -90,6 +96,7 @@ class DocxViewConfig {
     this.pageHeight,
     this.pageMode = DocxPageMode.paged,
     this.fitPageToWidth = true,
+    this.onOpenLink,
   });
 
   DocxViewConfig copyWith({
@@ -110,6 +117,7 @@ class DocxViewConfig {
     double? pageHeight,
     DocxPageMode? pageMode,
     bool? fitPageToWidth,
+    void Function(String url)? onOpenLink,
   }) {
     return DocxViewConfig(
       enableSearch: enableSearch ?? this.enableSearch,
@@ -130,6 +138,7 @@ class DocxViewConfig {
       pageHeight: pageHeight ?? this.pageHeight,
       pageMode: pageMode ?? this.pageMode,
       fitPageToWidth: fitPageToWidth ?? this.fitPageToWidth,
+      onOpenLink: onOpenLink ?? this.onOpenLink,
     );
   }
 }

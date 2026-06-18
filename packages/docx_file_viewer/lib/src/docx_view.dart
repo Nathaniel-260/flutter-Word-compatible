@@ -5,6 +5,7 @@ import 'package:docx_creator/docx_creator.dart';
 import 'package:flutter/material.dart';
 
 import 'docx_view_config.dart';
+import 'docx_view_controller.dart';
 import 'font_loader/embedded_font_loader.dart';
 import 'font_loader/system_font_metrics_io.dart'
     if (dart.library.js_interop) 'font_loader/system_font_metrics_web.dart';
@@ -44,6 +45,10 @@ class DocxView extends StatefulWidget {
   /// Optional search controller for external control.
   final DocxSearchController? searchController;
 
+  /// Optional controller for programmatic navigation (jump to bookmark/page,
+  /// Plan §K.2).
+  final DocxViewController? controller;
+
   /// Callback when document loading completes.
   final VoidCallback? onLoaded;
 
@@ -57,6 +62,7 @@ class DocxView extends StatefulWidget {
     this.path,
     this.config = const DocxViewConfig(),
     this.searchController,
+    this.controller,
     this.onLoaded,
     this.onError,
   }) : assert(
@@ -142,16 +148,35 @@ class _DocxViewState extends State<DocxView> {
   late DocxSearchController _searchController;
   late DocxWidgetGenerator _generator;
 
+  /// Scrolls the page/document list; used by [DocxViewController] navigation
+  /// (jump to bookmark/page, Plan §K.2).
+  final ScrollController _scrollController = ScrollController();
+
+  /// One key per paged-mode page, so navigation can scroll a page's *top* edge
+  /// to the viewport top precisely with [Scrollable.ensureVisible] (Plan §K.2)
+  /// instead of estimating a pixel offset. Created lazily; cleared per load.
+  final Map<int, GlobalKey> _pageKeys = {};
+
+  GlobalKey _pageKey(int index) =>
+      _pageKeys.putIfAbsent(index, () => GlobalKey());
+
+  /// Wraps a built paged-mode page [slot] with its navigation key.
+  Widget _keyedPage(int index, Widget slot) =>
+      KeyedSubtree(key: _pageKey(index), child: slot);
+
   @override
   void initState() {
     super.initState();
     _searchController = widget.searchController ?? DocxSearchController();
     _searchController.addListener(_onSearchChanged);
+    _attachController();
     _loadDocument();
   }
 
   @override
   void dispose() {
+    widget.controller?.detach(_bookmarkPageIndex);
+    _scrollController.dispose();
     if (widget.searchController == null) {
       _searchController.dispose();
     } else {
@@ -163,6 +188,10 @@ class _DocxViewState extends State<DocxView> {
   @override
   void didUpdateWidget(DocxView oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller?.detach(_bookmarkPageIndex);
+      _attachController();
+    }
     if (oldWidget.file != widget.file ||
         oldWidget.bytes != widget.bytes ||
         oldWidget.path != widget.path) {
@@ -170,8 +199,86 @@ class _DocxViewState extends State<DocxView> {
     }
   }
 
+  void _attachController() {
+    widget.controller?.attach(
+      bookmarks: _bookmarkPageIndex,
+      jumpBookmark: _jumpToBookmark,
+      jumpPage: _jumpToPage,
+    );
+  }
+
+  /// Stable closure identity used as the binding token in [DocxViewController].
+  Map<String, int> _bookmarkPageIndex() =>
+      _pagination?.bookmarkPageIndex ?? const {};
+
+  /// Routes an internal link tap (`#bookmark`) to a scroll (Plan §K.2). The tap
+  /// jumps **instantly** (no fly-through animation) so it feels immediate even in
+  /// a long document.
+  void _onInternalLink(String bookmark) {
+    _jumpToBookmark(bookmark, Duration.zero, Curves.easeInOut);
+  }
+
+  Future<bool> _jumpToBookmark(
+      String bookmark, Duration duration, Curve curve) async {
+    final index = _bookmarkPageIndex()[bookmark];
+    if (index == null) return false;
+    return _jumpToPage(index, duration, curve);
+  }
+
+  /// Scrolls so page [index]'s **top** sits at the top of the viewport (Plan
+  /// §K.2). Prefers [Scrollable.ensureVisible] on the page's own key — exact and
+  /// always top-aligned, regardless of zoom/fit scaling — and falls back to a
+  /// pixel-offset estimate only when the page is not yet built (virtualized list,
+  /// far jump), then corrects to the exact position once it builds.
+  Future<bool> _jumpToPage(int index, Duration duration, Curve curve) async {
+    if (index < 0) return false;
+    if (!_scrollController.hasClients) return false;
+    if (widget.config.pageMode != DocxPageMode.paged) return false;
+
+    final ctx = _pageKeys[index]?.currentContext;
+    if (ctx != null) {
+      // alignment 0.0 → the page's leading (top) edge meets the viewport top.
+      await Scrollable.ensureVisible(ctx,
+          alignment: 0.0, duration: duration, curve: curve);
+      return true;
+    }
+
+    // Page not built yet (virtualized, off-screen): approximate by uniform page
+    // height, then snap precisely once the target page has been laid out.
+    final section = _doc?.section;
+    final slotH = _generator.pageSlotHeight(section);
+    final slotW = _generator.pageSlotWidth(section);
+    final position = _scrollController.position;
+    final viewportW =
+        position.hasViewportDimension ? position.viewportDimension : slotW;
+    final scale = (widget.config.fitPageToWidth && viewportW < slotW)
+        ? (viewportW / slotW)
+        : 1.0;
+    final top = widget.config.padding.top;
+    final target =
+        (top + index * slotH * scale).clamp(0.0, position.maxScrollExtent);
+    // `animateTo` asserts duration > 0; an instant jump must use `jumpTo`.
+    if (duration <= Duration.zero) {
+      _scrollController.jumpTo(target);
+    } else {
+      await _scrollController.animateTo(target,
+          duration: duration, curve: curve);
+    }
+    // The estimate scrolls the target page into view; once it is laid out, snap
+    // its top edge to the viewport top exactly (instant — ensureVisible jumps
+    // when given a zero duration).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final built = _pageKeys[index]?.currentContext;
+      if (built != null && built.mounted) {
+        Scrollable.ensureVisible(built, alignment: 0.0);
+      }
+    });
+    return true;
+  }
+
   Future<void> _loadDocument() async {
     final int myGen = ++_loadGeneration;
+    _pageKeys.clear(); // navigation keys belong to the previous document
     setState(() {
       _isLoading = true;
       _error = null;
@@ -226,6 +333,10 @@ class _DocxViewState extends State<DocxView> {
             _showNoteContent('Footnote', footnoteMap[id]?.content),
         onEndnoteTap: (id) =>
             _showNoteContent('Endnote', endnoteMap[id]?.content),
+        // Internal anchors scroll to the bookmark's page; external links go to
+        // the host callback, falling back to url_launcher (Plan §K.2).
+        onInternalLink: _onInternalLink,
+        onExternalLink: widget.config.onOpenLink,
       );
 
       if (widget.config.pageMode == DocxPageMode.paged) {
@@ -531,19 +642,24 @@ class _DocxViewState extends State<DocxView> {
               ? Center(child: _buildPagePlaceholder())
               : _buildTruncationNotice();
         }
-        return _pageSlot(
-          _generator.buildPageWidget(_doc!, _pages, i,
-              finalResult: _pagination),
+        return _keyedPage(
+          i,
+          _pageSlot(
+            _generator.buildPageWidget(_doc!, _pages, i,
+                finalResult: _pagination),
+          ),
         );
       }
 
       list = canVirtualize
           ? ListView.builder(
+              controller: _scrollController,
               padding: widget.config.padding,
               itemCount: itemCount,
               itemBuilder: (context, i) => buildItem(i),
             )
           : SingleChildScrollView(
+              controller: _scrollController,
               padding: widget.config.padding,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.center,
@@ -558,19 +674,24 @@ class _DocxViewState extends State<DocxView> {
       }
       list = canVirtualize
           ? ListView.builder(
+              controller: _scrollController,
               padding: widget.config.padding,
               itemCount: widgets.length,
               itemBuilder: (context, i) =>
-                  isPaged ? _pageSlot(widgets[i]) : widgets[i],
+                  isPaged ? _keyedPage(i, _pageSlot(widgets[i])) : widgets[i],
             )
           : SingleChildScrollView(
+              controller: _scrollController,
               padding: widget.config.padding,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: widgets.map((child) {
-                  if (isPaged) return _pageSlot(child);
-                  return child;
-                }).toList(),
+                children: [
+                  for (var i = 0; i < widgets.length; i++)
+                    if (isPaged)
+                      _keyedPage(i, _pageSlot(widgets[i]))
+                    else
+                      widgets[i],
+                ],
               ),
             );
     }

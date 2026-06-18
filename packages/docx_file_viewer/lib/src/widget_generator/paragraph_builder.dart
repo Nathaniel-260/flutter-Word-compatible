@@ -27,6 +27,14 @@ class ParagraphBuilder {
   final void Function(int id)? onFootnoteTap;
   final void Function(int id)? onEndnoteTap;
 
+  /// Called when an internal link (anchor to a bookmark) is tapped, with the
+  /// bookmark name (Plan §K.2). When null the tap is ignored.
+  final void Function(String bookmark)? onInternalLink;
+
+  /// Called when an external hyperlink is tapped, with the url (Plan §K.2). When
+  /// null the viewer falls back to launching the url via `url_launcher`.
+  final void Function(String url)? onExternalLink;
+
   /// Shared run→span source of truth (Plan §C.1); the measurer uses the same
   /// instance-equivalent factory so measured geometry matches rendered.
   final SpanFactory _spanFactory;
@@ -64,6 +72,8 @@ class ParagraphBuilder {
     this.searchController,
     this.onFootnoteTap,
     this.onEndnoteTap,
+    this.onInternalLink,
+    this.onExternalLink,
     this.docxTheme,
   }) : _spanFactory = SpanFactory(
           theme: theme,
@@ -744,6 +754,11 @@ class ParagraphBuilder {
         // Render checkbox as unicode character with styling
         spans.add(_buildCheckboxSpan(inline, lineHeight: lineHeight));
         currentOffset += 2;
+      } else if (inline is DocxSymbol) {
+        // Symbol-font glyph (`w:sym`): map to an equivalent Unicode char so it
+        // renders even without the symbol font (Plan §K.5). Not part of the
+        // search index, so the offset is left unchanged.
+        spans.add(_buildSymbolSpan(inline, lineHeight: lineHeight));
       } else if (inline is DocxInlineImage) {
         // Inline images with proper vertical alignment. Route through the shared
         // ImageBuilder so crop/flip/rotation (§H.3) and the display-resolution
@@ -778,6 +793,15 @@ class ParagraphBuilder {
           spans.add(_buildFieldSpan(text, lineHeight));
           currentOffset += text.length;
         }
+      } else if (inline is DocxStyleRef) {
+        // Resolved live by FieldSubstitution during pagination; before that (or
+        // in continuous mode) show Word's cached value so the running head is not
+        // blank (Plan §K.3).
+        final text = inline.cachedText ?? '';
+        if (text.isNotEmpty) {
+          spans.add(_buildFieldSpan(text, lineHeight));
+          currentOffset += text.length;
+        }
       } else if (inline is DocxUnknownField) {
         // A field the viewer doesn't compute (TOC, REF, …): show its cached
         // result so no text is lost.
@@ -797,6 +821,12 @@ class ParagraphBuilder {
 
     return spans;
   }
+
+  /// A span for a `w:sym` glyph (Plan §K.5). Delegates to the shared
+  /// [SpanFactory.symbolSpan] so the rendered glyph is byte-identical to what the
+  /// measurer laid out (measure ≡ render).
+  InlineSpan _buildSymbolSpan(DocxSymbol sym, {double? lineHeight}) =>
+      _spanFactory.symbolSpan(sym, lineHeight: lineHeight);
 
   /// A span for an automatic field value (page number etc.) in the default
   /// body style. Styling fidelity to the field's own run is deferred.
@@ -865,9 +895,10 @@ class ParagraphBuilder {
     if (text.href != null && text.href!.isNotEmpty) {
       linkColor = theme.linkStyle.color;
       linkDecoration = TextDecoration.underline;
+      final href = text.href!;
       tapRecognizer = TapGestureRecognizer()
         ..onTap = () {
-          _launchUrl(text.href!);
+          _onLinkTap(href);
         };
     }
 
@@ -1119,6 +1150,21 @@ class ParagraphBuilder {
             : null,
       ),
     );
+  }
+
+  /// Routes a tapped hyperlink (Plan §K.2): an internal `#bookmark` anchor goes
+  /// to [onInternalLink] (the viewer scrolls to that bookmark's page); an
+  /// external url goes to [onExternalLink], or falls back to `url_launcher`.
+  void _onLinkTap(String href) {
+    if (href.startsWith('#') && href.length > 1) {
+      onInternalLink?.call(href.substring(1));
+      return;
+    }
+    if (onExternalLink != null) {
+      onExternalLink!(href);
+    } else {
+      _launchUrl(href);
+    }
   }
 
   Future<void> _launchUrl(String url) async {

@@ -12,6 +12,7 @@ import '../pagination/field_substitution.dart';
 import '../pagination/page_context.dart';
 import '../pagination/page_model.dart';
 import '../pagination/paginator.dart';
+import '../pagination/toc_expander.dart';
 import '../search/docx_search_controller.dart';
 import '../theme/docx_view_theme.dart';
 import '../utils/block_index_counter.dart';
@@ -34,6 +35,12 @@ class DocxWidgetGenerator {
 
   final void Function(int id)? onFootnoteTap;
   final void Function(int id)? onEndnoteTap;
+
+  /// Called when an internal link (`#bookmark`) is tapped (Plan §K.2).
+  final void Function(String bookmark)? onInternalLink;
+
+  /// Called when an external hyperlink is tapped (Plan §K.2).
+  final void Function(String url)? onExternalLink;
 
   /// Paragraph builder for text rendering.
   late ParagraphBuilder _paragraphBuilder;
@@ -72,6 +79,8 @@ class DocxWidgetGenerator {
     this.searchController,
     this.onFootnoteTap,
     this.onEndnoteTap,
+    this.onInternalLink,
+    this.onExternalLink,
   }) : theme = theme ?? DocxViewTheme.light() {
     _paragraphBuilder = ParagraphBuilder(
       theme: this.theme,
@@ -80,6 +89,8 @@ class DocxWidgetGenerator {
       onFootnoteTap: onFootnoteTap,
       docxTheme: docxTheme,
       onEndnoteTap: onEndnoteTap,
+      onInternalLink: onInternalLink,
+      onExternalLink: onExternalLink,
     );
     _imageBuilder = ImageBuilder(config: config);
     // TableBuilder, ListBuilder, ShapeBuilder need docxTheme, set in generateWidgets
@@ -142,6 +153,8 @@ class DocxWidgetGenerator {
       searchController: searchController,
       onFootnoteTap: onFootnoteTap,
       onEndnoteTap: onEndnoteTap,
+      onInternalLink: onInternalLink,
+      onExternalLink: onExternalLink,
       docxTheme: doc.theme,
     );
     // Plan §G: one document-order numbering pass so list markers continue
@@ -194,9 +207,10 @@ class DocxWidgetGenerator {
       widgets.add(const Divider(height: 32, thickness: 1, color: Colors.grey));
     }
 
-    // 2. Body
+    // 2. Body (Table of Contents expanded to its cached paragraphs, Plan §K.1)
     _lastCounter = counter;
-    widgets.addAll(_generateBlockWidgets(doc.elements, counter: counter));
+    widgets.addAll(
+        _generateBlockWidgets(expandTocBlocks(doc.elements), counter: counter));
 
     // 3. Footnotes
     if (doc.footnotes != null && doc.footnotes!.isNotEmpty) {
@@ -476,6 +490,16 @@ class DocxWidgetGenerator {
     final stripSet = <DocxInline>{for (final pf in layerFloats) pf.drawing};
     final backgroundImages = _collectBehindTextImages(sliceBlocks);
 
+    final pageContext = PageContext(
+      pageNumber: page.pageNumber,
+      totalPages: totalPages,
+      sectionPages: sectionPages,
+      sectionFormat: page.section.pageNumberFormat,
+      bookmarkPages: bookmarkPages,
+      styleRefLast: page.styleRefLast,
+      styleRefFirst: page.styleRefFirst,
+    );
+
     // Multi-column layout (Plan §I): if the page's section defines >1 column,
     // group slices by column index and render them side-by-side.
     final colDef = page.section.columns;
@@ -500,17 +524,15 @@ class DocxWidgetGenerator {
       );
     } else {
       final bodyBlocks = _stripFloats(sliceBlocks, stripSet);
-      singleColContent = _generateBlockWidgets(bodyBlocks, counter: counter);
+      // Resolve body fields (live PAGEREF for a TOC, STYLEREF, PAGE) against this
+      // page's context (Plan §K.1/§K.3). Returns the same list when no block
+      // carries a field, so ordinary body paragraphs are untouched and the search
+      // block-index counter stays aligned.
+      singleColContent = _generateBlockWidgets(
+          FieldSubstitution.apply(bodyBlocks, pageContext),
+          counter: counter);
       multiColBody = null;
     }
-
-    final pageContext = PageContext(
-      pageNumber: page.pageNumber,
-      totalPages: totalPages,
-      sectionPages: sectionPages,
-      sectionFormat: page.section.pageNumberFormat,
-      bookmarkPages: bookmarkPages,
-    );
 
     return _buildPageContainer(
       singleColContent,
@@ -726,8 +748,9 @@ class DocxWidgetGenerator {
     final activeFooter =
         section?.footerFor(isFirstPage: isFirstPage, isEvenPage: isEvenPage);
 
-    // Resolve PAGE/NUMPAGES/PAGEREF fields to this page's concrete values.
-    List<DocxBlock> resolve(List<DocxBlock> blocks) => pageContext == null
+    // Resolve PAGE/NUMPAGES/PAGEREF/STYLEREF fields to this page's concrete
+    // values.
+    List<DocxNode> resolve(List<DocxBlock> blocks) => pageContext == null
         ? blocks
         : FieldSubstitution.apply(blocks, pageContext);
 
@@ -1182,7 +1205,7 @@ class DocxWidgetGenerator {
       ];
       _extractFromBlocks(sliceBlocks, texts, counter);
     } else {
-      _extractFromBlocks(doc.elements, texts, counter);
+      _extractFromBlocks(expandTocBlocks(doc.elements), texts, counter);
     }
 
     // Footer

@@ -109,6 +109,17 @@ class BlockParser {
         } else if (child.name.local == 'tbl') {
           flushPendingList();
           result.add(tableParser.parse(child));
+        } else if (child.name.local == 'oMath' ||
+            child.name.local == 'oMathPara') {
+          // Display equation (OMML): out of scope for layout (Plan §K.6) — keep
+          // the linear text (`m:t` runs) as a placeholder paragraph so the
+          // equation's content is not lost.
+          final text =
+              child.findAllElements('m:t').map((t) => t.innerText).join();
+          if (text.isNotEmpty) {
+            flushPendingList();
+            result.add(DocxParagraph(children: [DocxText(text)]));
+          }
         } else if (child.name.local == 'del' ||
             child.name.local == 'moveFrom') {
           // Track changes: deleted/moved-from blocks are dropped (final view).

@@ -5,6 +5,7 @@ import '../docx_view_config.dart';
 import '../font_loader/font_metrics_registry.dart';
 import '../theme/docx_view_theme.dart';
 import 'float_layout.dart';
+import 'symbol_map.dart';
 
 /// The canonical paragraph [InlineSpan] plus the [PlaceholderDimensions] for
 /// any [WidgetSpan]s it contains, in span order.
@@ -447,6 +448,12 @@ class SpanFactory {
           ),
         ));
         seg(2, inline);
+      } else if (inline is DocxSymbol) {
+        // Symbol-font glyph (`w:sym`): measured with the same text + style the
+        // renderer uses (Plan §K.5) so measure ≡ render.
+        final span = symbolSpan(inline, lineHeight: lineHeight);
+        spans.add(span);
+        seg(span.text!.length, inline);
       } else if (inline is DocxInlineImage) {
         // A *floating* drawing never adds inline height here: the renderer places
         // it out of the text flow — a side float through the band-aware wrap
@@ -487,6 +494,14 @@ class SpanFactory {
         spans.add(_fieldSpan(t, lineHeight));
         seg(t.length, inline);
       } else if (inline is DocxPageRef) {
+        final text = inline.cachedText ?? '';
+        if (text.isNotEmpty) {
+          spans.add(_fieldSpan(text, lineHeight));
+          seg(text.length, inline);
+        }
+      } else if (inline is DocxStyleRef) {
+        // STYLEREF: measured at its cached value (the live per-page value is
+        // resolved at render time, like PAGEREF) — Plan §K.3.
         final text = inline.cachedText ?? '';
         if (text.isNotEmpty) {
           spans.add(_fieldSpan(text, lineHeight));
@@ -577,6 +592,28 @@ class SpanFactory {
             ? theme.defaultTextStyle.copyWith(height: lineHeight)
             : theme.defaultTextStyle,
       );
+
+  /// The span for a `w:sym` glyph (Plan §K.5), shared by the measurer and the
+  /// renderer so measure ≡ render. A mapped glyph renders the Unicode equivalent
+  /// in the body font (visible without the symbol font); an unmapped glyph keeps
+  /// the symbol font with the body fonts as a fallback.
+  TextSpan symbolSpan(DocxSymbol sym, {double? lineHeight}) {
+    final mapped = SymbolFontMap.map(sym.font, sym.glyphIndex);
+    final text = mapped ?? String.fromCharCode(sym.glyphIndex);
+    final base = lineHeight != null
+        ? theme.defaultTextStyle.copyWith(height: lineHeight)
+        : theme.defaultTextStyle;
+    final style = mapped != null
+        ? base
+        : base.copyWith(
+            fontFamily: sym.font,
+            fontFamilyFallback: [
+              if (base.fontFamily != null) base.fontFamily!,
+              ...config.customFontFallbacks,
+            ],
+          );
+    return TextSpan(text: text, style: style);
+  }
 
   /// Resolves a colour from a hex value and/or theme reference, applying
   /// tint/shade. Shared with the renderer's borders/shapes.

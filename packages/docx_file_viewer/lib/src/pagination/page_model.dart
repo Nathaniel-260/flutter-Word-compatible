@@ -126,6 +126,8 @@ class PageModel {
     this.floats = const [],
     this.footnotes = const [],
     this.footnotesHeight = 0,
+    this.styleRefLast = const {},
+    this.styleRefFirst = const {},
   });
 
   /// The resolved pixel geometry of this page (size, margins, body region,
@@ -179,6 +181,16 @@ class PageModel {
   /// when the page has no footnotes. The renderer insets the body by this band
   /// and paints the notes within it, so packed area ≡ painted area.
   final double footnotesHeight;
+
+  /// `STYLEREF` values for this page (Plan §K.3), keyed by
+  /// `PageContext.normalizeStyleKey` of the style name: the text of the *last*
+  /// paragraph of that style up to the end of this page (the default running-head
+  /// value). Only styles referenced by a STYLEREF field are tracked.
+  final Map<String, String> styleRefLast;
+
+  /// Like [styleRefLast] but the *first* matching paragraph on the page — the
+  /// value `STYLEREF \l` resolves to.
+  final Map<String, String> styleRefFirst;
 }
 
 /// Output of [Paginator.paginate]: the page list plus the lookup maps that
@@ -189,6 +201,7 @@ class PaginationResult {
     required this.bookmarkPages,
     required this.footnotePages,
     required this.endnotePages,
+    this.bookmarkPageIndex = const {},
     this.footnoteLabels = const {},
     this.endnoteLabels = const {},
     this.truncated = false,
@@ -204,6 +217,11 @@ class PaginationResult {
 
   /// `bookmark name → display page number` for resolving `PAGEREF`.
   final Map<String, int> bookmarkPages;
+
+  /// `bookmark name → absolute 0-based page index` for navigation (Plan §K.2):
+  /// the index into [pages] of the page the bookmark lands on. Distinct from
+  /// [bookmarkPages] (a display number, which can repeat/offset across sections).
+  final Map<String, int> bookmarkPageIndex;
 
   /// `footnoteId → absolute page index` of the page that references it
   /// (consumed by Part J to place the note at the page foot). Footnote and
@@ -228,6 +246,7 @@ class PaginationResult {
   static const PaginationResult empty = PaginationResult(
     pages: [],
     bookmarkPages: {},
+    bookmarkPageIndex: {},
     footnotePages: {},
     endnotePages: {},
     footnoteLabels: {},

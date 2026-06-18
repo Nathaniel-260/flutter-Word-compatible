@@ -811,6 +811,14 @@ class DocxText extends DocxInline {
   @override
   void buildXml(XmlBuilder builder) {
     if (isLink) {
+      // Internal link to a bookmark: `#name` → `w:hyperlink w:anchor` (Plan §K.2).
+      if (href!.startsWith('#') && href!.length > 1) {
+        builder.element('w:hyperlink', nest: () {
+          builder.attribute('w:anchor', href!.substring(1));
+          _buildRun(builder);
+        });
+        return;
+      }
       final rId = DocxHyperlinkRegistry.lookup(href!);
       if (rId != null) {
         builder.element('w:hyperlink', nest: () {

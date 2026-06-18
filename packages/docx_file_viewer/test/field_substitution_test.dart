@@ -5,7 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   // Pulls the concrete text out of a substituted paragraph.
-  String textOf(DocxBlock block) => (block as DocxParagraph)
+  String textOf(DocxNode block) => (block as DocxParagraph)
       .children
       .whereType<DocxText>()
       .map((t) => t.content)
@@ -76,7 +76,8 @@ void main() {
       expect(numberRun.fontSize, 20);
     });
 
-    test('PAGEREF resolves from the bookmark map, else falls back to cache', () {
+    test('PAGEREF resolves from the bookmark map, else falls back to cache',
+        () {
       final blocks = <DocxBlock>[
         DocxParagraph(children: const [
           DocxPageRef('ch1', cachedText: '?'),
@@ -98,6 +99,59 @@ void main() {
       ];
       const ctx = PageContext(pageNumber: 1, totalPages: 1);
       expect(identical(FieldSubstitution.apply(blocks, ctx), blocks), isTrue);
+    });
+
+    group('STYLEREF (Plan §K.3)', () {
+      test('default resolves to the last matching paragraph on the page', () {
+        final header = <DocxBlock>[
+          DocxParagraph(children: const [DocxStyleRef('Heading 1')]),
+        ];
+        const ctx = PageContext(
+          pageNumber: 2,
+          totalPages: 5,
+          styleRefLast: {'heading1': 'Genesis'},
+          styleRefFirst: {'heading1': 'Exodus'},
+        );
+        expect(textOf(FieldSubstitution.apply(header, ctx).first), 'Genesis');
+      });
+
+      test('\\l switch resolves to the first matching paragraph', () {
+        final header = <DocxBlock>[
+          DocxParagraph(
+              children: const [DocxStyleRef('Heading 1', searchFromTop: true)]),
+        ];
+        const ctx = PageContext(
+          pageNumber: 2,
+          totalPages: 5,
+          styleRefLast: {'heading1': 'Genesis'},
+          styleRefFirst: {'heading1': 'Exodus'},
+        );
+        expect(textOf(FieldSubstitution.apply(header, ctx).first), 'Exodus');
+      });
+
+      test('normalized key matches "Heading 1" against styleId Heading1', () {
+        // The field names the style with a space; the page key is the normalized
+        // styleId. They must resolve to the same value.
+        final header = <DocxBlock>[
+          DocxParagraph(children: const [DocxStyleRef('Heading 1')]),
+        ];
+        final ctx = PageContext(
+          pageNumber: 1,
+          totalPages: 1,
+          styleRefLast: {PageContext.normalizeStyleKey('Heading1'): 'בראשית'},
+        );
+        expect(textOf(FieldSubstitution.apply(header, ctx).first), 'בראשית');
+      });
+
+      test('falls back to cached text when no paragraph matched', () {
+        final header = <DocxBlock>[
+          DocxParagraph(children: const [
+            DocxStyleRef('Heading 1', cachedText: 'cached')
+          ]),
+        ];
+        const ctx = PageContext(pageNumber: 1, totalPages: 1);
+        expect(textOf(FieldSubstitution.apply(header, ctx).first), 'cached');
+      });
     });
   });
 }

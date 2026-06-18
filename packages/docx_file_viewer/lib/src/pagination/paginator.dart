@@ -1,5 +1,6 @@
 import 'package:docx_creator/docx_creator.dart';
 import 'package:flutter/widgets.dart';
+import 'package:xml/xml.dart';
 
 import '../docx_view_config.dart';
 import '../layout/column_layout.dart';
@@ -12,7 +13,9 @@ import '../layout/text_measurer.dart';
 import '../utils/docx_units.dart';
 import '../utils/text_direction_detector.dart';
 import 'block_slice.dart';
+import 'page_context.dart';
 import 'page_model.dart';
+import 'toc_expander.dart';
 
 /// Splits a document into measured pages (Plan §D — the pagination engine).
 ///
@@ -46,6 +49,7 @@ class Paginator {
   // --- Output accumulators (reset per paginate call) -----------------------
   final List<PageModel> _pages = [];
   final Map<String, int> _bookmarkPages = {};
+  final Map<String, int> _bookmarkPageIndex = {};
   final Map<int, int> _footnotePages = {};
   final Map<int, int> _endnotePages = {};
   final Map<int, String> _footnoteLabels = {};
@@ -76,6 +80,23 @@ class Paginator {
   // renderer derives the same vector independently (deterministic) → measure ≡
   // render for autofit table widths (QA F3).
   final Map<DocxTable, List<double>> _minColWidths = {};
+
+  // --- STYLEREF state (Plan §K.3) ------------------------------------------
+  // Normalized style keys actually referenced by a STYLEREF field anywhere in the
+  // document/headers/footers; only these are tracked while filling pages.
+  Set<String> _styleRefTargets = const {};
+  // styleId → normalized style-name key (from styles.xml), so a paragraph whose
+  // styleId differs from its display name still matches `STYLEREF "<name>"`.
+  Map<String, String> _styleIdToNameKey = const {};
+  // Running text of the last paragraph seen for each tracked style key, carried
+  // across pages (the running-head value when a page has no such paragraph).
+  final Map<String, String> _runningStyleText = {};
+  // First/last matching paragraph text on the open page (cleared per page).
+  final Map<String, String> _pageStyleFirst = {};
+  final Map<String, String> _pageStyleLast = {};
+  // Snapshot of [_runningStyleText] at page open, so a page with no matching
+  // paragraph still resolves to the carried-over value.
+  Map<String, String> _styleTextAtPageStart = const {};
 
   // Streaming sink: invoked as each page is closed so the UI can display pages
   // as they are born (Plan §D.2.9 / §4.4). Null for the synchronous path.
@@ -191,6 +212,7 @@ class Paginator {
   PaginationResult paginate(DocxBuiltDocument doc) {
     _reset();
     _prepareNotes(doc);
+    _prepareStyleRefs(doc);
     final sections = _splitSections(doc);
     for (var si = 0; si < sections.length; si++) {
       _beginSection(sections[si], si);
@@ -223,6 +245,7 @@ class Paginator {
   }) async {
     _reset();
     _prepareNotes(doc);
+    _prepareStyleRefs(doc);
     _onPage = onPage;
     _shouldContinue = shouldContinue;
     final sw = Stopwatch()..start();
@@ -251,6 +274,7 @@ class Paginator {
     return PaginationResult(
       pages: List.unmodifiable(_pages),
       bookmarkPages: Map.unmodifiable(_bookmarkPages),
+      bookmarkPageIndex: Map.unmodifiable(_bookmarkPageIndex),
       footnotePages: Map.unmodifiable(_footnotePages),
       endnotePages: Map.unmodifiable(_endnotePages),
       footnoteLabels: Map.unmodifiable(_footnoteLabels),
@@ -262,6 +286,7 @@ class Paginator {
   void _reset() {
     _pages.clear();
     _bookmarkPages.clear();
+    _bookmarkPageIndex.clear();
     _footnotePages.clear();
     _endnotePages.clear();
     _footnoteLabels.clear();
@@ -287,6 +312,136 @@ class Paginator {
     _shouldContinue = null;
     _cancelled = false;
     _truncated = false;
+    _runningStyleText.clear();
+    _pageStyleFirst.clear();
+    _pageStyleLast.clear();
+    _styleTextAtPageStart = const {};
+  }
+
+  // ===========================================================================
+  // STYLEREF (Plan §K.3)
+  // ===========================================================================
+
+  /// Scans the document (body + every header/footer variant of every section)
+  /// for `STYLEREF` fields and records the set of style names they reference, and
+  /// builds a `styleId → normalized name` map from `styles.xml` so a paragraph's
+  /// styleId matches a STYLEREF that names the style's display name. Called once
+  /// per paginate, after [_reset]; cheap and skipped entirely when no STYLEREF is
+  /// present (the common case).
+  void _prepareStyleRefs(DocxBuiltDocument doc) {
+    final targets = <String>{};
+    void scanInlines(List<DocxInline> inlines) {
+      for (final i in inlines) {
+        if (i is DocxStyleRef) {
+          targets.add(PageContext.normalizeStyleKey(i.styleName));
+        }
+      }
+    }
+
+    void scanBlocks(List<DocxNode> nodes) {
+      for (final n in nodes) {
+        if (n is DocxParagraph) {
+          scanInlines(n.children);
+        } else if (n is DocxTable) {
+          for (final row in n.rows) {
+            for (final cell in row.cells) {
+              scanBlocks(cell.children);
+            }
+          }
+        } else if (n is DocxSectionBreakBlock) {
+          _scanSectionChrome(n.section, scanBlocks);
+        }
+      }
+    }
+
+    scanBlocks(doc.elements);
+    if (doc.section != null) _scanSectionChrome(doc.section!, scanBlocks);
+    _styleRefTargets = targets;
+    _styleIdToNameKey =
+        targets.isEmpty ? const {} : _parseStyleNames(doc.stylesXml);
+  }
+
+  void _scanSectionChrome(
+      DocxSectionDef section, void Function(List<DocxNode>) scanBlocks) {
+    for (final h in [
+      section.header,
+      section.firstHeader,
+      section.evenHeader,
+    ]) {
+      if (h != null) scanBlocks(h.children);
+    }
+    for (final f in [
+      section.footer,
+      section.firstFooter,
+      section.evenFooter,
+    ]) {
+      if (f != null) scanBlocks(f.children);
+    }
+  }
+
+  /// Parses `styles.xml` into `styleId → normalized style-name key`. Best-effort;
+  /// an unparseable or absent stylesheet yields an empty map (STYLEREF then
+  /// matches on the normalized styleId alone).
+  Map<String, String> _parseStyleNames(String? stylesXml) {
+    if (stylesXml == null || stylesXml.isEmpty) return const {};
+    try {
+      final xml = XmlDocument.parse(stylesXml);
+      final map = <String, String>{};
+      for (final s in xml.findAllElements('w:style')) {
+        final id = s.getAttribute('w:styleId');
+        final name = s.getElement('w:name')?.getAttribute('w:val');
+        if (id != null && name != null) {
+          map[id] = PageContext.normalizeStyleKey(name);
+        }
+      }
+      return map;
+    } catch (_) {
+      return const {};
+    }
+  }
+
+  /// The set of tracked STYLEREF keys a paragraph with [styleId] satisfies: the
+  /// normalized styleId itself and its style's normalized display name (so both
+  /// `STYLEREF "Heading 1"` against styleId `Heading1` and a custom-named style
+  /// resolve). Empty when no STYLEREF targets that style.
+  Iterable<String> _styleRefKeysFor(String? styleId) {
+    if (styleId == null || _styleRefTargets.isEmpty) return const [];
+    final keys = <String>[];
+    final idKey = PageContext.normalizeStyleKey(styleId);
+    if (_styleRefTargets.contains(idKey)) keys.add(idKey);
+    final nameKey = _styleIdToNameKey[styleId];
+    if (nameKey != null &&
+        nameKey != idKey &&
+        _styleRefTargets.contains(nameKey)) {
+      keys.add(nameKey);
+    }
+    return keys;
+  }
+
+  /// Records a placed [block]'s text against the STYLEREF tracking maps (Plan
+  /// §K.3): updates the running value and the open page's first/last for every
+  /// tracked style key the paragraph's style satisfies.
+  void _recordStyleRef(DocxParagraph block) {
+    if (_styleRefTargets.isEmpty) return;
+    final keys = _styleRefKeysFor(block.styleId);
+    if (keys.isEmpty) return;
+    final text = _paragraphText(block);
+    if (text.isEmpty) return;
+    for (final key in keys) {
+      _runningStyleText[key] = text;
+      _pageStyleFirst.putIfAbsent(key, () => text);
+      _pageStyleLast[key] = text;
+    }
+  }
+
+  /// The visible text of a paragraph (non-hidden [DocxText] runs concatenated and
+  /// trimmed) — the value Word shows for a STYLEREF to that paragraph's style.
+  static String _paragraphText(DocxParagraph p) {
+    final buf = StringBuffer();
+    for (final i in p.children) {
+      if (i is DocxText && !i.hidden) buf.write(i.content);
+    }
+    return buf.toString().trim();
   }
 
   // ===========================================================================
@@ -424,7 +579,9 @@ class Paginator {
   List<_SectionRun> _splitSections(DocxBuiltDocument doc) {
     final runs = <_SectionRun>[];
     var current = <DocxNode>[];
-    for (final node in doc.elements) {
+    // Expand any Table of Contents to its cached paragraphs so it flows and
+    // renders through the normal paragraph path (Plan §K.1).
+    for (final node in expandTocBlocks(doc.elements)) {
       if (node is DocxSectionBreakBlock) {
         runs.add(_SectionRun(current, node.section));
         current = [];
@@ -516,6 +673,14 @@ class Paginator {
       _footnoteNumber = 1;
     }
     _used = 0;
+    // STYLEREF (Plan §K.3): snapshot the carried-over running values and reset the
+    // per-page first/last so a page with no matching paragraph still resolves to
+    // the value carried from before it.
+    if (_styleRefTargets.isNotEmpty) {
+      _styleTextAtPageStart = Map.of(_runningStyleText);
+      _pageStyleFirst.clear();
+      _pageStyleLast.clear();
+    }
     // Initialise column layout for this page (Plan §I.1).
     _applyColumnLayout(section);
     _pageSection = section;
@@ -540,6 +705,21 @@ class Paginator {
 
   void _closePage() {
     if (!_hasOpenPage) return;
+    // STYLEREF (Plan §K.3): the page's running-head values are the first/last
+    // matching paragraph on the page, falling back to the value carried in from
+    // before the page when none appeared on it.
+    Map<String, String> styleLast = const {};
+    Map<String, String> styleFirst = const {};
+    if (_styleRefTargets.isNotEmpty) {
+      styleLast = {};
+      styleFirst = {};
+      for (final key in _styleRefTargets) {
+        final last = _pageStyleLast[key] ?? _styleTextAtPageStart[key];
+        final first = _pageStyleFirst[key] ?? _styleTextAtPageStart[key];
+        if (last != null) styleLast[key] = last;
+        if (first != null) styleFirst[key] = first;
+      }
+    }
     final page = PageModel(
       pageNumber: _openDisplayNumber,
       absoluteIndex: _openAbsoluteIndex,
@@ -554,6 +734,8 @@ class Paginator {
       floats: List.unmodifiable(_floats),
       footnotes: List.unmodifiable(_pageFootnotes),
       footnotesHeight: _pageFootnotes.isEmpty ? 0 : _footnotesBand,
+      styleRefLast: Map.unmodifiable(styleLast),
+      styleRefFirst: Map.unmodifiable(styleFirst),
     );
     _pages.add(page);
     _displayNumber++;
@@ -808,6 +990,7 @@ class Paginator {
   void _recordAnchors(DocxNode block) {
     if (block is DocxParagraph) {
       _scanInlines(block.children);
+      _recordStyleRef(block);
     } else if (block is DocxTable) {
       for (final row in block.rows) {
         for (final cell in row.cells) {
@@ -823,6 +1006,7 @@ class Paginator {
     for (final inline in inlines) {
       if (inline is DocxBookmark) {
         _bookmarkPages.putIfAbsent(inline.name, () => _openDisplayNumber);
+        _bookmarkPageIndex.putIfAbsent(inline.name, () => _openAbsoluteIndex);
       } else if (inline is DocxFootnoteRef) {
         // Footnote and endnote ids are independent sequences — keep them in
         // separate maps so id 1 of each does not collide (Part J consumer).
