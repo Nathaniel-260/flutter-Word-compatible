@@ -169,8 +169,11 @@ class Paginator {
   void _applyColumnLayout(DocxSectionDef section) {
     final cols = section.columns;
     if (cols != null && cols.count > 1) {
-      _colCount = cols.count;
       _colWidths = resolveColumnWidths(cols, _geo.contentWidth);
+      // Track the resolved width count, not the raw `w:num`, so the two never
+      // disagree (resolveColumnWidths clamps to 64) — otherwise a pathological
+      // count would advance past the last resolved width and measure full-width.
+      _colCount = _colWidths.length;
     } else {
       _colCount = 1;
       _colWidths = const [];
@@ -630,7 +633,10 @@ class Paginator {
       if (_used > 0 &&
           groupHeight > _remaining &&
           groupHeight <= _geo.bodyHeight) {
-        _newPage();
+        // Multi-column: move to the next column (or next page when on the last);
+        // single-column: equivalent to a page break. Using _newPage() here would
+        // skip the remaining columns of a multi-column page.
+        _advanceColumn();
       }
     }
     for (final block in group) {

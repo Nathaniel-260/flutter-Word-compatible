@@ -492,6 +492,10 @@ class DocxWidgetGenerator {
         colDef,
         page.geometry,
         page.section.isRtlSection,
+        // The column region is the body height minus the footnote band — the
+        // same area the body `Positioned` occupies — so the `w:sep` rule spans
+        // the full column height the way Word draws it.
+        columnHeight: page.geometry.bodyHeight - page.footnotesHeight,
         counter: counter,
       );
     } else {
@@ -932,10 +936,11 @@ class DocxWidgetGenerator {
     DocxColumns colDef,
     PageGeometry geometry,
     bool isRtl, {
+    required double columnHeight,
     BlockIndexCounter? counter,
   }) {
     final colWidths = resolveColumnWidths(colDef, geometry.contentWidth);
-    final gapPx = columnGapPx(colDef);
+    final gaps = resolveColumnGaps(colDef, colWidths.length);
     final n = colWidths.length;
 
     // Group slice blocks by column index.
@@ -960,17 +965,24 @@ class DocxWidgetGenerator {
         ),
     ];
 
-    // Interleave spacer / separator widgets between columns.
+    // Interleave spacer / separator widgets between columns. The gap after
+    // column i comes from [gaps] (per-column `w:space` in explicit layouts).
+    final sepHeight = columnHeight.clamp(0.0, double.infinity);
     final rowChildren = <Widget>[];
     for (var i = 0; i < colWidgets.length; i++) {
       rowChildren.add(colWidgets[i]);
       if (i < colWidgets.length - 1) {
+        final gapPx = gaps[i];
         if (colDef.separator) {
+          // A 1px rule centred in the gap, given an explicit height so it spans
+          // the column region (a Container with no child/height collapses to 0
+          // inside a Row — the line would be invisible).
           rowChildren.add(SizedBox(
             width: gapPx,
             child: Center(
               child: Container(
                 width: 1,
+                height: sepHeight,
                 color: (theme.defaultTextStyle.color ?? Colors.grey)
                     .withValues(alpha: 0.35),
               ),
