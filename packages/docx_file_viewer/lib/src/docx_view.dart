@@ -1,7 +1,9 @@
+import 'dart:developer' show TimelineTask;
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:docx_creator/docx_creator.dart';
+import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
 
 import 'docx_view_config.dart';
@@ -164,19 +166,46 @@ class _DocxViewState extends State<DocxView> {
   Widget _keyedPage(int index, Widget slot) =>
       KeyedSubtree(key: _pageKey(index), child: slot);
 
+  /// The global image-cache ceiling we replaced in [initState], restored in
+  /// [dispose] so the viewer does not permanently shrink the host app's cache
+  /// (Plan §M.4).
+  int? _savedImageCacheBytes;
+
   @override
   void initState() {
     super.initState();
     _searchController = widget.searchController ?? DocxSearchController();
     _searchController.addListener(_onSearchChanged);
+    _applyImageCacheBudget();
     _attachController();
     _loadDocument();
+  }
+
+  /// Caps Flutter's global decoded-image cache to the configured budget while
+  /// this viewer is mounted (Plan §M.4/§4.2), so a document with many images
+  /// stays within the RAM budget. Off-screen pages keep only compressed bytes.
+  void _applyImageCacheBudget() {
+    final budget = widget.config.imageCacheMaxBytes;
+    if (budget == null) return;
+    final cache = PaintingBinding.instance.imageCache;
+    _savedImageCacheBytes = cache.maximumSizeBytes;
+    // Only lower the ceiling — never raise the host's own (possibly larger) one.
+    if (budget < cache.maximumSizeBytes) {
+      cache.maximumSizeBytes = budget;
+    }
   }
 
   @override
   void dispose() {
     widget.controller?.detach(_bookmarkPageIndex);
     _scrollController.dispose();
+    // Restore the global image-cache ceiling we lowered in initState (Plan §M.4).
+    // We do not clear the cache itself — it is shared with the rest of the app;
+    // this document's decoded images age out of the LRU on their own.
+    final saved = _savedImageCacheBytes;
+    if (saved != null) {
+      PaintingBinding.instance.imageCache.maximumSizeBytes = saved;
+    }
     if (widget.searchController == null) {
       _searchController.dispose();
     } else {
@@ -313,8 +342,18 @@ class _DocxViewState extends State<DocxView> {
         throw ArgumentError('No document source provided');
       }
 
-      // Load document using docx_creator
-      final doc = await DocxReader.loadFromBytes(bytes);
+      // Parse (unzip + XML + AST build) on a background isolate so the UI thread
+      // stays free during the heavy load (Plan §M.3 / §2.4 rule 3). The AST is
+      // plain data, so it is sendable back across the isolate boundary;
+      // TextPainter measurement is *not* moved here (it cannot run in a plain
+      // isolate) — only parsing. `docx.parse` marks the span for profiling (§M.6).
+      final parseTask = TimelineTask()..start('docx.parse');
+      final DocxBuiltDocument doc;
+      try {
+        doc = await compute(DocxReader.loadFromBytes, bytes);
+      } finally {
+        parseTask.finish();
+      }
 
       // Every font family the document actually references (runs + theme
       // defaults), seeded with the configured fallbacks.
@@ -530,75 +569,50 @@ class _DocxViewState extends State<DocxView> {
 
   void _onSearchChanged() {
     // Search waits until pagination has finished and the index is built — there
-    // are no matches to show (or keys to navigate) mid-stream.
+    // are no matches to show mid-stream.
     if (_doc == null || _paginating) return;
-
-    // Re-render to reflect search highlights *without re-paginating* — search
-    // does not change layout, so reuse the cached pagination (Plan §2.4.6). In
-    // paged mode this swaps the lazy streamed display for the keyed eager list
-    // so block keys exist for navigation.
-    final widgets = _generator.rerenderWidgets(_doc!);
-
     if (!mounted) return;
+
+    final bool isPaged = widget.config.pageMode == DocxPageMode.paged;
     setState(() {
-      _widgets = widgets;
+      // Paged mode re-injects highlights by rebuilding only the *visible* pages
+      // (the lazy page builder reads the live match set, Plan §M.1) — no
+      // document-wide regeneration. Continuous mode's flat widget list was built
+      // once without a query, so rebuild it to inject highlights (this also tags
+      // the current match's block for navigation). Reuses the cached pagination
+      // either way — search never re-measures (§2.4.6).
+      if (!isPaged) {
+        _widgets = _generator.rerenderWidgets(_doc!);
+      }
     });
 
-    // Handle navigation
+    // Navigate to the current match. Paged: scroll to the match's page (works
+    // even when the block is virtualized away). Continuous: scroll to the single
+    // keyed block tagged for the current match. Either way: no per-block keys.
     final matchIndex = _searchController.currentMatchIndex;
-    if (matchIndex != -1 && matchIndex < _searchController.matches.length) {
-      final match = _searchController.matches[matchIndex];
-      final blockIndex = match.blockIndex;
+    if (matchIndex < 0 || matchIndex >= _searchController.matches.length) {
+      return;
+    }
+    final match = _searchController.matches[matchIndex];
 
-      final key = _generator.keys[blockIndex];
-      if (key != null) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (key.currentContext != null) {
-            final context = key.currentContext!;
-            if (!context.mounted) return;
-
-            double alignment = 0.5;
-
-            try {
-              // For large blocks, calculate dynamic alignment
-              final renderObject = context.findRenderObject();
-              if (renderObject is RenderBox) {
-                final scrollable = Scrollable.of(context);
-                if (scrollable.position.hasViewportDimension) {
-                  final viewportHeight = scrollable.position.viewportDimension;
-                  if (renderObject.size.height > viewportHeight) {
-                    final text = _searchController.getBlockText(blockIndex);
-                    if (text.isNotEmpty) {
-                      final relativePos = match.startOffset / text.length;
-                      alignment = relativePos.clamp(0.0, 1.0);
-                    }
-                  }
-                }
-              }
-            } catch (e) {
-              debugPrint('DocxView: Error calculating alignment: $e');
-            }
-
-            debugPrint(
-                'DocxView: Scrolling to match $matchIndex at block $blockIndex using alignment $alignment');
-
-            Scrollable.ensureVisible(
-              context,
-              duration: const Duration(milliseconds: 300),
-              curve: Curves.easeInOut,
-              alignment: alignment,
-            );
-          } else {
-            debugPrint(
-                'DocxView: Key found for block $blockIndex but context is null');
-          }
-        });
-      } else {
-        debugPrint('DocxView: No key found for block $blockIndex');
-        // Debug dump keys
-        debugPrint(
-            'DocxView: Available keys: ${_generator.keys.keys.join(', ')}');
+    if (isPaged) {
+      final page = _generator.pageForBlock(_doc!, match.blockIndex);
+      if (page >= 0) {
+        _jumpToPage(page, const Duration(milliseconds: 300), Curves.easeInOut);
       }
+    } else {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final ctx = _generator.navMatchKey?.currentContext;
+        if (ctx != null && ctx.mounted) {
+          Scrollable.ensureVisible(
+            ctx,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeInOut,
+            alignment: 0.3,
+          );
+        }
+      });
     }
   }
 
@@ -637,12 +651,14 @@ class _DocxViewState extends State<DocxView> {
         widget.config.backgroundColor ?? theme.backgroundColor ?? Colors.white;
 
     final bool isPaged = widget.config.pageMode == DocxPageMode.paged;
-    // virtualization: כשאין zoom (InteractiveViewer דורש גודל סופי) ואין רוחב-עמוד
-    // legacy, מרנדרים ב-ListView.builder — רק הבלוקים הנראים מקבלים RenderObject,
-    // כך ש-RAM נשאר נמוך וגלילה חלקה גם במסמך של מאות עמודים.
-    // ראו WORD_FIDELITY_VIEWER_PLAN.md §4.1.
-    final bool canVirtualize =
-        !widget.config.enableZoom && widget.config.pageWidth == null;
+    // Virtualization (§4.1/§M.2): render in a ListView.builder so only on-screen
+    // pages get RenderObjects — RAM stays ∝ visible pages even at hundreds of
+    // pages. Zoom no longer disables this: the InteractiveViewer below uses the
+    // default `constrained: true` (so the ListView keeps a finite size and
+    // virtualizes) and `panEnabled: false` (so vertical drags reach the ListView
+    // to scroll, while pinch still zooms). Only the legacy fixed `pageWidth` mode
+    // falls back to a non-virtualized SingleChildScrollView.
+    final bool canVirtualize = widget.config.pageWidth == null;
 
     final Widget list;
     if (isPaged && _widgets == null) {
@@ -755,9 +771,16 @@ class _DocxViewState extends State<DocxView> {
       );
     }
 
-    // Wrap with InteractiveViewer for zoom functionality
+    // Pinch-to-zoom that coexists with virtualization (Plan §M.2/§4.1): the
+    // default `constrained: true` keeps the inner ListView finite (so it
+    // virtualizes), and `panEnabled: false` lets one-finger drags fall through to
+    // the ListView for scrolling while two-finger pinch still scales. Trade-off:
+    // when zoomed in you scroll vertically but cannot pan horizontally to clipped
+    // edges — acceptable because `fitPageToWidth` already fits the page width
+    // (§8.2). The gesture feel itself needs on-device verification (§M.7).
     if (widget.config.enableZoom) {
       content = InteractiveViewer(
+        panEnabled: false,
         minScale: widget.config.minScale,
         maxScale: widget.config.maxScale,
         child: content,

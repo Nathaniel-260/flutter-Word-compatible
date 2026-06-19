@@ -28,6 +28,13 @@ class DocxViewConfig {
   /// Maximum zoom scale.
   final double maxScale;
 
+  /// Ceiling for Flutter's global decoded-image cache while this viewer is
+  /// mounted (Plan §M.4/§4.2). Defaults to 50 MB — lower than Flutter's 100 MB
+  /// default — so a document with many images cannot blow past the RAM budget;
+  /// pages off-screen keep only their compressed bytes. The previous value is
+  /// restored on dispose. Set null to leave the global cache untouched.
+  final int? imageCacheMaxBytes;
+
   /// Font fallbacks when embedded fonts are unavailable.
   final List<String> customFontFallbacks;
 
@@ -91,6 +98,7 @@ class DocxViewConfig {
     this.enableSelection = true,
     this.minScale = 0.5,
     this.maxScale = 4.0,
+    this.imageCacheMaxBytes = 50 * 1024 * 1024,
     this.customFontFallbacks = const ['Roboto', 'Arial', 'Helvetica'],
     this.fontSubstitutions = const {},
     this.theme,
@@ -113,6 +121,7 @@ class DocxViewConfig {
     bool? enableSelection,
     double? minScale,
     double? maxScale,
+    int? imageCacheMaxBytes,
     List<String>? customFontFallbacks,
     Map<String, String>? fontSubstitutions,
     DocxViewTheme? theme,
@@ -134,6 +143,7 @@ class DocxViewConfig {
       enableSelection: enableSelection ?? this.enableSelection,
       minScale: minScale ?? this.minScale,
       maxScale: maxScale ?? this.maxScale,
+      imageCacheMaxBytes: imageCacheMaxBytes ?? this.imageCacheMaxBytes,
       customFontFallbacks: customFontFallbacks ?? this.customFontFallbacks,
       fontSubstitutions: fontSubstitutions ?? this.fontSubstitutions,
       theme: theme ?? this.theme,

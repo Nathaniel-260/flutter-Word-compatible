@@ -545,19 +545,27 @@ setState(() {
 DocxView(file: _currentFile)
 ```
 
-### Widget Key Access
+### Navigation
 
-Access widget keys for custom navigation:
+Navigation scrolls to a *page*, not a per-block `GlobalKey` (those were removed
+in Plan §M.1 — a key per block wasted RAM and broke virtualization). In paged
+mode, map a search-match block index to its page and jump there:
 
 ```dart
 final generator = DocxWidgetGenerator(...);
-final widgets = generator.generateWidgets(doc);
+generator.generateWidgets(doc); // or paginateStreaming(...)
 
-// Access keys for any block index
-final key = generator.keys[blockIndex];
-if (key?.currentContext != null) {
-  Scrollable.ensureVisible(key!.currentContext!);
-}
+final page = generator.pageForBlock(doc, blockIndex); // -1 if unknown
+// The host scrolls that page to the viewport top (see DocxViewController).
+```
+
+For programmatic navigation from app code, prefer [DocxViewController]:
+
+```dart
+final controller = DocxViewController();
+// ...DocxView(controller: controller, ...)
+await controller.jumpToPage(2);
+await controller.jumpToBookmark('chapter2');
 ```
 
 ---

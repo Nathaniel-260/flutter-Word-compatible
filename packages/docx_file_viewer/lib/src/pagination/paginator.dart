@@ -1,3 +1,5 @@
+import 'dart:developer' show Timeline;
+
 import 'package:docx_creator/docx_creator.dart';
 import 'package:flutter/widgets.dart';
 import 'package:xml/xml.dart';
@@ -749,6 +751,11 @@ class Paginator {
     _absoluteIndex++;
     _hasOpenPage = false;
     if (_pages.length >= maxPages) _truncated = true; // anti-runaway backstop
+    // Mark each finished page for profiling the time-sliced layout (§M.6).
+    Timeline.instantSync('docx.paginate.page', arguments: {
+      'index': page.absoluteIndex,
+      'slices': page.slices.length,
+    });
     // Emit the finished page so a streaming host can display it immediately.
     _onPage?.call(page);
   }

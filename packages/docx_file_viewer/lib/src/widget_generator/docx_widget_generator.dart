@@ -1,3 +1,5 @@
+import 'dart:developer' show Timeline;
+
 import 'package:docx_creator/docx_creator.dart';
 import 'package:flutter/material.dart';
 
@@ -57,16 +59,21 @@ class DocxWidgetGenerator {
   /// Shape builder for shape rendering.
   late ShapeBuilder _shapeBuilder;
 
-  /// Store the last used counter to access widget keys after generation.
-  BlockIndexCounter? _lastCounter;
-
   /// The last paged-mode pagination result. Shared with [extractTextForSearch]
   /// so search indices line up with the rendered slice order even across
   /// paragraph/table splits (Plan §D).
   PaginationResult? _lastPagination;
 
-  /// Block keys for navigation.
-  Map<int, GlobalKey> get keys => _lastCounter?.keyRegistry ?? {};
+  /// Continuous-mode only: the single key on the block holding the *current*
+  /// search match, so the host can scroll to it (Plan §M.1). Paged mode scrolls
+  /// by page ([pageForBlock]) and leaves this null. One key total — not the old
+  /// per-block registry that wasted RAM and broke virtualization.
+  GlobalKey? _navMatchKey;
+  int? _navMatchBlock;
+
+  /// The navigation key for the current search match in continuous mode, or null
+  /// (paged mode, or no active match). [pageForBlock] is the paged-mode analogue.
+  GlobalKey? get navMatchKey => _navMatchKey;
 
   /// The last pagination result (null until [generateWidgets] runs in paged
   /// mode). Exposes the bookmark→page / footnote→page maps to the host.
@@ -199,6 +206,14 @@ class DocxWidgetGenerator {
     final widgets = <Widget>[];
     final counter = BlockIndexCounter();
 
+    // Continuous-mode search navigation (Plan §M.1): tag the block holding the
+    // current match with a single key so the host can scroll to it. Reusing one
+    // key across re-renders is fine — the previous tree is gone — and avoids the
+    // old per-block registry. Paged mode never enters here (it scrolls by page).
+    final navMatch = searchController?.currentMatch;
+    _navMatchBlock = navMatch?.blockIndex;
+    _navMatchKey = navMatch == null ? null : (_navMatchKey ??= GlobalKey());
+
     // 1. Header
     // We must pass the counter to align indices with extraction
     if (doc.section?.header != null) {
@@ -208,7 +223,6 @@ class DocxWidgetGenerator {
     }
 
     // 2. Body (Table of Contents expanded to its cached paragraphs, Plan §K.1)
-    _lastCounter = counter;
     widgets.addAll(
         _generateBlockWidgets(expandTocBlocks(doc.elements), counter: counter));
 
@@ -332,14 +346,17 @@ class DocxWidgetGenerator {
 
   /// Builds the widget for a single already-measured [PageModel]. The streaming
   /// host calls this lazily from its `ListView.builder` (Plan §D.3) so only
-  /// visible pages are ever built.
+  /// visible pages are ever built — including while a search is active, so the
+  /// whole document is never rebuilt just to highlight matches (Plan §M.1).
   ///
-  /// No search keys are attached: during the initial streaming load there are no
-  /// matches yet, and search navigation later uses the keyed eager list from
-  /// [rerenderWidgets]/[_renderPages]. While pagination is still running pass
-  /// [finalResult] = null — the header/footer `NUMPAGES`/`SECTIONPAGES`/`PAGEREF`
-  /// fields then resolve against provisional running totals from [pages] and
-  /// settle to their final values once [finalResult] is supplied.
+  /// When a search is running the page seeds a [BlockIndexCounter] at its first
+  /// body block ([_bodyStartBlock]) so the builders inject highlights for this
+  /// page's matches without touching earlier pages. No per-block keys are
+  /// attached — search navigation scrolls to the match's *page* ([pageForBlock]).
+  /// While pagination is still running pass [finalResult] = null — the
+  /// header/footer `NUMPAGES`/`SECTIONPAGES`/`PAGEREF` fields then resolve against
+  /// provisional running totals from [pages] and settle to their final values
+  /// once [finalResult] is supplied.
   Widget buildPageWidget(
     DocxBuiltDocument doc,
     List<PageModel> pages,
@@ -357,19 +374,123 @@ class DocxWidgetGenerator {
         ? (_finalSectionCounts ??= _sectionPageCounts(finalResult.pages))
         : _sectionPageCounts(pages);
     final sectionPages = counts[page.sectionIndex] ?? totalPages;
-    return _buildPageFromModel(
-      doc,
-      page,
-      totalPages: totalPages,
-      sectionPages: sectionPages,
-      bookmarkPages: bookmarkPages,
+    // Seed the highlight counter only while searching, so the common (no-search)
+    // path stays allocation-free. Search waits for pagination to finish, so the
+    // page map is built from the final pagination here.
+    final counter = (searchController?.isSearching ?? false)
+        ? BlockIndexCounter(_bodyStartBlock(doc, index))
+        : null;
+    // `docx.page.build` marks the per-frame lazy page build for profiling — this
+    // is the cost the scroll-frame budget tracks (§2.2: ≤8ms/page, §M.6).
+    return Timeline.timeSync(
+      'docx.page.build',
+      () => _buildPageFromModel(
+        doc,
+        page,
+        totalPages: totalPages,
+        sectionPages: sectionPages,
+        bookmarkPages: bookmarkPages,
+        counter: counter,
+      ),
     );
+  }
+
+  /// The block index (in [extractTextForSearch] order: header, body slices,
+  /// footer) of the first body block on page [index] — the seed for that page's
+  /// lazily-built highlight counter (Plan §M.1).
+  int _bodyStartBlock(DocxBuiltDocument doc, int index) {
+    _ensureSearchPageMap(doc);
+    return (index >= 0 && index < _bodyStartByPage.length - 1)
+        ? _bodyStartByPage[index]
+        : _headerSearchBlocks;
   }
 
   /// Memoized `sectionIndex → page count` for the *final* pagination (cleared
   /// when [_initBuilders] switches documents), so lazy per-page builds do not
   /// re-scan every page each frame.
   Map<int, int>? _finalSectionCounts;
+
+  // --- Search → page map (Plan §M.1) -----------------------------------------
+  // Maps a search-match block index to the page it renders on, so navigation
+  // scrolls to a *page* (which works even when the block is virtualized away)
+  // instead of a per-block GlobalKey. Built once per pagination and memoized.
+
+  /// The pagination this map was built for (identity-compared for memoization).
+  PaginationResult? _searchMapFor;
+
+  /// Number of header blocks counted before the body (the search index walks
+  /// the default header first, then body slices, then footer).
+  int _headerSearchBlocks = 0;
+
+  /// Cumulative body-block counts: `_bodyStartByPage[i]` is the block index of
+  /// page `i`'s first body block; the final entry is where footer blocks start.
+  /// Length is `pages.length + 1`.
+  List<int> _bodyStartByPage = const [];
+
+  void _ensureSearchPageMap(DocxBuiltDocument doc) {
+    final pagination = _lastPagination;
+    if (pagination == null) {
+      _searchMapFor = null;
+      _headerSearchBlocks = 0;
+      _bodyStartByPage = const [];
+      return;
+    }
+    if (identical(_searchMapFor, pagination)) return;
+    _searchMapFor = pagination;
+    _headerSearchBlocks =
+        _countSearchBlocks(doc.section?.header?.children ?? const []);
+    final starts = <int>[_headerSearchBlocks];
+    var running = _headerSearchBlocks;
+    for (final page in pagination.pages) {
+      for (final slice in page.slices) {
+        running += _countSearchBlock(slice.block);
+      }
+      starts.add(running);
+    }
+    _bodyStartByPage = starts;
+  }
+
+  /// The page index a search match in [blockIndex] renders on (Plan §M.1).
+  /// Header blocks map to page 0, footer blocks to the last page. Returns -1
+  /// when there is no pagination yet (continuous mode uses [navMatchKey]).
+  int pageForBlock(DocxBuiltDocument doc, int blockIndex) {
+    _ensureSearchPageMap(doc);
+    final pagination = _lastPagination;
+    if (pagination == null || pagination.pages.isEmpty) return -1;
+    if (blockIndex < _headerSearchBlocks) return 0;
+    for (var i = 0; i < pagination.pages.length; i++) {
+      if (blockIndex < _bodyStartByPage[i + 1]) return i;
+    }
+    // Footer block (>= the last body block) → last page.
+    return pagination.pages.length - 1;
+  }
+
+  /// Counts the search-index increments [nodes] contribute, mirroring
+  /// [_extractFromBlocks] exactly so seeded counters and the search index agree.
+  int _countSearchBlocks(Iterable<DocxNode> nodes) {
+    var n = 0;
+    for (final node in nodes) {
+      n += _countSearchBlock(node);
+    }
+    return n;
+  }
+
+  /// Search-index increments for one block: a paragraph / list item counts 1,
+  /// a table counts its cell paragraphs, anything else counts 0.
+  int _countSearchBlock(DocxNode node) {
+    if (node is DocxParagraph) return 1;
+    if (node is DocxList) return node.items.length;
+    if (node is DocxTable) {
+      var n = 0;
+      for (final row in node.rows) {
+        for (final cell in row.cells) {
+          n += _countSearchBlocks(cell.children);
+        }
+      }
+      return n;
+    }
+    return 0;
+  }
 
   /// The page width a rendered page occupies (`w:pgSz`, or the config override),
   /// used to size streaming placeholders to match real pages.
@@ -412,10 +533,10 @@ class DocxWidgetGenerator {
       DocxBuiltDocument doc, PaginationResult pagination) {
     _lastPagination = pagination;
 
-    // One counter shared across all pages' body widgets so search keys stay in
-    // document order; extractTextForSearch walks the same slice order.
+    // One counter shared across all pages' body widgets so search-match
+    // highlighting stays aligned with the search index (which walks the same
+    // slice order). No per-block keys: navigation scrolls by page (§M.1).
     final counter = BlockIndexCounter();
-    _lastCounter = counter;
 
     // The document's first-page header (title-page variant) is pre-built with
     // the shared counter so its search keys come first (matching the search
@@ -1122,10 +1243,25 @@ class DocxWidgetGenerator {
       // float-grouping Row (getFloatsFromParagraph) was removed when real
       // band-aware wrapping landed.
 
-      // Standard element processing
+      // Standard element processing. The block index range this element
+      // consumes is [start, counter.value) after the build (the builders bump
+      // the counter once per paragraph / list item / table-cell paragraph).
+      final start = counter?.value;
       final widget = generateWidget(element, counter: counter);
       if (widget != null) {
-        widgets.add(widget);
+        // Continuous-mode search navigation (Plan §M.1): tag the single block
+        // holding the current match so the host can scroll to it. One key, only
+        // on the matched block — paged mode leaves [_navMatchKey] null.
+        final navBlock = _navMatchBlock;
+        final widgetToAdd = (_navMatchKey != null &&
+                navBlock != null &&
+                counter != null &&
+                start != null &&
+                navBlock >= start &&
+                navBlock < counter.value)
+            ? KeyedSubtree(key: _navMatchKey!, child: widget)
+            : widget;
+        widgets.add(widgetToAdd);
       }
       i++;
     }

@@ -82,24 +82,23 @@ class ParagraphBuilder {
         );
 
   /// Build a widget from a [DocxParagraph].
+  ///
+  /// Search highlights are injected at build time from the live match set (Plan
+  /// §M.1). The [counter] only keeps this paragraph's block index aligned with
+  /// the search index — no per-block [GlobalKey] is registered (navigation
+  /// scrolls to the match's page instead).
   Widget build(DocxParagraph paragraph, {BlockIndexCounter? counter}) {
     List<SearchMatch>? matches;
-    Key? key;
 
     if (counter != null && searchController != null) {
       final blockIndex = counter.value;
       matches = searchController!.matches
           .where((m) => m.blockIndex == blockIndex)
           .toList();
-
-      if (matches.isNotEmpty) {
-        key = counter.registerKey(blockIndex);
-      }
-
       counter.increment();
     }
 
-    return _buildNativeParagraph(paragraph, matches: matches, key: key);
+    return _buildNativeParagraph(paragraph, matches: matches);
   }
 
   /// Build a paragraph widget, excluding specific floating images.
@@ -108,23 +107,17 @@ class ParagraphBuilder {
       DocxParagraph paragraph, Set<DocxInline> excludedFloats,
       {BlockIndexCounter? counter}) {
     List<SearchMatch>? matches;
-    Key? key;
 
     if (counter != null && searchController != null) {
       final blockIndex = counter.value;
       matches = searchController!.matches
           .where((m) => m.blockIndex == blockIndex)
           .toList();
-
-      if (matches.isNotEmpty) {
-        key = counter.registerKey(blockIndex);
-      }
-
       counter.increment();
     }
 
     return _buildNativeParagraph(paragraph,
-        excludedFloats: excludedFloats, matches: matches, key: key);
+        excludedFloats: excludedFloats, matches: matches);
   }
 
   /// מזהה את כיוון הפסקה (RTL/LTR).
@@ -140,13 +133,13 @@ class ParagraphBuilder {
 
   /// Native Flutter builder for standard paragraphs.
   Widget _buildNativeParagraph(DocxParagraph paragraph,
-      {Set<DocxInline>? excludedFloats, List<SearchMatch>? matches, Key? key}) {
+      {Set<DocxInline>? excludedFloats, List<SearchMatch>? matches}) {
     // Tab-stop layout (§C.3): only when the author defined explicit stops, the
     // paragraph has a tab, and its content is plain text. This keeps ordinary
     // leading-tab body paragraphs on the wrapping RichText path (the tabbed
     // renderer does not wrap) and keeps segment measurement placeholder-free.
     if (paragraph.tabStops.isNotEmpty && _isPlainTabbedLine(paragraph)) {
-      return _buildTabbedParagraph(paragraph, key: key);
+      return _buildTabbedParagraph(paragraph);
     }
 
     List<(DocxInline, DocxAlign?)> textChildren = [];
@@ -399,7 +392,6 @@ class ParagraphBuilder {
     return _wrapWithParagraphStyle(
       paragraph,
       Directionality(textDirection: direction, child: finalContent),
-      key: key,
     );
   }
 
@@ -427,7 +419,7 @@ class ParagraphBuilder {
   /// Renders a tab-stop line through the [TabEngine]/[TabbedLineRenderer]
   /// (§C.3). Segments are split at tabs; search highlighting is skipped on this
   /// path (rare for tabbed headers/footers) — a documented limitation.
-  Widget _buildTabbedParagraph(DocxParagraph paragraph, {Key? key}) {
+  Widget _buildTabbedParagraph(DocxParagraph paragraph) {
     final lineHeightScale = _resolveLineHeightScale(paragraph);
     final direction = _detectDirection(paragraph);
 
@@ -471,7 +463,6 @@ class ParagraphBuilder {
     return _wrapWithParagraphStyle(
       paragraph,
       Directionality(textDirection: direction, child: widget),
-      key: key,
     );
   }
 
@@ -561,8 +552,7 @@ class ParagraphBuilder {
   }
 
   /// Helper to apply paragraph decorations (indent, padding, shading, borders)
-  Widget _wrapWithParagraphStyle(DocxParagraph paragraph, Widget content,
-      {Key? key}) {
+  Widget _wrapWithParagraphStyle(DocxParagraph paragraph, Widget content) {
     // Apply paragraph styling from DocxParagraph properties
     const double twipsToPixels = 1 / 15.0;
 
@@ -605,7 +595,6 @@ class ParagraphBuilder {
     // Page break
     if (paragraph.pageBreakBefore) {
       return Column(
-        key: key,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Divider(height: 32, thickness: 2),
@@ -624,7 +613,6 @@ class ParagraphBuilder {
     }
 
     return Container(
-      key: key,
       padding: EdgeInsets.only(
         left: leftPadding,
         right: rightPadding,

@@ -207,18 +207,16 @@ class ListBuilder {
     // (and the unset default) keep the standard separation.
     final markerGap = levelDef?.suff == 'nothing' ? 0.0 : 4.0;
 
-    // Build content from all inline children with search support
+    // Build content from all inline children with search support. Highlights
+    // are injected at build time from the live match set (Plan §M.1); the
+    // counter only keeps the block index aligned with the search index — there
+    // are no per-block keys (navigation scrolls to the match's page).
     List<InlineSpan> spans;
-    Key? key;
     if (counter != null && paragraphBuilder.searchController != null) {
       final blockIndex = counter.value;
       final matches = paragraphBuilder.searchController!.matches
           .where((m) => m.blockIndex == blockIndex)
           .toList();
-
-      if (matches.isNotEmpty) {
-        key = counter.registerKey(blockIndex);
-      }
       counter.increment();
 
       spans =
@@ -306,7 +304,6 @@ class ListBuilder {
     return Directionality(
       textDirection: direction,
       child: Padding(
-        key: key,
         // Directional: `start` is the right edge under RTL, so deeper levels
         // indent away from the correct margin. Vertical spacing comes from the
         // source paragraph (Word's spacingBefore/After), not a fixed gap.
