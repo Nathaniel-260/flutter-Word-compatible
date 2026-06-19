@@ -5,6 +5,7 @@ import 'package:docx_file_viewer/docx_file_viewer.dart';
 import 'package:docx_file_viewer/src/layout/span_factory.dart';
 import 'package:docx_file_viewer/src/layout/text_measurer.dart';
 import 'package:docx_file_viewer/src/pagination/paginator.dart';
+import 'package:docx_file_viewer/src/widget_generator/docx_widget_generator.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Plan §N.4 / §M.7: a *soft* regression backstop for pagination cost. It is
@@ -93,5 +94,59 @@ void main() {
     // ignore: avoid_print
     print('[perf] parse: ${doc.elements.length} blocks, '
         '${sw.elapsedMilliseconds}ms for ${bytes.length} bytes');
+  });
+
+  test('search over a large document: fast match + no re-pagination (§M.7)',
+      () {
+    // The §2.2 search budget is "≤100ms, without regenerating the whole
+    // document". Its rendering half (rebuild *visible* pages only) is device-
+    // measured, but the two regression risks the harness *can* pin down are here:
+    // (1) the match scan is linear and fast, (2) rendering pages under an active
+    // search never re-paginates (Plan §M.1/§2.4.6).
+    const blockCount = 2000;
+    final body = <DocxNode>[
+      for (var i = 0; i < blockCount; i++)
+        DocxParagraph(children: [
+          DocxText(i % 50 == 0 ? 'block $i holds a NEEDLE' : 'filler block $i'),
+        ]),
+    ];
+    final doc = DocxBuiltDocument(
+      elements: body,
+      section: const DocxSectionDef(),
+    );
+    const config = DocxViewConfig(
+      pageMode: DocxPageMode.paged,
+      pageWidth: 600,
+      pageHeight: 400,
+      enableSelection: false,
+    );
+    final search = DocxSearchController();
+    final gen = DocxWidgetGenerator(config: config, searchController: search);
+    gen.generateWidgets(doc); // paginate
+    final pagination = gen.lastPagination!;
+
+    search.setDocument(gen.extractTextForSearch(doc));
+    final sw = Stopwatch()..start();
+    search.search('NEEDLE');
+    sw.stop();
+
+    expect(search.matchCount, greaterThan(0));
+    // CPU half of the ≤100ms budget — scanning a few thousand block texts is
+    // sub-millisecond; the generous bound only trips on an accidental O(n²).
+    expect(sw.elapsedMilliseconds, lessThan(100),
+        reason: 'match scan must be well within the search budget');
+
+    // No re-pagination on search: building pages with the search active reuses
+    // the cached pagination (identity unchanged) — the whole point of §M.1.
+    final before = gen.lastPagination;
+    for (var i = 0; i < pagination.pageCount && i < 6; i++) {
+      gen.buildPageWidget(doc, pagination.pages, i, finalResult: pagination);
+    }
+    expect(identical(gen.lastPagination, before), isTrue,
+        reason: 'search/render must not re-paginate (§M.1/§2.4.6)');
+
+    // ignore: avoid_print
+    print('[perf] search: ${search.matchCount} matches over $blockCount blocks '
+        'in ${sw.elapsedMilliseconds}ms');
   });
 }
