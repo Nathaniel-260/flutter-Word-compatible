@@ -51,5 +51,47 @@ void main() {
     ));
     expect(cache.maximumSizeBytes, 4 * 1024 * 1024,
         reason: 'a larger budget must not raise the host ceiling');
+
+    // Clean up so the shared client count returns to zero for the next test.
+    await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+  });
+
+  testWidgets('two viewers: only the last to dispose restores the host ceiling',
+      (tester) async {
+    final cache = PaintingBinding.instance.imageCache;
+    final original = cache.maximumSizeBytes;
+    addTearDown(() => cache.maximumSizeBytes = original);
+
+    cache.maximumSizeBytes = 100 * 1024 * 1024;
+    const budget = 20 * 1024 * 1024;
+    final bytes = Uint8List.fromList(const [1, 2, 3]);
+
+    // Expanded gives each viewer a bounded height that fits its loading/error UI
+    // (invalid bytes → error widget) without overflowing the test surface.
+    Widget viewer(String key) => Expanded(
+          child: DocxView.bytes(bytes,
+              key: ValueKey(key),
+              config: const DocxViewConfig(imageCacheMaxBytes: budget)),
+        );
+
+    // Both mounted → ceiling lowered to the budget.
+    await tester.pumpWidget(MaterialApp(
+      home: Column(children: [viewer('a'), viewer('b')]),
+    ));
+    expect(cache.maximumSizeBytes, budget);
+
+    // Drop the second viewer but keep the first (its key preserves its State, so
+    // only B disposes). The ceiling must stay capped while A is still live — the
+    // race the per-instance restore got wrong.
+    await tester.pumpWidget(MaterialApp(
+      home: Column(children: [viewer('a')]),
+    ));
+    expect(cache.maximumSizeBytes, budget,
+        reason: 'still capped while one viewer remains');
+
+    // Drop the last viewer → the host ceiling is restored.
+    await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+    expect(cache.maximumSizeBytes, 100 * 1024 * 1024,
+        reason: 'last viewer out restores the host ceiling');
   });
 }

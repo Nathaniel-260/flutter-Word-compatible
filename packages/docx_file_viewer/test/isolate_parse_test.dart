@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:docx_creator/docx_creator.dart';
 import 'package:flutter/foundation.dart' show compute;
@@ -19,16 +20,32 @@ void main() {
 
   test('a representative AST round-trips through compute (always runs)',
       () async {
-    // Covers the node kinds a parse yields — paragraphs, a table, a list, a
-    // footnote, header/footer — so a non-sendable field on any of them surfaces
-    // here even in a clean checkout without the local fixture below.
+    final imgBytes = Uint8List.fromList(const [137, 80, 78, 71, 1, 2, 3, 4]);
+    // Cover every node kind a real parse can yield — not just text. The inline
+    // image / shape / hyperlink / field / symbol nodes are exactly the ones that
+    // could smuggle in a non-sendable field, so a regression there fails here in
+    // CI instead of only at runtime on a device (QA §4).
     final doc = DocxBuiltDocument(
       elements: <DocxNode>[
-        DocxParagraph(children: const [DocxText('Hello'), DocxText(' שלום')]),
+        DocxParagraph(children: [
+          const DocxText('Hello'),
+          const DocxText(' שלום'),
+          const DocxText('link', href: '#bm'),
+          const DocxText('site', href: 'https://example.com'),
+          DocxInlineImage(bytes: imgBytes, extension: 'png'),
+          DocxShape(text: 'shape', preset: DocxShapePreset.ellipse),
+          const DocxPageNumber(),
+          const DocxUnknownField(' TOC ', cachedResult: [DocxText('Contents')]),
+          const DocxSymbol(charCode: 0xF0FC, font: 'Wingdings'),
+          const DocxTab(),
+          const DocxLineBreak(),
+        ]),
+        DocxImage(bytes: imgBytes, extension: 'png'),
         DocxTable(rows: [
           DocxTableRow(cells: [
-            DocxTableCell(
-                children: [DocxParagraph(children: const [DocxText('cell')])]),
+            DocxTableCell(children: [
+              DocxParagraph(children: const [DocxText('cell')])
+            ]),
           ]),
         ]),
         DocxList(items: [
@@ -36,15 +53,17 @@ void main() {
         ]),
       ],
       section: DocxSectionDef(
-        header: DocxHeader(
-            children: [DocxParagraph(children: const [DocxText('hdr')])]),
-        footer: DocxFooter(
-            children: [DocxParagraph(children: const [DocxText('ftr')])]),
+        header: DocxHeader(children: [
+          DocxParagraph(children: const [DocxText('hdr')])
+        ]),
+        footer: DocxFooter(children: [
+          DocxParagraph(children: const [DocxText('ftr')])
+        ]),
       ),
       footnotes: [
-        DocxFootnote(
-            footnoteId: 1,
-            content: [DocxParagraph(children: const [DocxText('note')])]),
+        DocxFootnote(footnoteId: 1, content: [
+          DocxParagraph(children: const [DocxText('note')])
+        ]),
       ],
     );
 
@@ -52,7 +71,12 @@ void main() {
     expect(back.elements.length, doc.elements.length);
     expect(back.footnotes?.length, 1);
     expect(back.section?.header, isNotNull);
-    expect((back.elements.first as DocxParagraph).children.length, 2);
+    // The mixed-inline paragraph survived with all its node kinds intact.
+    final para = back.elements.first as DocxParagraph;
+    expect(para.children.length, 11);
+    expect(para.children.any((c) => c is DocxInlineImage), isTrue);
+    expect(para.children.any((c) => c is DocxShape), isTrue);
+    expect(para.children.any((c) => c is DocxSymbol), isTrue);
   }, timeout: const Timeout(Duration(seconds: 60)));
 
   test('DocxReader.loadFromBytes round-trips through compute (sendable AST)',

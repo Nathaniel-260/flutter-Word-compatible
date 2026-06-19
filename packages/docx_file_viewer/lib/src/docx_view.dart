@@ -17,6 +17,11 @@ import 'utils/page_fit.dart';
 import 'theme/docx_view_theme.dart';
 import 'widget_generator/docx_widget_generator.dart';
 
+/// Byte size at or above which parsing is offloaded to a background isolate
+/// (Plan §M.3). Below it, the isolate spawn + byte copy cost more than parsing
+/// inline. A heuristic pending on-device profiling (§M.7).
+const int _kIsolateParseThresholdBytes = 256 * 1024;
+
 /// A Flutter widget for viewing DOCX files.
 ///
 /// Renders Word documents using native Flutter widgets for best performance.
@@ -166,10 +171,15 @@ class _DocxViewState extends State<DocxView> {
   Widget _keyedPage(int index, Widget slot) =>
       KeyedSubtree(key: _pageKey(index), child: slot);
 
-  /// The global image-cache ceiling we replaced in [initState], restored in
-  /// [dispose] so the viewer does not permanently shrink the host app's cache
-  /// (Plan §M.4).
-  int? _savedImageCacheBytes;
+  // The decoded-image cache is one global object shared by every viewer, so the
+  // ceiling is coordinated with a static client count (Plan §M.4/§4.2): the
+  // first viewer records the host's original ceiling, each viewer lowers it to
+  // its budget (tightest wins), and only the *last* viewer to dispose restores
+  // the original. A per-instance save/restore raced — a disposing viewer would
+  // restore the host ceiling while a sibling was still live (losing the cap), or
+  // leak the lowered ceiling after all viewers were gone.
+  static int _imageCacheClients = 0;
+  static int? _imageCacheOriginal;
 
   @override
   void initState() {
@@ -182,16 +192,31 @@ class _DocxViewState extends State<DocxView> {
   }
 
   /// Caps Flutter's global decoded-image cache to the configured budget while
-  /// this viewer is mounted (Plan §M.4/§4.2), so a document with many images
+  /// any viewer is mounted (Plan §M.4/§4.2), so a document with many images
   /// stays within the RAM budget. Off-screen pages keep only compressed bytes.
   void _applyImageCacheBudget() {
     final budget = widget.config.imageCacheMaxBytes;
     if (budget == null) return;
     final cache = PaintingBinding.instance.imageCache;
-    _savedImageCacheBytes = cache.maximumSizeBytes;
-    // Only lower the ceiling — never raise the host's own (possibly larger) one.
-    if (budget < cache.maximumSizeBytes) {
-      cache.maximumSizeBytes = budget;
+    if (_imageCacheClients == 0) _imageCacheOriginal = cache.maximumSizeBytes;
+    _imageCacheClients++;
+    // Lower-only: never raise the host's (or a tighter sibling's) ceiling.
+    if (budget < cache.maximumSizeBytes) cache.maximumSizeBytes = budget;
+  }
+
+  /// Releases this viewer's hold on the shared image-cache ceiling; the last one
+  /// out restores the host's original (Plan §M.4). We never clear the cache
+  /// itself — it is shared, and this document's images age out of the LRU.
+  void _releaseImageCacheBudget() {
+    if (widget.config.imageCacheMaxBytes == null) return;
+    _imageCacheClients--;
+    if (_imageCacheClients <= 0) {
+      _imageCacheClients = 0;
+      final original = _imageCacheOriginal;
+      if (original != null) {
+        PaintingBinding.instance.imageCache.maximumSizeBytes = original;
+        _imageCacheOriginal = null;
+      }
     }
   }
 
@@ -199,13 +224,7 @@ class _DocxViewState extends State<DocxView> {
   void dispose() {
     widget.controller?.detach(_bookmarkPageIndex);
     _scrollController.dispose();
-    // Restore the global image-cache ceiling we lowered in initState (Plan §M.4).
-    // We do not clear the cache itself — it is shared with the rest of the app;
-    // this document's decoded images age out of the LRU on their own.
-    final saved = _savedImageCacheBytes;
-    if (saved != null) {
-      PaintingBinding.instance.imageCache.maximumSizeBytes = saved;
-    }
+    _releaseImageCacheBudget();
     if (widget.searchController == null) {
       _searchController.dispose();
     } else {
@@ -347,10 +366,17 @@ class _DocxViewState extends State<DocxView> {
       // plain data, so it is sendable back across the isolate boundary;
       // TextPainter measurement is *not* moved here (it cannot run in a plain
       // isolate) — only parsing. `docx.parse` marks the span for profiling (§M.6).
+      //
+      // Small documents parse inline: spawning an isolate and copying the bytes
+      // into it costs more than parsing a few KB on the spot, so the threshold
+      // avoids regressing first-paint for the common small file. (Heuristic — the
+      // exact crossover wants on-device profiling, §M.7.)
       final parseTask = TimelineTask()..start('docx.parse');
       final DocxBuiltDocument doc;
       try {
-        doc = await compute(DocxReader.loadFromBytes, bytes);
+        doc = bytes.length >= _kIsolateParseThresholdBytes
+            ? await compute(DocxReader.loadFromBytes, bytes)
+            : await DocxReader.loadFromBytes(bytes);
       } finally {
         parseTask.finish();
       }
@@ -654,11 +680,16 @@ class _DocxViewState extends State<DocxView> {
     // Virtualization (§4.1/§M.2): render in a ListView.builder so only on-screen
     // pages get RenderObjects — RAM stays ∝ visible pages even at hundreds of
     // pages. Zoom no longer disables this: the InteractiveViewer below uses the
-    // default `constrained: true` (so the ListView keeps a finite size and
-    // virtualizes) and `panEnabled: false` (so vertical drags reach the ListView
-    // to scroll, while pinch still zooms). Only the legacy fixed `pageWidth` mode
-    // falls back to a non-virtualized SingleChildScrollView.
-    final bool canVirtualize = widget.config.pageWidth == null;
+    // default `constrained: true` (ListView keeps a finite size and virtualizes)
+    // with `panEnabled: false` (one-finger drags scroll the ListView; pinch still
+    // zooms). The exception is the canvas-zoom combination — `enableZoom` with
+    // `fitPageToWidth` OFF — where the user wants to freely pan native-size pages
+    // whose edges fall outside the viewport; that needs the page laid out in full,
+    // so it keeps the old non-virtualized canvas with panning on. The legacy fixed
+    // `pageWidth` mode likewise stays non-virtualized.
+    final bool zoomCanvas =
+        widget.config.enableZoom && !widget.config.fitPageToWidth;
+    final bool canVirtualize = widget.config.pageWidth == null && !zoomCanvas;
 
     final Widget list;
     if (isPaged && _widgets == null) {
@@ -771,16 +802,15 @@ class _DocxViewState extends State<DocxView> {
       );
     }
 
-    // Pinch-to-zoom that coexists with virtualization (Plan §M.2/§4.1): the
-    // default `constrained: true` keeps the inner ListView finite (so it
-    // virtualizes), and `panEnabled: false` lets one-finger drags fall through to
-    // the ListView for scrolling while two-finger pinch still scales. Trade-off:
-    // when zoomed in you scroll vertically but cannot pan horizontally to clipped
-    // edges — acceptable because `fitPageToWidth` already fits the page width
-    // (§8.2). The gesture feel itself needs on-device verification (§M.7).
+    // Pinch-to-zoom (Plan §M.2/§4.1). When the content virtualized, `panEnabled`
+    // is off so one-finger drags scroll the inner ListView (pinch still scales);
+    // the page already fits the width via `fitPageToWidth`, so there is nothing to
+    // pan to horizontally. In the canvas-zoom / legacy cases (not virtualized)
+    // panning is on, so native-size pages can be moved to reach their edges. The
+    // gesture feel itself needs on-device verification (§8.2 #49, §M.7).
     if (widget.config.enableZoom) {
       content = InteractiveViewer(
-        panEnabled: false,
+        panEnabled: !canVirtualize,
         minScale: widget.config.minScale,
         maxScale: widget.config.maxScale,
         child: content,

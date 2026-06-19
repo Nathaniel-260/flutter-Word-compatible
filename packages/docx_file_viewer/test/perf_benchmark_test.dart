@@ -56,9 +56,11 @@ void main() {
         reason: 'the synthetic doc must span many pages');
 
     // Deterministic, machine-independent guard: a clean paginate lays out each
-    // block about once. Re-measurement (a missing/ineffective cache, or an
-    // O(n²) pass) would blow this far past the block count.
-    expect(layouts, lessThan(blockCount * 2),
+    // block about once (measured ~1.13× for keepNext/page-boundary look-ahead).
+    // The 1.5× bound trips early on a re-measurement regression (a missing or
+    // ineffective cache, or an O(n²) pass) while keeping headroom for honest
+    // look-ahead — layoutCount does not vary by machine, so it cannot flake.
+    expect(layouts, lessThan((blockCount * 1.5).round()),
         reason: 'pagination must not re-measure blocks (layouts=$layouts, '
             'blocks=$blockCount)');
 
