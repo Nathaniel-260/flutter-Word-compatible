@@ -3,7 +3,7 @@
 > **מקור:** סעיף §4 מתוך `WORD_FORMATTING_XML_REFERENCE.md` — הועתק כלשונו וללא שינוי.
 > **אסור לערוך את "חלק א'".** המימוש והממצאים נכתבים ב"חלק ב'" בלבד.
 >
-> **סטטוס סריקה:** ⬜ טרם נסקר &nbsp;|&nbsp; **עודכן לאחרונה:** —
+> **סטטוס סריקה:** ✅ נסקר במלואו &nbsp;|&nbsp; **עודכן לאחרונה:** 2026-06-19
 
 ---
 
@@ -140,70 +140,91 @@
 > הוראות מילוי מלאות ב‑[README.md](README.md). בקצרה: לכל פריט בחלק א' — בדוק אם מטופל בקוד;
 > אם כן, חקור איך Word מציג אותו והשווה פיקסל‑מול‑פיקסל; אם לא/חלקי/לא‑נאמן — תעד ל‑AI הבא.
 
+> **צנרת התצוגה.** עיצוב הפסקה מפוענח ב‑**reader** (`docx_creator`): התכונות הסגנוניות
+> (jc/spacing/ind/shd/pBdr/numPr) דרך `DocxStyle.fromXml` → `effectiveStyle.merge(direct)`,
+> ודגלי toggle (keepNext/keepLines/widowControl/pageBreakBefore/bidi/suppressAutoHyphens/
+> contextualSpacing/tabs/outlineLvl/textAlignment) נקראים **ישירות מ‑pPr** ב‑`parseParagraph`
+> (`block_parser.dart:209-231`) ולכן **אינם יורשים** משרשרת הסגנונות. הרינדור ב‑**viewer**:
+> `ParagraphBuilder._wrapWithParagraphStyle` (הזחה/רקע/גבולות/ריווח), `bidi_align` (jc),
+> `span_factory` (line/lineRule), `tab_engine`/`TabbedLineRenderer` (טאבים) ו‑`paginator`
+> (keepNext/keepLines/widowControl/pageBreakBefore). פריט שאינו ויזואלי מסומן `n/a`.
+
 ### ב.1 — סריקה פר‑פריט
 
 | # | פריט (אלמנט/תכונה) | ממומש? (כן/חלקי/לא) | נאמן 1:1 ל‑Word? | איך זה נראה ב‑Word (ממצאי מחקר) | קובץ/שורה במימוש |
 |---|---|---|---|---|---|
-| 1 | `w:pStyle` (סגנון פסקה) | | | | |
-| 2 | `w:keepNext` | | | | |
-| 3 | `w:keepLines` | | | | |
-| 4 | `w:pageBreakBefore` | | | | |
-| 5 | `w:widowControl` (ברירת מחדל true) | | | | |
-| 6 | `w:suppressLineNumbers` | | | | |
-| 7 | `w:suppressAutoHyphens` | | | | |
-| 8 | `w:framePr` — `dropCap` (none/drop/margin) | | | | |
-| 9 | `w:framePr` — `lines` | | | | |
-| 10 | `w:framePr` — `w`/`h` | | | | |
-| 11 | `w:framePr` — `hRule` | | | | |
-| 12 | `w:framePr` — `hSpace`/`vSpace` | | | | |
-| 13 | `w:framePr` — `wrap` | | | | |
-| 14 | `w:framePr` — `hAnchor`/`vAnchor` | | | | |
-| 15 | `w:framePr` — `x`/`y` | | | | |
-| 16 | `w:framePr` — `xAlign`/`yAlign` | | | | |
-| 17 | `w:framePr` — `anchorLock` | | | | |
-| 18 | `w:numPr` — `ilvl` + `numId` | | | | |
-| 19 | `numId="0"` (ביטול מספור מפורש) | | | | |
-| 20 | `w:ins` בתוך numPr (revision על מספור) | | | | |
-| 21 | `w:pBdr` — top/left/bottom/right | | | | |
-| 22 | `w:pBdr` — `between` (קו בין פסקאות) | | | | |
-| 23 | `w:pBdr` — `bar` (קו אנכי בצד) | | | | |
-| 24 | מיזוג גבולות פסקה עוקבות זהות | | | | |
-| 25 | `w:shd` (הצללת פסקה) | | | | |
-| 26 | `w:tabs` — `val` (left/center/right/decimal/bar/num/start/end/clear) | | | | |
-| 27 | `w:tabs` — `pos` (twips) | | | | |
-| 28 | `w:tabs` — `leader` (none/dot/hyphen/underscore/heavy/middleDot) | | | | |
-| 29 | נפילה ל‑`defaultTabStop` כשאין טאב מוגדר | | | | |
-| 30 | `w:kinsoku` (EA) | | | | |
-| 31 | `w:wordWrap` (שבירה ברמת תו) | | | | |
-| 32 | `w:overflowPunct` | | | | |
-| 33 | `w:topLinePunct` | | | | |
-| 34 | `w:autoSpaceDE` | | | | |
-| 35 | `w:autoSpaceDN` | | | | |
-| 36 | `w:snapToGrid` (פסקה) | | | | |
-| 37 | `w:adjustRightInd` | | | | |
-| 38 | `w:bidi` (כיוון פסקה RTL — קריטי) | | | | |
-| 39 | `w:spacing` — `before` | | | | |
-| 40 | `w:spacing` — `after` | | | | |
-| 41 | `w:spacing` — `beforeLines`/`afterLines` | | | | |
-| 42 | `w:spacing` — `beforeAutospacing`/`afterAutospacing` | | | | |
-| 43 | `w:spacing` — `line` + `lineRule` (auto/exact/atLeast) | | | | |
-| 44 | `w:ind` — `start`/`left` | | | | |
-| 45 | `w:ind` — `end`/`right` | | | | |
-| 46 | `w:ind` — `firstLine` | | | | |
-| 47 | `w:ind` — `hanging` (גובר על firstLine) | | | | |
-| 48 | `w:ind` — `startChars`/`endChars`/`firstLineChars`/`hangingChars` | | | | |
-| 49 | `w:contextualSpacing` | | | | |
-| 50 | `w:mirrorIndents` | | | | |
-| 51 | `w:suppressOverlap` | | | | |
-| 52 | `w:jc` (יישור — תלוי‑bidi, §16.4) | | | | |
-| 53 | `w:textDirection` (פסקה — lrTb/tbRl/…) | | | | |
-| 54 | `w:textAlignment` (יישור אנכי בשורה) | | | | |
-| 55 | `w:textboxTightWrap` | | | | |
-| 56 | `w:outlineLvl` (0–9) | | | | |
-| 57 | `w:divId` | | | | |
-| 58 | `w:cnfStyle` (פסקה — bitmask) | | | | |
-| 59 | `w:rPr` בתוך `pPr` (mark run — גובה פסקה ריקה) | | | | |
+| 1 | `w:pStyle` (סגנון פסקה) | כן | ראו משימה 07 | מחיל סגנון פסקה. מיושב דרך `resolveStyle(pStyle)` ואז `effectiveStyle.merge(direct pPr)`; שרשרת `basedOn`+`docDefaults` במנוע הסגנונות. | `block_parser.dart:183-190`; merge `docx_style.dart:205-259` |
+| 2 | `w:keepNext` | כן | חלקי | Word שומר את הפסקה באותו עמוד עם הבאה. הפַּגינטור מקבץ פסקאות `keepNext` ומעביר את הקבוצה לעמוד/טור הבא אם אינה נכנסת — **best‑effort** (קבוצה גדולה מעמוד מתפצלת רגיל). נקרא רק מ‑pPr ישיר. | `block_parser.dart:210`; `paginator.dart:806-841` |
+| 3 | `w:keepLines` | כן | כן (מצב מעומד) | מונע פיצול הפסקה בין עמודים; `_splitParagraph` מחזיר null ל‑`keepLines`. ב‑continuous אין עמודים → לא רלוונטי. ישיר בלבד. | `block_parser.dart:211`; `paginator.dart:1100` |
+| 4 | `w:pageBreakBefore` | כן | חלקי | במצב מעומד — `_newPage` אמיתי. ב‑continuous מצויר `Divider` קו אופקי (**ארטיפקט** — Word לא מצייר קו). ישיר בלבד. | `block_parser.dart:217`; `paginator.dart:847-851`; `paragraph_builder.dart:596-613` |
+| 5 | `w:widowControl` (ברירת מחדל true) | כן | חלקי | ברירת המחדל true מיושמת (`readOnOff(..., orElse:true)`); בפיצול נדרשות ≥2 שורות בכל צד. **לא** יורש מ‑docDefaults של סגנון — רק מ‑pPr ישיר. | `block_parser.dart:213-214`; `paginator.dart:1126-1130` |
+| 6 | `w:suppressLineNumbers` | לא | לא | מספור שורות עצמו אינו ממומש במנוע, ולכן גם הדגל אינו נקרא/רלוונטי. | אין |
+| 7 | `w:suppressAutoHyphens` | חלקי | n/a | נקרא ל‑`suppressHyphens`, אך מיקוף אוטומטי כלל אינו ממומש (Flutter שובר ברווחים) → הדגל ללא אפקט. | `block_parser.dart:215` (נקרא, לא מוחל) |
+| 8 | `w:framePr` — `dropCap` (none/drop/margin) | חלקי | חלקי | רק `drop`/`margin` מזוהים ויוצרים `DocxDropCap` (rendered ע"י `DropCapText`); `none` ושאר השימושים ב‑framePr מתעלמים. | `block_parser.dart:57-90,523-529`; `paragraph_builder.dart:1017-1082` |
+| 9 | `w:framePr` — `lines` | כן | חלקי | נקרא וקובע את גובה ה‑drop cap (קירוב `lines×fontSize`). | `block_parser.dart:531-533`; `paragraph_builder.dart:1025` |
+| 10 | `w:framePr` — `w`/`h` | לא | לא | רוחב/גובה המסגרת אינם נקראים (אין מסגרת טקסט צפה כללית). | אין |
+| 11 | `w:framePr` — `hRule` | לא | לא | כלל הגובה אינו נקרא. | אין |
+| 12 | `w:framePr` — `hSpace`/`vSpace` | חלקי | חלקי | `hSpace` בלבד נקרא (padding ימני ל‑drop cap); `vSpace` מתעלם. | `block_parser.dart:536-537`; `paragraph_builder.dart:1078-1079` |
+| 13 | `w:framePr` — `wrap` | לא | לא | עטיפת טקסט סביב המסגרת אינה נתמכת (drop cap מקורב בלבד). | אין |
+| 14 | `w:framePr` — `hAnchor`/`vAnchor` | לא | לא | עוגני המיקום אינם נקראים. | אין |
+| 15 | `w:framePr` — `x`/`y` | לא | לא | מיקום מוחלט אינו נקרא. | אין |
+| 16 | `w:framePr` — `xAlign`/`yAlign` | לא | לא | יישור יחסי אינו נקרא. | אין |
+| 17 | `w:framePr` — `anchorLock` | לא | לא | אינו נקרא. | אין |
+| 18 | `w:numPr` — `ilvl` + `numId` | כן | ראו משימה 08 | `numId`+`ilvl` נקראים; פסקאות עוקבות עם אותו `numId` מקובצות ל‑`DocxList`. | `docx_style.dart:387-398`; `block_parser.dart:93-99,287-381` |
+| 19 | `numId="0"` (ביטול מספור מפורש) | לא | לא | **באג נאמנות:** Word מפרש `numId=0` כביטול מספור שירש. כאן `0` נקרא כ‑int ומקבץ לרשימה עם numId 0 (def חסר → תבליט ברירת מחדל) → מציג תבליט שגוי במקום לבטל. | `docx_style.dart:392-394`; `block_parser.dart:93` |
+| 20 | `w:ins` בתוך numPr (revision על מספור) | לא | לא | מעקב‑שינויים על המספור אינו מטופל; רק `numId`/`ilvl` נקראים. | אין |
+| 21 | `w:pBdr` — top/left/bottom/right | כן | חלקי | נקראים ומצוירים כ‑`Border` של ה‑`Container`. **ללא** `w:space` (ריווח גבול) וללא לוגיקת קונפליקט/עובי מדויק (eighths→px עם clamp 0.5–10). | `docx_style.dart:401-406`; `paragraph_builder.dart:640-657,682-700` |
+| 22 | `w:pBdr` — `between` (קו בין פסקאות) | חלקי | לא | `borderBetween` נקרא אך בויואר משמש רק כ‑fallback לגבול תחתון (`bottomSpec = bottom ?? between`) — לא קו אמיתי בין פסקאות עוקבות. | `docx_style.dart:407`; `paragraph_builder.dart:646` |
+| 23 | `w:pBdr` — `bar` (קו אנכי בצד) | לא | לא | אינו נקרא (רק top/bottom/left/right/between). | אין |
+| 24 | מיזוג גבולות פסקה עוקבות זהות | לא | לא | כל פסקה מציירת תיבת `Container` נפרדת; אין מיזוג של `pBdr` זהה לתיבה אחת (Word ממזג). | אין (`paragraph_builder.dart:628-679` פר‑פסקה) |
+| 25 | `w:shd` (הצללת פסקה) | חלקי | חלקי | רק `w:fill` (צבע מפורש) מצויר כרקע ה‑`Container`. `w:val` (תבנית pct/diagStripe), `w:color` ו‑`themeFill`/tint/shade — **לא** מיושמים. ראו §2.3/משימה 02. | `docx_style.dart:376-384`; `paragraph_builder.dart:629-631` |
+| 26 | `w:tabs` — `val` (left/center/right/decimal/bar/num/start/end/clear) | חלקי | חלקי | left/center/right/bar/start/end/clear נתמכים; `decimal` ו‑`num`→decimal מקורבים כ‑**right** (ללא יישור לנקודה עשרונית — מגבלה מתועדת). | `enums.dart:54-68`; `tab_engine.dart:152-167` |
+| 27 | `w:tabs` — `pos` (twips) | כן | כן | twips→px (`/15`), ממוין; clamp הגנתי לערכי קצה. | `block_parser.dart:275`; `tab_engine.dart:75-87` |
+| 28 | `w:tabs` — `leader` (none/dot/hyphen/underscore/heavy/middleDot) | כן | חלקי | כל הערכים נקראים; ה‑leader מועבר ל‑`TabbedLineRenderer` שמצייר אותו. רק במסלול הטאבים המתואם (פריט 29). | `block_parser.dart:280`; `enums.dart:83-94`; `paragraph_builder.dart:452-461` |
+| 29 | נפילה ל‑`defaultTabStop` כשאין טאב מוגדר | חלקי | לא | המסלול המתואם נכנס **רק** כשיש `w:tabs` מפורש ותוכן טקסט פשוט; פסקה עם תו טאב **ללא** `w:tabs` יורדת ל‑`RichText` שבו `DocxTab`=4 רווחים. בנוסף, המרווח ברירת המחדל **מקודד קשיח 720** ולא נקרא מ‑settings.xml (`w:defaultTabStop`). | `paragraph_builder.dart:141-143,737-740`; `tab_engine.dart:57` |
+| 30 | `w:kinsoku` (EA) | לא | לא | כללי שבירת‑שורה של EA אינם ממומשים. | אין |
+| 31 | `w:wordWrap` (שבירה ברמת תו) | לא | לא | אינו נקרא; השבירה לפי מנוע Flutter. | אין |
+| 32 | `w:overflowPunct` | לא | לא | אינו נקרא. | אין |
+| 33 | `w:topLinePunct` | לא | לא | אינו נקרא. | אין |
+| 34 | `w:autoSpaceDE` | לא | לא | אינו נקרא. | אין |
+| 35 | `w:autoSpaceDN` | לא | לא | אינו נקרא. | אין |
+| 36 | `w:snapToGrid` (פסקה) | לא | לא | יישור ל‑docGrid אינו ממומש. | אין |
+| 37 | `w:adjustRightInd` | לא | לא | אינו נקרא. | אין |
+| 38 | `w:bidi` (כיוון פסקה RTL — קריטי) | כן | כן | **מקור האמת לכיוון**: `isRtl`→`Directionality` עוטף את הפסקה, וקובע את מיפוי `jc` תלוי‑הכיוון. נופל לזיהוי‑תוכן רק כשחסר. קריטי לעברית. | `block_parser.dart:209`; `paragraph_builder.dart:129-132,199-202`; `bidi_align.dart` |
+| 39 | `w:spacing` — `before` | כן | חלקי | רווח עליון כ‑`padding.top` (twips/15). היוריסטיקת כותרת (fontSize≥20) מצמידה מינימום 16px → עלולה לסטות מ‑Word. | `docx_style.dart:342-343`; `paragraph_builder.dart:577,583-591` |
+| 40 | `w:spacing` — `after` | כן | חלקי | כמו `before`; היוריסטיקת כותרת מצמידה מינימום 8px. | `docx_style.dart:339-340`; `paragraph_builder.dart:579,588-590` |
+| 41 | `w:spacing` — `beforeLines`/`afterLines` | לא | לא | רווח ביחידות שורה (1/100) אינו נקרא. ראו משימה 02. | אין |
+| 42 | `w:spacing` — `beforeAutospacing`/`afterAutospacing` | לא | לא | רווח אוטומטי (כמו HTML `<p>`) אינו נקרא. | אין |
+| 43 | `w:spacing` — `line` + `lineRule` (auto/exact/atLeast) | כן | כן (מקורב) | `auto`→`height=line/240` (multiplier); `exact`→`StrutStyle.forceStrutHeight`; `atLeast`→strut מינימלי. נחלק בין renderer ל‑measurer. | `docx_style.dart:345-349`; `span_factory.dart:112-141` |
+| 44 | `w:ind` — `start`/`left` | כן | חלקי | נקרא (`left` או `start`) ומיושם כ‑`leftPadding` **פיזי**. ב‑RTL: `w:start` אמור להיות בצד ימין אך מיושם משמאל → **שגוי ל‑RTL**. | `docx_style.dart:355-357`; `paragraph_builder.dart:561` |
+| 45 | `w:ind` — `end`/`right` | כן | חלקי | כמו 44: `rightPadding` פיזי; `end` הלוגי אינו ממופה לפי כיוון → שגוי ל‑RTL. | `docx_style.dart:359-361`; `paragraph_builder.dart:570` |
+| 46 | `w:ind` — `firstLine` | כן | כן | spacer באורך אפס בתחילת השורה הראשונה. | `docx_style.dart:363-365`; `paragraph_builder.dart:211-213,714-719` |
+| 47 | `w:ind` — `hanging` (גובר על firstLine) | חלקי | חלקי | מאוחסן כ‑`firstLine` שלילי; הקונטיינר מוזז שמאלה ושורות הגוף מקבלות spacer חיובי. **אם גם `firstLine` וגם `hanging` קיימים — כאן `firstLine` גובר (הפוך מהמפרט שבו hanging גובר).** | `docx_style.dart:363-372`; `paragraph_builder.dart:565-569,214-215` |
+| 48 | `w:ind` — `startChars`/`endChars`/`firstLineChars`/`hangingChars` | לא | לא | הזחות ביחידות תו (EA) אינן נקראות. | אין |
+| 49 | `w:contextualSpacing` | חלקי | חלקי | מיושם **רק לפריטי רשימה** (איפוס רווח בין פריטים מאותו סגנון); לפסקאות רגילות עוקבות אינו מוחל. ישיר בלבד. | `block_parser.dart:216`; `list_layout.dart:7,28` |
+| 50 | `w:mirrorIndents` | לא | לא | הזחות מראה (הדפסת ספר) אינן נקראות. | אין |
+| 51 | `w:suppressOverlap` | לא | לא | אינו נקרא. | אין |
+| 52 | `w:jc` (יישור — תלוי‑bidi, §16.4) | כן | חלקי | start/end/left/right/center/both ממופים, והיישור הפיזי מיושב לפי הכיוון (`bidi_align`). `both`/`distribute`→justify (distribute לא מובחן). הקורא מכווץ start/left→left ו‑end/right→right, ולכן `jc=left` פיזי בתוך RTL מטופל שגוי (**סטייה מודעת §8.2**). | `docx_style.dart:327-334`; `bidi_align.dart:29-82`; `paragraph_builder.dart:199-202` |
+| 53 | `w:textDirection` (פסקה — lrTb/tbRl/…) | לא | לא | כיוון זרימה אנכי (tbRl/btLr וכו') אינו נקרא. | אין |
+| 54 | `w:textAlignment` (יישור אנכי בשורה) | חלקי | לא | נקרא ל‑`DocxParagraph.textAlignment` אך **אינו מיושם** ברינדור הויואר (משמש רק בייצוא `buildXml`). | `block_parser.dart:226-231` (לא מצויר) |
+| 55 | `w:textboxTightWrap` | לא | לא | אינו נקרא. | אין |
+| 56 | `w:outlineLvl` (0–9) | חלקי | n/a | נקרא ל‑`outlineLevel` אך **אינו מנוצל** בויואר (אין ניווט/TOC מ‑outline; ה‑TOC מגיע מ‑cache נפרד). | `block_parser.dart:220-224` (לא בשימוש) |
+| 57 | `w:divId` | לא | n/a | קישור ל‑HTML div — לא ויזואלי, אינו נקרא. | אין |
+| 58 | `w:cnfStyle` (פסקה — bitmask) | לא | לא | `parseParagraph` אינו קורא `cnfStyle` (השדה קיים ב‑AST אך אינו מאוכלס לפסקה); עיצוב מותנה מטופל ברמת תא/טבלה. ראו §6.5/משימה 06. | `block_parser.dart:177-266` (חסר) |
+| 59 | `w:rPr` בתוך `pPr` (mark run — גובה פסקה ריקה) | חלקי | לא | ה‑rPr נקרא וממוזג ל‑`finalProps` אך לא מוחל: לא מועבר לריצות (לפי תכנון) **וגם** אינו קובע את גובה הפסקה הריקה (ב‑Word גודל סימן הפיד קובע את גובה השורה הריקה). | `block_parser.dart:196-200` (נקרא, לא משפיע על גובה ריק) |
 
 ### ב.2 — פערים והוראות ל‑AI הבא
 
-- _(ריק — ימולא בסריקה)_
+- **`numId="0"` מציג תבליט שגוי (פריט 19).** Word מפרש `numId=0` כ**ביטול** מספור שירש. כאן הוא מקובץ לרשימה. **תיקון:** ב‑`block_parser.parseParagraph`/`parseBlocks` לטפל ב‑`numId==0` כ"ללא רשימה" (לא להוסיף ל‑`pendingListItems`).
+- **הזחות תלויות‑כיוון שגויות ל‑RTL (פריטים 44/45).** `w:start`/`w:end` מיושמים פיזית כ‑left/right padding; במסמך עברי (RTL) ההזחה מופיעה בצד הלא‑נכון. **המלצה:** למפות start/end ל‑padding לפי כיוון הפסקה (`isRtl`).
+- **`framePr` כמסגרת טקסט כללית (פריטים 10–17).** רק drop cap (`drop`/`margin`) מטופל; מסגרות צף/כותרות צד (`w`/`h`/`wrap`/`hAnchor`/`vAnchor`/`x`/`y`) אינן נתמכות. אם נדרש — לממש מסגרת צפה אמיתית.
+- **גבולות פסקה (פריטים 21–24).** חסרים: `w:space` (ריווח גבול), `between` כקו אמיתי בין פסקאות, `bar` (קו אנכי בצד), ומיזוג `pBdr` זהה של פסקאות עוקבות לתיבה אחת.
+- **הצללת פסקה חלקית (פריט 25).** רק `w:fill`; חסרים `w:val` (תבנית), `w:color` ו‑`themeFill`/tint/shade. ראו משימות 02/13.
+- **טאבים (פריטים 26/29).** (א) `decimal`/`num` מקורבים כ‑right ללא יישור לנקודה. (ב) `defaultTabStop` מקודד קשיח 720 — לחבר ל‑`settings.xml` (`w:defaultTabStop`, ראו משימה 14). (ג) פסקה עם תו טאב **ללא** `w:tabs` מציגה 4 רווחים במקום קפיצה לטאב ברירת מחדל — לשקול הרחבת המסלול המתואם גם למקרה זה.
+- **דגלי פסקה אינם יורשים מסגנון.** keepNext/keepLines/widowControl/pageBreakBefore/bidi/suppressAutoHyphens/contextualSpacing/tabs/outlineLvl/textAlignment נקראים **רק מ‑pPr ישיר** (`block_parser.dart:209-231`) — סגנון שמגדיר אותם (למשל `keepNext` ב‑Heading) לא ישפיע. **המלצה:** ליישב גם דגלים אלו דרך מנוע הסגנונות (`merge`), כמו שעושים ל‑jc/spacing/ind.
+- **`hanging` מול `firstLine` (פריט 47).** סדר העדיפות הפוך מהמפרט (כאן firstLine גובר; אמור hanging). מקרה קצה אך אמיתי ברשימות.
+- **נקרא‑אך‑לא‑מנוצל:** `textAlignment` (54) ו‑`outlineLvl` (56) מפוענחים אך אינם משפיעים על התצוגה — להשלים מימוש או לתעד כסטייה מודעת.
+- **`pageBreakBefore` ב‑continuous (פריט 4) מצייר `Divider`** — ארטיפקט ויזואלי שאין לו מקבילה ב‑Word; לשקול הסרה במצב רציף.
+- **היוריסטיקת כותרת בריווח (פריטים 39/40).** הצמדת מינימום 16/8px לפי fontSize≥20 משנה רווחים מ‑Word — לבחון הסרה לטובת הערכים המיושבים בלבד.
+- **`mark run` rPr (פריט 59) אינו קובע גובה פסקה ריקה** — פוגע בגובה שורות ריקות/מרווחים. ראו משימה 03 (rPr).
+- **לא ממומשים (לרוב EA/נדיר/לא‑ויזואלי) — לתעד כסטייה מודעת:** suppressLineNumbers (6), כל טיפוגרפיית EA (30–37), mirrorIndents (50), suppressOverlap (51), textDirection (53), textboxTightWrap (55), divId (57), cnfStyle בפסקה (58).
