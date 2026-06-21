@@ -92,12 +92,21 @@ class _DocxReaderOrchestrator {
   }
 
   Future<DocxBuiltDocument> read() async {
+    // 0. Locate the main document part the OPC way (via `_rels/.rels`), so a
+    //    package whose body lives at a non-standard path/name still opens —
+    //    Word finds the body through this relationship, not a fixed path. With
+    //    a standard `word/document.xml` package this is a no-op.
+    _relationshipManager.discoverDocumentPart();
+
     // 1. Load content types and relationships
     _relationshipManager.loadContentTypes();
     _relationshipManager.loadDocumentRelationships();
 
-    // 2. Load and parse styles BEFORE parsing document
-    final stylesXml = context.readContent('word/styles.xml');
+    // 2. Load and parse styles BEFORE parsing document. Sibling parts are
+    //    resolved through the document relationships (the OPC-correct routing,
+    //    tolerant of renamed parts), falling back to the conventional path.
+    final stylesXml =
+        context.readContent(context.resolvePartByType('styles', 'styles.xml'));
     if (stylesXml != null) {
       _styleParser.parse(stylesXml);
     }
@@ -106,18 +115,10 @@ class _DocxReaderOrchestrator {
     DocxThemeColors themeColors = const DocxThemeColors();
     DocxThemeFonts themeFonts = const DocxThemeFonts();
 
-    // Find theme file via relationships to handle variations (e.g. theme2.xml)
-    String themePath = 'word/theme/theme1.xml'; // Default fallback
-    final themeRel = _relationshipManager
-        .getByType(
-            'http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme')
-        .firstOrNull;
-    if (themeRel != null) {
-      final resolved = _relationshipManager.resolveTarget(themeRel.id);
-      if (resolved != null) {
-        themePath = resolved;
-      }
-    }
+    // Find theme file via relationships to handle variations (e.g. theme2.xml),
+    // falling back to the conventional path under the document base dir.
+    final themePath =
+        context.resolvePartByType('theme', 'theme/theme1.xml');
 
     final themeXml = context.readContent(themePath);
     if (themeXml != null) {
@@ -127,12 +128,14 @@ class _DocxReaderOrchestrator {
     }
 
     // 4. Load and parse numbering for list detection
-    final numberingXml = context.readContent('word/numbering.xml');
+    final numberingPath =
+        context.resolvePartByType('numbering', 'numbering.xml');
+    final numberingXml = context.readContent(numberingPath);
     context.numberingXml = numberingXml;
 
     // Parse numbering relationships for image bullets and preservation
     final numberingRelsXml =
-        context.readContent('word/_rels/numbering.xml.rels');
+        context.readContent(context.relsPathFor(numberingPath));
     final numberingImages = <String, Uint8List>{};
 
     if (numberingRelsXml != null) {
@@ -149,16 +152,11 @@ class _DocxReaderOrchestrator {
               target: target,
             );
 
-            // If it's an image, read it for preservation
+            // If it's an image, read it for preservation. The target is
+            // relative to the numbering part (which lives in the document base
+            // dir), or package-absolute.
             if (type?.contains('image') == true) {
-              // Target is usually "media/image1.png" relative to "word/"
-              // or "/word/media/image1.png" absolute
-              String imagePath;
-              if (target.startsWith('/')) {
-                imagePath = target.substring(1);
-              } else {
-                imagePath = 'word/$target';
-              }
+              final imagePath = context.resolveRelative(target);
               final file = context.archive.findFile(imagePath);
               if (file != null) {
                 numberingImages[target] =
@@ -177,10 +175,11 @@ class _DocxReaderOrchestrator {
       context.parsedNumberings = numberingParser.numberings;
     }
 
-    // 5. Parse document content
-    final documentFile = context.archive.findFile('word/document.xml');
+    // 5. Parse document content (the part discovered via `_rels/.rels`).
+    final documentFile = context.archive.findFile(context.documentPartPath);
     if (documentFile == null) {
-      throw Exception('Invalid docx file: missing word/document.xml');
+      throw Exception(
+          'Invalid docx file: missing ${context.documentPartPath}');
     }
 
     final documentXml =
@@ -204,13 +203,16 @@ class _DocxReaderOrchestrator {
         _sectionParser.parse(body, backgroundColor: backgroundColor);
 
     // 8. Read fonts
-    final fontTableXml = context.readContent('word/fontTable.xml');
+    final fontTablePath =
+        context.resolvePartByType('fontTable', 'fontTable.xml');
+    final fontTableXml = context.readContent(fontTablePath);
     final fontTableRelsXml =
-        context.readContent('word/_rels/fontTable.xml.rels');
+        context.readContent(context.relsPathFor(fontTablePath));
     final fonts = _readFonts(fontTableXml, fontTableRelsXml);
 
     // 9. Gather raw XML strings for preservation
-    final settingsXml = context.readContent('word/settings.xml');
+    final settingsXml =
+        context.readContent(context.resolvePartByType('settings', 'settings.xml'));
     // Document-wide settings: even/odd headers (drives the "even" header/footer
     // variant), default tab stop, and global footnote/endnote properties.
     // CT_OnOff toggles honor an explicit w:val="false", not just presence.
@@ -221,13 +223,15 @@ class _DocxReaderOrchestrator {
     final globalEndnoteProperties = settings.endnoteProperties;
     final contentTypesXml = context.readContent('[Content_Types].xml');
     final rootRelsXml = context.readContent('_rels/.rels');
-    final headerBgXml = context.readContent('word/header_bg.xml');
-    final headerBgRelsXml =
-        context.readContent('word/_rels/header_bg.xml.rels');
+    final headerBgPath = '${context.documentBaseDir}header_bg.xml';
+    final headerBgXml = context.readContent(headerBgPath);
+    final headerBgRelsXml = context.readContent(context.relsPathFor(headerBgPath));
 
     // 10. Read footnotes and endnotes
-    final footnotesXml = context.readContent('word/footnotes.xml');
-    final endnotesXml = context.readContent('word/endnotes.xml');
+    final footnotesXml =
+        context.readContent(context.resolvePartByType('footnotes', 'footnotes.xml'));
+    final endnotesXml =
+        context.readContent(context.resolvePartByType('endnotes', 'endnotes.xml'));
 
     List<DocxFootnote>? footnotes;
     if (footnotesXml != null) {
@@ -352,14 +356,8 @@ class _DocxReaderOrchestrator {
             final key = embed.getAttribute('w:fontKey');
 
             if (id != null && key != null && rels.containsKey(id)) {
-              String target = rels[id]!;
-              ArchiveFile? file;
-              if (target.startsWith('/')) {
-                target = target.substring(1);
-                file = context.archive.findFile(target);
-              } else {
-                file = context.archive.findFile('word/$target');
-              }
+              final resolved = context.resolveRelative(rels[id]!);
+              final file = context.archive.findFile(resolved);
 
               if (file != null) {
                 // Create a unique font name for each variant
@@ -375,10 +373,12 @@ class _DocxReaderOrchestrator {
                   obfuscatedBytes:
                       Uint8List.fromList(file.content as List<int>),
                   obfuscationKey: cleanKey,
-                  // Store the exact filename used in the archive for proper re-export
-                  preservedFilename: target.startsWith('word/')
-                      ? target.substring(5)
-                      : (target.startsWith('/') ? target.substring(1) : target),
+                  // Store the part path relative to the document base dir for
+                  // faithful re-export.
+                  preservedFilename:
+                      resolved.startsWith(context.documentBaseDir)
+                          ? resolved.substring(context.documentBaseDir.length)
+                          : resolved,
                 ));
               }
             }

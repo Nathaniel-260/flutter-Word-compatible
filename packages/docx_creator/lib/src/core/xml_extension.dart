@@ -14,6 +14,76 @@ bool readOnOff(XmlElement? element, {bool orElse = false}) {
   return v != '0' && v != 'false' && v != 'off';
 }
 
+/// Namespace URIs whose content the reader can render, used to decide whether
+/// an `mc:Choice` is satisfiable. The key entry is the WordprocessingShape
+/// namespace (`wps`): with prefix-agnostic shape parsing the reader now honours
+/// the modern DrawingML `mc:Choice` over the VML `mc:Fallback`.
+const Set<String> _understoodMcNamespaceUris = {
+  'http://schemas.openxmlformats.org/wordprocessingml/2006/main', // w
+  'http://schemas.openxmlformats.org/officeDocument/2006/relationships', // r
+  'http://schemas.openxmlformats.org/drawingml/2006/main', // a
+  'http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing', // wp
+  'http://schemas.openxmlformats.org/drawingml/2006/picture', // pic
+  'http://schemas.microsoft.com/office/word/2010/wordprocessingShape', // wps
+  'http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing', // wp14
+  'http://schemas.openxmlformats.org/officeDocument/2006/math', // m
+};
+
+/// Well-known prefixes the reader understands, used as a fallback when a
+/// `Requires` prefix cannot be resolved to a declared namespace URI (e.g. a
+/// hand-written XML fragment in a test). Standard producers use these fixed
+/// prefixes, so prefix matching is reliable in practice.
+const Set<String> _understoodMcPrefixes = {
+  'w', 'r', 'a', 'wp', 'pic', 'wps', 'wp14', 'm',
+};
+
+/// Resolves an `xmlns:`[prefix] declaration by walking [scope] and its
+/// ancestors. Returns null when the prefix is not declared in scope.
+String? _lookupNamespaceUri(XmlElement scope, String prefix) {
+  XmlElement? e = scope;
+  while (e != null) {
+    final decl = e.getAttribute('xmlns:$prefix');
+    if (decl != null) return decl;
+    final parent = e.parent;
+    e = parent is XmlElement ? parent : null;
+  }
+  return null;
+}
+
+/// Selects the content container of an `mc:AlternateContent` element per the
+/// Markup Compatibility rules (ISO/IEC 29500-3 §10): the first `mc:Choice`
+/// whose `Requires` namespaces are *all* understood by this reader, otherwise
+/// `mc:Fallback`. As a last resort (no qualifying Choice and no Fallback) the
+/// first Choice is returned so content is never silently lost.
+///
+/// Word almost always writes `<mc:Choice Requires="wps">` (modern DrawingML)
+/// plus `<mc:Fallback>` (legacy VML). Previously the reader picked the Choice
+/// blindly; now it verifies the requirement, and — crucially — actually
+/// understands `wps`, so the higher-fidelity Choice wins. Choice/Fallback are
+/// matched by local name so a non-`mc` prefix still resolves.
+XmlElement? selectAlternateContent(XmlElement alternateContent) {
+  final choices = alternateContent.childElements
+      .where((e) => e.name.local == 'Choice')
+      .toList();
+  final fallback = alternateContent.childElements
+      .where((e) => e.name.local == 'Fallback')
+      .firstOrNull;
+
+  for (final choice in choices) {
+    final requires = choice.getAttribute('Requires');
+    if (requires == null || requires.trim().isEmpty) return choice;
+    final prefixes = requires.split(RegExp(r'\s+')).where((p) => p.isNotEmpty);
+    final understood = prefixes.every((prefix) {
+      final uri = _lookupNamespaceUri(choice, prefix);
+      if (uri != null) return _understoodMcNamespaceUris.contains(uri);
+      return _understoodMcPrefixes.contains(prefix);
+    });
+    if (understood) return choice;
+  }
+
+  return fallback ?? choices.firstOrNull;
+}
+
 /// Stores unknown XML attributes and child elements for round-trip preservation.
 ///
 /// This "Shadow Model" ensures that when reading a DOCX file, any XML

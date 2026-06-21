@@ -40,7 +40,86 @@ class ReaderContext {
   /// Relationships from numbering.xml.rels
   final Map<String, DocxRelationship> numberingRelationships = {};
 
+  /// Archive path of the main document part. Per OPC, this is located through
+  /// the package root relationships (`_rels/.rels`, type `officeDocument`) —
+  /// not assumed — but defaults to the conventional `word/document.xml` until
+  /// [setDocumentPart] is called (i.e. when `_rels/.rels` is absent).
+  String documentPartPath = 'word/document.xml';
+
+  /// Directory of [documentPartPath] including the trailing slash (`word/`), or
+  /// `''` when the part sits at the package root. Every sibling part and every
+  /// relationship target resolves relative to this — see [resolveRelative].
+  String documentBaseDir = 'word/';
+
+  /// The `_rels/*.rels` companion path for the main document part.
+  String get documentRelsPath => relsPathFor(documentPartPath);
+
   ReaderContext(this.archive);
+
+  /// Records the discovered main document part and derives [documentBaseDir].
+  void setDocumentPart(String path) {
+    documentPartPath = path;
+    final slash = path.lastIndexOf('/');
+    documentBaseDir = slash < 0 ? '' : path.substring(0, slash + 1);
+  }
+
+  /// Resolves a relationship [target] to an archive path, against
+  /// [documentBaseDir]. A `/`-prefixed target is package-absolute; `..`/`.`
+  /// segments are collapsed. With the default `word/` base this is identical to
+  /// the legacy `word/<target>` join, so standard packages are unaffected.
+  ///
+  /// INVARIANT: this resolves against the *document* base dir, which is correct
+  /// only because every part the reader follows (headers, footers, numbering,
+  /// fontTable, media, embedded-object previews) is a sibling of the main
+  /// document part and lives in [documentBaseDir]. A relationship belonging to a
+  /// part in a *different* directory with its own relative `.rels` (e.g. a chart
+  /// referencing `../media/...`) would need its owning-part base dir threaded
+  /// in. No such part is read today; revisit this if one is added.
+  String resolveRelative(String target) =>
+      _resolveAgainst(documentBaseDir, target);
+
+  /// Resolves a relationship [target] against the package root (base `''`),
+  /// used for the root `_rels/.rels` (e.g. the `officeDocument` target).
+  String resolveFromPackageRoot(String target) => _resolveAgainst('', target);
+
+  /// The `_rels/<file>.rels` path companion to a given part archive path.
+  String relsPathFor(String partPath) {
+    final slash = partPath.lastIndexOf('/');
+    final dir = slash < 0 ? '' : partPath.substring(0, slash + 1);
+    final file = slash < 0 ? partPath : partPath.substring(slash + 1);
+    return '${dir}_rels/$file.rels';
+  }
+
+  /// Resolves a single-instance sibling part by its relationship [type] (the
+  /// segment after the last `/`), reading the document relationships Word
+  /// itself follows. Falls back to `<baseDir><fallbackName>` when no such
+  /// relationship resolves to an existing part. This is the OPC-correct routing
+  /// (it tolerates renamed parts like `styles2.xml`) while preserving the
+  /// conventional path for the overwhelmingly common case.
+  String resolvePartByType(String type, String fallbackName) {
+    for (final rel in relationships.values) {
+      if (rel.targetMode == 'External') continue;
+      if (rel.type == type || rel.type.endsWith('/$type')) {
+        final p = resolveRelative(rel.target);
+        if (archive.findFile(p) != null) return p;
+      }
+    }
+    return '$documentBaseDir$fallbackName';
+  }
+
+  static String _resolveAgainst(String baseDir, String target) {
+    final raw = target.startsWith('/') ? target.substring(1) : '$baseDir$target';
+    final out = <String>[];
+    for (final segment in raw.split('/')) {
+      if (segment.isEmpty || segment == '.') continue;
+      if (segment == '..') {
+        if (out.isNotEmpty) out.removeLast();
+        continue;
+      }
+      out.add(segment);
+    }
+    return out.join('/');
+  }
 
   /// Read file content from the archive as a string.
   String? readContent(String path) {

@@ -3,7 +3,7 @@
 > **מקור:** סעיף §1 מתוך `WORD_FORMATTING_XML_REFERENCE.md` — הועתק כלשונו וללא שינוי.
 > **אסור לערוך את "חלק א'".** המימוש והממצאים נכתבים ב"חלק ב'" בלבד.
 >
-> **סטטוס סריקה:** ✅ נסקר במלואו &nbsp;|&nbsp; **עודכן לאחרונה:** 2026-06-19
+> **סטטוס סריקה:** ✅ נסקר במלואו &nbsp;|&nbsp; **מימוש פערים:** ✅ הושלם — כל פער הוכרע (ממומש 1:1 / סטייה מודעת / מטופל במשימה ייעודית) &nbsp;|&nbsp; **עודכן לאחרונה:** 2026-06-21
 
 ---
 
@@ -96,10 +96,10 @@
 
 | # | פריט (חלק/namespace) | ממומש? (כן/חלקי/לא) | נאמן 1:1 ל‑Word? | איך זה נראה ב‑Word (ממצאי מחקר) | קובץ/שורה במימוש |
 |---|---|---|---|---|---|
-| 1 | זיהוי ZIP/OPC ופתיחת חלקים דרך `.rels` | חלקי | n/a (תשתית) | Word פותח ארכיב OPC ומאתר את החלק הראשי **דרך** `_rels/.rels` (relationship type `officeDocument`), לא לפי נתיב קבוע. כאן פתיחת ה‑ZIP מלאה אך איתור החלקים בנתיב קשיח. | `docx_reader.dart:87` (`ZipDecoder().decodeBytes`); `reader_context.dart:46-57` (`readContent`/`readBytes` ע"י `archive.findFile`) |
-| 2 | `[Content_Types].xml` | כן (חלקי בשימוש) | n/a (תשתית) | ב‑Word זהו המקור לזיהוי MIME של כל חלק. כאן נטען למפה (`Default`+`Override`) ונשמר לשימור, אך הגישה לחלקים בפועל מתבצעת בנתיב קשיח — המפה אינה מנתבת פירוש. | `relationship_manager.dart:20-43`; נשמר ב‑`docx_reader.dart:222` |
-| 3 | `_rels/.rels` → `officeDocument` | חלקי | n/a (תשתית) | היחס שמצביע ל‑`document.xml`. כאן נקרא **רק לשימור** (`rootRelsXml`), ולא משמש לאיתור הגוף — `word/document.xml` מקודד קשיח. | קריאה לשימור `docx_reader.dart:223`; נתיב קשיח `docx_reader.dart:181` |
-| 4 | `word/document.xml` (גוף) | כן | n/a (תשתית) | גוף המסמך. נטען בנתיב קשיח; אם חסר — נזרקת שגיאה. הגוף מפוענח ל‑AST. | `docx_reader.dart:181-189`; `block_parser.dart:30-35` |
+| 1 | זיהוי ZIP/OPC ופתיחת חלקים דרך `.rels` | **כן** ✅ | כן (OPC) | Word מאתר את החלק הראשי **דרך** `_rels/.rels` (relationship type `officeDocument`), לא בנתיב קבוע. **תוקן:** `discoverDocumentPart` מאתר את הגוף דרך היחס; `documentBaseDir` נגזר ממנו וכל החלקים/יעדי היחסים נפתרים יחסית אליו (`resolveRelative`/`resolvePartByType`). חבילה לא‑סטנדרטית (גוף בנתיב/שם אחר) נפתחת כעת. ברירת המחדל `word/` נשמרת → אפס רגרסיה. | `relationship_manager.dart:discoverDocumentPart`; `reader_context.dart` (`documentBaseDir`/`resolveRelative`/`resolvePartByType`); `docx_reader.dart` (שלב 0) |
+| 2 | `[Content_Types].xml` | כן | כן (תשתית) | ב‑Word מקור זיהוי MIME של כל חלק. נטען (`Default`+`Override`) ונשמר; ה‑MIME משמש לתמונות. **ניתוב הפירוש** של חלקי‑מסמך מתבצע כעת לפי **סוג היחס** ב‑`document.xml.rels` (`resolvePartByType`) — שקול סמנטית לניתוב Word ועמיד בשמות חלקים שונים (למשל `styles2.xml`). | `relationship_manager.dart:20-43`; ניתוב `reader_context.dart:resolvePartByType` |
+| 3 | `_rels/.rels` → `officeDocument` | **כן** ✅ | כן (OPC) | היחס שמצביע לגוף. **תוקן:** `discoverDocumentPart` קורא אותו ומאתר דרכו את הגוף (לא עוד נתיב קשיח), עם אימות קיום הקובץ ונפילה בטוחה ל‑`word/document.xml`. עדיין נשמר גם כ‑`rootRelsXml`. | `relationship_manager.dart:discoverDocumentPart`; `docx_reader.dart` (שלב 5) |
+| 4 | `word/document.xml` (גוף) | כן | כן (תשתית) | גוף המסמך. נטען כעת מ‑`context.documentPartPath` שהתגלה ב‑`.rels` (במקום נתיב קשיח); אם חסר — שגיאה. מפוענח ל‑AST. | `docx_reader.dart` (שלב 5, `documentPartPath`); `block_parser.dart:30-35` |
 | 5 | `word/_rels/document.xml.rels` | כן | n/a (תשתית) | מפת `rId → target` (תמונות, headers/footers, styles, numbering, hyperlinks). כולל `TargetMode=External`. | `relationship_manager.dart:46-67`; `resolveTarget` `:121-136` |
 | 6 | `word/styles.xml` | כן | ראו משימה 07 | נקרא **לפני** הגוף (docDefaults + basedOn). | `docx_reader.dart:100-102`; `reader_context.dart:90-136` |
 | 7 | `word/numbering.xml` | כן | ראו משימה 08 | נקרא + `numbering.xml.rels` לתבליטי‑תמונה (`v:imagedata`). | `docx_reader.dart:130-178`; `numbering_parser.dart:93-100` |
@@ -110,24 +110,45 @@
 | 12 | `word/footerN.xml` (פר‑מקטע) | כן | ראו משימה 05 | `w:footerReference`, 3 וריאנטים כמו ה‑header. | `section_parser.dart:117-135` |
 | 13 | `word/footnotes.xml` | כן | ראו משימה 10 | נקרא ומפוענח לבלוקים (`DocxFootnote`); מזהי separator/continuation ברירת‑מחדל מסוננים בשלב הרינדור. | `docx_reader.dart:229-235, 276-295` |
 | 14 | `word/endnotes.xml` | כן | ראו משימה 10 | נקרא ומפוענח לבלוקים (`DocxEndnote`). | `docx_reader.dart:237-240, 297-316` |
-| 15 | `word/comments.xml` (+Extended/Ids/Extensible) | **לא** | לא | הערות סוקר. **אינן נקראות כלל** ב‑reader (השם מופיע רק בצד הייצוא). לא מוצגות. | אין; השוו `content_types_generator.dart:45` (ייצוא בלבד) |
-| 16 | `word/media/imageN.*` | כן (חלקי לפי פורמט) | חלקי | בתי התמונה נקראים מהארכיב דרך `r:embed`/`r:id`→relationship→`word/media/…`. png/jpeg/gif/bmp נתמכים ע"י מפענח Flutter; **emf/wmf אינם** ולא יוצגו (משימה 09). | `inline_parser.dart:506-539` |
-| 17 | `word/embeddings/*` (OLE) | **לא** | לא | אובייקטים מוטמעים (OLE/חוברת Excel/`w:object`) אינם נקראים; נופלים ל‑`DocxRawInline` (ללא רינדור) או אובדים. | אין (fallback `inline_parser.dart:806`) |
-| 18 | `word/glossary/document.xml` | **לא** | n/a | Quick Parts / Building Blocks — אינם נקראים (גם Word לרוב אינו מרנדר אותם בגוף). | אין |
+| 15 | `word/comments.xml` (+Extended/Ids/Extensible) | חלקי (סמנים מסוננים) | סטייה מודעת (בלונים) | הערות סוקר. **תוקן:** סמני ההערה בגוף (`commentReference`/`annotationRef`, וכן `commentRangeStart/End`) מסוננים נקי במקום לדלוף כ‑`DocxRawInline` (זה גם מתואם להתנהגות Word — אין סימן נראה בטקסט). **רינדור בלוני‑שוליים = סטייה מודעת** (חומרה נמוכה): markup סוקר אינו חלק מהעמוד המודפס, ו‑Word מסתירו כברירת מחדל; עלות פריסת בלון בשוליים גבוהה. | סינון: `inline_parser.dart` (`_isCommentMarkerRun`) |
+| 16 | `word/media/imageN.*` | כן (חלקי לפי פורמט) | חלקי | בתי התמונה נקראים דרך `r:embed`/`r:id`→relationship→מדיה (כעת יחסית ל‑`documentBaseDir`). png/jpeg/gif/bmp נתמכים ע"י מפענח Flutter; **emf/wmf אינם** → **סטייה מודעת** (§8.2 #2, placeholder ללא fallback ראסטרי). המרה/רסטור = משימה 09. | `inline_parser.dart` (`_parseDrawing`, `resolveRelative`) |
+| 17 | `word/embeddings/*` (OLE) | חלקי (preview) | סטייה מודעת (בינארי) | אובייקטים מוטמעים. **תוקן:** `w:object` מנותב כעת דרך `_parseDrawing`, כך שתמונת ה‑**preview** שלו (`v:imagedata`/`a:blip`) מרונדרת כתמונה רגילה (רסטר → נראה; emf/wmf → placeholder, §8.2 #2). הבינארי המוטמע עצמו (OLE/Excel) אינו מורץ — **סטייה מודעת** (אין מנוע OLE/EMF native). ללא preview → נשמר כ‑`DocxRawInline`. | ניתוב `inline_parser.dart:parseRun` (`w:object`→`_parseDrawing`) |
+| 18 | `word/glossary/document.xml` | **לא** | סטייה מודעת (מכוון) | Quick Parts / Building Blocks — תבניות, לא תוכן גוף. **Word עצמו אינו מרנדר אותם בגוף המסמך** → אי‑קריאה היא 1:1 עם תצוגת Word. חומרה: ללא. | אין (מכוון) |
 | 19 | `word/fonts/*` (מוטמעים/obfuscated) | כן | ראו משימה 13 | פונטים מוטמעים מעורפלים — נקראים ומפוענחים (`fromObfuscated` עם `fontKey`). | `docx_reader.dart:336-385` |
-| 20 | `customXml/*`, `docProps/*` | **לא** (ולא נדרש לרינדור) | n/a | data‑binding/מטא‑דאטה. אינם נקראים בקריאה; `docProps` נוצר רק בייצוא. | אין |
-| 21 | namespaces: `w`,`r`,`wp`,`a`,`pic`,`wps`,`wpg`,`wpc`,`mc`,`v`,`o`/`w10`,`m`,`w14`/`w15`/`w16*`,`wp14` | חלקי | n/a (תשתית) | רוב הקוד מתאים לפי **local name** (עמיד לקידומת) — `w`,`r`,`mc`,`m`,`v` עובדים. **חריג:** זיהוי צורות לפי קידומת ליטרלית `wsp:wsp` (לא תואם את `wps:wsp` של Word) → לבדיקה במשימה 09. `wpg`/`wpc` (קבוצות/קנבס) ו‑`w14/w15/w16` (אפקטים) אינם מטופלים. | התאמה לפי local: `block_parser.dart:26-27,55,114`; `inline_parser.dart:46,170,181-184`. צורות: `inline_parser.dart:800` |
-| 22 | `mc:AlternateContent` (Choice/Fallback — לא לרנדר את שניהם) | חלקי | חלקי | בוחר `Choice` ואחרת `Fallback` — נכון שלא לרנדר את שניהם. **אך** ללא בדיקת תכונת `Requires` (לא מאמת שהקידומת נתמכת בפועל), ומטופל **רק ברמת inline** — `block_parser` אינו מזהה `AlternateContent` ברמת בלוק. | `inline_parser.dart:181-191` (אין טיפול ב‑`block_parser`) |
+| 20 | `customXml/*`, `docProps/*` | **לא** (ולא נדרש לרינדור) | סטייה מודעת (מכוון) | data‑binding/מטא‑דאטה — אינם משפיעים על פיקסל בעמוד. אי‑קריאה היא הבחירה הנכונה לנאמנות חזותית. חומרה: ללא. | אין (מכוון) |
+| 21 | namespaces: `w`,`r`,`wp`,`a`,`pic`,`wps`,`wpg`,`wpc`,`mc`,`v`,`o`/`w10`,`m`,`w14`/`w15`/`w16*`,`wp14` | **כן** ✅ (חלקי ל‑wpg/wpc) | כן (תשתית) | רוב הקוד מתאים לפי **local name**. **תוקן:** זיהוי צורות עבר ל‑local‑name (`findAllElements('wsp', namespace:'*')` + `spPr`/`txbx` כילדים ישירים), כך ש‑`wps:wsp` של Word **נפתר כעת** (קודם רק `wsp:` של docx_creator). זו הייתה תקלת‑נאמנות אמיתית: צורות/תיבות‑טקסט מ‑Word לא פוענחו כלל. `wpg`/`wpc` (קבוצות/קנבס) ו‑`w14/w15/w16` (אפקטים) — **סטייה מודעת** (נדיר; חוץ מהיקף רינדור הצורות, משימה 09/H). | `inline_parser.dart` (`_parseDrawing`/`_parseShape`, `namespace:'*'`) |
+| 22 | `mc:AlternateContent` (Choice/Fallback — לא לרנדר את שניהם) | **כן** ✅ | כן | **תוקן ל‑1:1:** `selectAlternateContent` (ISO/IEC 29500‑3 §10) בוחר את ה‑`Choice` הראשון שכל ה‑`Requires` שלו מובנים (URI מתוך scope, נפילה לקידומת), אחרת `Fallback`. מטופל ב‑**שלוש רמות**: בלוק (`block_parser`), inline ישיר, ו‑**בתוך `w:r`** (הצורה הנפוצה של Word — `parseRun` בונה ריצה סינתטית מהענף הנבחר, כך שחיפוש‑צאצאים לא חוטף את הענף הלא‑נכון). `wps` מובן כעת → ה‑Choice המודרני (DrawingML) גובר על ה‑Fallback (VML). | `xml_extension.dart:selectAlternateContent`; `inline_parser.dart` (`parseRun`/`parseChildren`); `block_parser.dart` |
 | 23 | שלד `document.xml`: בלוקים `w:p`/`w:tbl`/`w:sdt` + bookmarks שזורים | כן | n/a (תשתית) | `w:p`, `w:tbl`, `w:sdt` (כולל TOC), וכן `ins`/`moveTo`/`smartTag` נפרסים; `del`/`moveFrom` (מחוק) מושמטים. bookmarks: `bookmarkStart` נשמר (מדלג `_GoBack`), `bookmarkEnd` מתעלם. | `block_parser.dart:55,114,131-167`; bookmarks `inline_parser.dart:46-54` |
 | 24 | מיקום `sectPr` (ביניים ב‑pPr / אחרון בסוף body) | כן | n/a (תשתית) | מקטע ביניים: `sectPr` בתוך `pPr` → `DocxSectionBreakBlock`. מקטע אחרון: `sectPr` ישיר בסוף ה‑body → `SectionParser`. | ביניים `block_parser.dart:107-113`; אחרון `docx_reader.dart:203-204`, `section_parser.dart` |
 
-### ב.2 — פערים והוראות ל‑AI הבא
+### ב.2 — יומן הכרעות (כל פער הוכרע)
 
-- **איתור חלקים בנתיב קשיח (פריטים 1–4).** `_rels/.rels` ו‑`[Content_Types].xml` נטענים אך **אינם מנתבים** את איתור החלקים — `word/document.xml` והשאר מקודדים קשיח. עובד לקבצי Word סטנדרטיים, אך docx לא‑סטנדרטי (חלק ראשי בנתיב אחר, או part name שונה) ייכשל. **המלצה:** לאתר את הגוף דרך relationship `officeDocument` שב‑`_rels/.rels` ולכבד את `[Content_Types].xml` בעת פירוש חלקים.
-- **`comments.xml` לא נתמך (פריט 15).** אם נדרש להציג הערות סוקר/בלוני שינויים — להוסיף קריאת `word/comments.xml` (+`commentsExtended/Ids/Extensible`) ל‑reader וצומת AST מתאים.
-- **`embeddings/*` OLE לא נתמך (פריט 17).** אובייקטים מוטמעים אובדים. לכל הפחות לתעד כ"סטייה מודעת"; אם נדרש — להציג את תמונת ה‑preview (`emf/wmf`) של ה‑OLE (תלוי בתמיכת emf/wmf — פריט 16).
-- **emf/wmf במדיה (פריט 16).** Flutter אינו מפענח emf/wmf → תמונות בפורמטים אלו לא יוצגו (נפוץ בסימני מים/לוגו מ‑Word). לבחון רסטור/המרה. ראו משימה 09.
-- **`fontTable.xml` — fallback לא מנוצל (פריט 10).** panose/charset/altName אינם משמשים לבחירת פונט חלופי → עלול לפגוע בנאמנות פונטים. ראו משימות 03/13.
-- **`AlternateContent` (פריט 22).** (א) להוסיף בדיקת `Requires` לפני בחירת `Choice` (היום בוחר Choice עיוורת); (ב) להוסיף טיפול ברמת **בלוק** ב‑`block_parser`, לא רק inline.
-- **קידומת צורות `wsp:wsp` (פריט 21).** ההתאמה תלוית‑קידומת ליטרלית; Word כותב `wps:wsp`. לאמת מול קובץ Word אמיתי ולהמיר להתאמה לפי local name. ראו משימה 09.
-- **`settings.xml` חלקי (פריט 8).** רוב ההגדרות הגלובליות נשמרות אך אינן מוחלות. הפירוט המלא — משימה 14.
+> **ראיה אמפירית.** נפתח DOCX אמיתי (`.tmp_docx/formatting-demo.docx`) ונקרא ה‑XML: `_rels/.rels`
+> מצביע לגוף דרך `officeDocument`→`word/document.xml`; `document.xml.rels` נושא את סוגי היחסים
+> styles/numbering/footnotes/endnotes/settings/comments/header/footer/fontTable; namespace הצורות של
+> Word הוא `wps="…/wordprocessingShape"`. ההכרעות מתבססות על זה + ISO/IEC 29500.
+>
+> **מדידה≡רינדור.** כל התיקונים הם ברמת ה‑reader/AST ומפיקים צמתים קיימים (`DocxShape`,
+> `DocxInlineImage`, `DocxText`) שה‑Paginator/TextMeasurer כבר מודדים — לא שונתה גאומטריית רינדור,
+> ולכן אין סטיית עימוד חדשה. **תוספתי בלבד:** ברירת מחדל `word/`, אין שבירת API, round‑trip נשמר.
+
+**ממומש 1:1:**
+
+- **איתור חלקים דרך OPC (פריטים 1–4).** ✅ `discoverDocumentPart` מאתר את הגוף דרך יחס `officeDocument` ב‑`_rels/.rels`; `documentBaseDir` נגזר ממנו, וכל החלקים נפתרים לפי **סוג היחס** (`resolvePartByType`) עם נפילה ל‑`<baseDir>/<שם>`, וכל יעדי היחסים/תמונות/פונטים/כותרות דרך `resolveRelative` (תומך `..`/`/`). חבילה לא‑סטנדרטית נפתחת כעת; חבילת `word/` סטנדרטית — זהה לחלוטין (אפס רגרסיה). _בדיקה: "non-standard part" + "relationships relative to base"._
+- **קידומת צורות `wps`/`wsp` (פריט 21).** ✅ ההתאמה עברה ל‑local‑name (`namespace:'*'` + ילדים ישירים ל‑`spPr`/`txbx`). צורות ותיבות‑טקסט מ‑**Word אמיתי** (`wps:wsp`) מפוענחות כעת — קודם נפלו ל‑`DocxRawInline`. _בדיקה: "shape with Word's wps: prefix"._
+- **`mc:AlternateContent` (פריט 22).** ✅ `selectAlternateContent` (ISO §10): בוחר Choice שכל ה‑`Requires` שלו מובנים, אחרת Fallback; ב‑3 רמות (בלוק / inline / בתוך `w:r` עם ריצה סינתטית). `wps` מובן → ה‑Choice המודרני גובר על VML. _בדיקות: in‑run unsupported→fallback, understood wps→choice, block‑level._
+- **סמני הערות בגוף (פריט 15).** ✅ `commentReference`/`annotationRef` (+`commentRangeStart/End`) מסוננים נקי — לא דולפים כ‑`DocxRawInline`. תואם 1:1 ל‑Word (אין סימן נראה בטקסט). _בדיקה: "comment markers don't leak"._
+- **preview ל‑OLE (פריט 17).** ✅ `w:object` מנותב ל‑`_parseDrawing` → תמונת ה‑preview (`v:imagedata`/`a:blip`) מרונדרת. _בדיקה: "raster preview of embedded w:object"._
+
+**סטיות מודעות (מתועדות, חומרה נמוכה):**
+
+- **בלוני הערות סוקר (פריט 15).** רינדור הבלון בשוליים אינו ממומש — markup סוקר אינו חלק מהעמוד המודפס ו‑Word מסתירו כברירת מחדל; עלות פריסת בלון גבוהה. הנתונים אינם דולפים ואינם פוגעים בגוף.
+- **בינארי OLE מוטמע (פריט 17).** ה‑binary (Excel/OLE) אינו מורץ — אין מנוע OLE native; ה‑preview כן מוצג.
+- **emf/wmf במדיה (פריט 16).** placeholder ללא fallback ראסטרי — אין מפענח native ב‑Flutter (§8.2 #2). המרה/רסטור = משימה 09.
+- **`wpg`/`wpc`, `w14`/`w15`/`w16` (פריט 21).** קבוצות/קנבס/אפקטים נדירים — מחוץ להיקף פיענוח הצורות (משימה 09/H).
+- **glossary, customXml, docProps (פריטים 18, 20).** מכוון: תבניות/מטא‑דאטה שאינן חלק מהעמוד המודפס; אי‑קריאה = 1:1 עם Word.
+
+**מטופל במשימה ייעודית (חובת המכל — קריאת החלק — מולאה):**
+
+- **`settings.xml` (פריט 8).** כל ההגדרות נשמרות; **החלתן** (defaultTabStop/hyphenation/compat…) — משימה 14.
+- **`fontTable.xml` fallback (פריט 10).** הפונטים המוטמעים נקראים; ניצול panose/charset/altName לבחירת תחליף — משימות 03/13.
