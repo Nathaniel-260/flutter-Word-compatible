@@ -128,6 +128,20 @@ class BlockParser {
             flushPendingList();
             result.add(DocxParagraph(children: [DocxText(text)]));
           }
+        } else if (child.name.local == 'AlternateContent') {
+          // Block-level mc:AlternateContent (e.g. a wrapped paragraph/table or
+          // a floating object): pick the understood mc:Choice, else mc:Fallback
+          // (ISO/IEC 29500-3 §10), and re-enter block parsing on its content.
+          // Previously handled only at inline level, so a block-level branch was
+          // dropped entirely. `parseBlocks` already coalesces list paragraphs
+          // into a `DocxList`, so the result is added as-is — exactly like the
+          // `tbl`/`oMath` branches (a list inside the wrapper does not merge
+          // with one outside it).
+          final container = selectAlternateContent(child);
+          if (container != null) {
+            flushPendingList();
+            result.addAll(parseBlocks(container.children));
+          }
         } else if (child.name.local == 'del' ||
             child.name.local == 'moveFrom') {
           // Track changes: deleted/moved-from blocks are dropped (final view).

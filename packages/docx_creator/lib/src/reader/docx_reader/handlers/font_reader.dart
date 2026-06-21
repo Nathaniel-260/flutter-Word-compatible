@@ -1,6 +1,5 @@
 import 'dart:typed_data';
 
-import 'package:archive/archive.dart';
 import 'package:xml/xml.dart';
 
 import '../../../core/font_manager.dart';
@@ -42,16 +41,10 @@ class FontReader {
           final key = embed.getAttribute('w:fontKey'); // {GUID}
 
           if (id != null && key != null && rels.containsKey(id)) {
-            String target = rels[id]!;
-
-            // Locate file in archive
-            ArchiveFile? file;
-            if (target.startsWith('/')) {
-              target = target.substring(1);
-              file = context.archive.findFile(target);
-            } else {
-              file = context.archive.findFile('word/$target');
-            }
+            // Locate file in archive (relative to the document base dir or
+            // package-absolute).
+            final file =
+                context.archive.findFile(context.resolveRelative(rels[id]!));
 
             if (file != null) {
               String cleanKey = key.replaceAll(RegExp(r'[{}]'), '');

@@ -202,15 +202,10 @@ class NumberingParser {
         if (rId != null) {
           final rel = context.numberingRelationships[rId];
           if (rel != null) {
-            // Read image from word/media/...
-            // Handle both relative paths (media/...) and absolute paths
-            final target = rel.target;
-            final imagePath = target.startsWith('media/')
-                ? 'word/$target'
-                : target.startsWith('/word/')
-                    ? target.substring(1)
-                    : 'word/$target';
-            picBulletImage = context.readBytes(imagePath);
+            // Image target is relative to the numbering part (document base
+            // dir) or package-absolute.
+            picBulletImage =
+                context.readBytes(context.resolveRelative(rel.target));
           }
         }
       }

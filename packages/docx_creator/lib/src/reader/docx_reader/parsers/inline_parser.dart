@@ -54,6 +54,11 @@ class InlineParser {
       if (local == 'bookmarkEnd') continue;
 
       if (local == 'r') {
+        // A comment/annotation reference is an invisible marker in the body
+        // (Word shows the comment in a margin balloon — out of scope, §8.2).
+        // Skip such marker-only runs so they don't surface as raw-XML inlines.
+        if (_isCommentMarkerRun(child)) continue;
+
         // Word may pack a whole field (begin/instrText/separate/end) into a
         // single run, or split it across runs. Walk the run's children in
         // document order so both forms work. A run with no field-control
@@ -175,13 +180,12 @@ class InlineParser {
         continue;
       }
 
-      // mc:AlternateContent — prefer the modern mc:Choice content, falling back
-      // to mc:Fallback so nothing is lost. Match by local name so a non-`mc`
-      // namespace prefix still resolves.
+      // mc:AlternateContent — pick the modern mc:Choice whose `Requires`
+      // namespaces we understand, else mc:Fallback (ISO/IEC 29500-3 §10), so
+      // nothing is lost and the higher-fidelity branch wins. See
+      // [selectAlternateContent].
       if (local == 'AlternateContent') {
-        XmlElement? byLocal(String name) =>
-            child.childElements.where((e) => e.name.local == name).firstOrNull;
-        final container = byLocal('Choice') ?? byLocal('Fallback');
+        final container = selectAlternateContent(child);
         if (container != null) {
           final parsed = parseChildren(container.children,
               parentStyle: parentStyle, paragraphStyleId: paragraphStyleId);
@@ -274,6 +278,35 @@ class InlineParser {
   /// Parse a single run (w:r) element.
   DocxInline parseRun(XmlElement run,
       {DocxStyle? parentStyle, String? paragraphStyleId}) {
+    // mc:AlternateContent inside a run — Word's usual form for a floating
+    // shape/drawing. Resolve each to the understood mc:Choice / mc:Fallback
+    // (ISO/IEC 29500-3 §10) and splice that branch's content *in place*, so the
+    // unselected branch (which may use a namespace we cannot render) is ignored
+    // while rPr and any sibling content are preserved. Without this, the
+    // recursive content searches below would blindly grab the first branch in
+    // document order regardless of its `Requires`.
+    final hasAltContent =
+        run.childElements.any((e) => e.name.local == 'AlternateContent');
+    if (hasAltContent) {
+      // The synthetic run holds no AlternateContent, so the recursive call
+      // won't re-enter this branch.
+      final synthetic = XmlElement(XmlName('w:r'));
+      for (final node in run.children) {
+        if (node is XmlElement && node.name.local == 'AlternateContent') {
+          final container = selectAlternateContent(node);
+          if (container != null) {
+            for (final c in container.children) {
+              synthetic.children.add(c.copy());
+            }
+          }
+        } else {
+          synthetic.children.add(node.copy());
+        }
+      }
+      return parseRun(synthetic,
+          parentStyle: parentStyle, paragraphStyleId: paragraphStyleId);
+    }
+
     // Check for line break — מבחין בין מעבר שורה למעבר עמוד (w:type="page").
     final br = run.findAllElements('w:br').firstOrNull;
     if (br != null) {
@@ -319,11 +352,16 @@ class InlineParser {
       return const DocxTab();
     }
 
-    // Check for drawings (handled separately by MediaHandler)
+    // Check for drawings, VML pictures, and embedded objects (OLE). A
+    // `w:object` (OLE/Excel/equation legacy) carries a raster/EMF *preview* in a
+    // `v:shape`/`v:imagedata` (or a modern `w:drawing`); route it through the
+    // same path so the preview renders (Plan §H, item 17). The embedded binary
+    // itself is a conscious deviation (§8.2 #2 — no native EMF decoder); when no
+    // preview blip exists `_parseDrawing` preserves the object as raw XML.
     final drawing = run.findAllElements('w:drawing').firstOrNull ??
-        run.findAllElements('w:pict').firstOrNull;
+        run.findAllElements('w:pict').firstOrNull ??
+        run.findAllElements('w:object').firstOrNull;
     if (drawing != null) {
-      // Return placeholder - actual parsing done by MediaHandler
       return _parseDrawing(drawing);
     }
 
@@ -441,6 +479,25 @@ class InlineParser {
     return DocxRawInline(run.toXmlString());
   }
 
+  /// Run child local names that carry visible/content output. A run that holds
+  /// a comment marker but none of these is purely a review annotation.
+  static const _runContentLocals = {
+    't', 'br', 'cr', 'tab', 'ptab', 'drawing', 'pict', 'object', 'sym',
+    'noBreakHyphen', 'softHyphen', 'fldChar', 'instrText',
+    'footnoteReference', 'endnoteReference', 'separator',
+    'continuationSeparator', 'AlternateContent'
+  };
+
+  /// True when [run] is a comment/annotation reference marker carrying no
+  /// actual content. Matched by local name (prefix-agnostic).
+  static bool _isCommentMarkerRun(XmlElement run) {
+    final hasMarker = run.childElements.any((e) =>
+        e.name.local == 'commentReference' || e.name.local == 'annotationRef');
+    if (!hasMarker) return false;
+    return !run.childElements
+        .any((e) => _runContentLocals.contains(e.name.local));
+  }
+
   /// Reads a `CT_OnOff` toggle child of [rPr], or null when the element is
   /// absent (so it can be distinguished from an explicit off).
   static bool? _toggle(XmlElement? rPr, String name) {
@@ -510,9 +567,8 @@ class InlineParser {
       if (embedId != null) {
         final rel = context.getRelationship(embedId);
         if (rel != null) {
-          // Read image from archive
-          String target = rel.target;
-          if (!target.startsWith('/')) target = 'word/$target';
+          // Read image from archive (relative to the document base dir).
+          final target = context.resolveRelative(rel.target);
           final imageBytes = context.readBytes(target);
           if (imageBytes != null) {
             // Get dimensions
@@ -796,8 +852,11 @@ class InlineParser {
       }
     }
 
-    // Check for shape
-    final wsp = drawing.findAllElements('wsp:wsp').firstOrNull;
+    // Check for shape. Match by *local name* (namespace `*`) so a real Word
+    // file — which binds the WordprocessingShape namespace to the `wps` prefix
+    // (`wps:wsp`) — resolves exactly like docx_creator's own `wsp:` prefix.
+    // (The shape's `wsp` local name is unambiguous.)
+    final wsp = drawing.findAllElements('wsp', namespace: '*').firstOrNull;
     if (wsp != null) {
       return _parseShape(drawing, wsp);
     }
@@ -841,9 +900,13 @@ class InlineParser {
     }
 
     // Read fill: a gradient (`a:gradFill`) wins over a solid colour. Scope the
-    // search to the shape's own `wsp:spPr` so a fill inside the text body
-    // (`w:txbxContent`) is never mistaken for the shape fill.
-    final spPr = wsp.findAllElements('wsp:spPr').firstOrNull ?? wsp;
+    // search to the shape's own `spPr` (a *direct* child, matched by local name
+    // so both Word's `wps:spPr` and docx_creator's `wsp:spPr` resolve) so a fill
+    // inside the text body (`w:txbxContent`) is never mistaken for the shape
+    // fill.
+    final spPr =
+        wsp.childElements.where((e) => e.name.local == 'spPr').firstOrNull ??
+            wsp;
     DocxColor? fillColor;
     DocxGradientFill? gradientFill;
     final gradFill = spPr.findElements('a:gradFill').firstOrNull;
@@ -877,7 +940,10 @@ class InlineParser {
     // fallback for simple consumers.
     String? text;
     List<DocxBlock>? textBlocks;
-    final txbx = wsp.findAllElements('wsp:txbx').firstOrNull;
+    // `txbx` is a direct child of the shape; match by local name so both
+    // Word's `wps:txbx` and docx_creator's `wsp:txbx` resolve.
+    final txbx =
+        wsp.childElements.where((e) => e.name.local == 'txbx').firstOrNull;
     if (txbx != null) {
       final txbxContent = txbx.findAllElements('w:txbxContent').firstOrNull;
       if (txbxContent != null) {

@@ -350,8 +350,7 @@ class SectionParser {
     final rel = context.getRelationship(rId);
     if (rel == null) return null;
 
-    String target = rel.target;
-    if (!target.startsWith('/')) target = 'word/$target';
+    final target = context.resolveRelative(rel.target);
 
     final xmlContent = context.readContent(target);
     if (xmlContent == null) return null;
@@ -362,8 +361,8 @@ class SectionParser {
       if (blip != null) {
         final embedId = blip.getAttribute('r:embed');
         if (embedId != null) {
-          // Load header relationships
-          final headerRelsPath = 'word/_rels/${target.split('/').last}.rels';
+          // Load this part's relationships
+          final headerRelsPath = context.relsPathFor(target);
           final relsContent = context.readContent(headerRelsPath);
           if (relsContent != null) {
             final relsXml = XmlDocument.parse(relsContent);
@@ -371,8 +370,7 @@ class SectionParser {
               if (r.getAttribute('Id') == embedId) {
                 final imgTarget = r.getAttribute('Target');
                 if (imgTarget != null) {
-                  String imgPath = imgTarget;
-                  if (!imgPath.startsWith('/')) imgPath = 'word/$imgPath';
+                  final imgPath = context.resolveRelative(imgTarget);
                   final imageBytes = context.readBytes(imgPath);
                   if (imageBytes != null) {
                     // Determine extension from file path
@@ -395,8 +393,7 @@ class SectionParser {
   }
 
   DocxHeader? _readHeader(DocxRelationship rel) {
-    String target = rel.target;
-    if (!target.startsWith('/')) target = 'word/$target';
+    final target = context.resolveRelative(rel.target);
 
     final xmlContent = context.readContent(target);
     if (xmlContent == null) return null;
@@ -414,8 +411,7 @@ class SectionParser {
   }
 
   DocxFooter? _readFooter(DocxRelationship rel) {
-    String target = rel.target;
-    if (!target.startsWith('/')) target = 'word/$target';
+    final target = context.resolveRelative(rel.target);
 
     final xmlContent = context.readContent(target);
     if (xmlContent == null) return null;

@@ -16,6 +16,40 @@ class RelationshipManager {
 
   RelationshipManager(this.context);
 
+  /// The `officeDocument` relationship type that points from the package root
+  /// to the main document part.
+  static const _officeDocumentType =
+      'http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument';
+
+  /// Locates the main document part the OPC way: the package root relationships
+  /// (`_rels/.rels`) carry an `officeDocument` relationship whose target is the
+  /// body part. Word resolves the body *through* this relationship rather than
+  /// assuming a fixed `word/document.xml`, so a package that names its main part
+  /// differently (or places it elsewhere) still opens.
+  ///
+  /// Updates [ReaderContext.documentPartPath]/[ReaderContext.documentBaseDir]
+  /// only when the relationship resolves to a part that actually exists;
+  /// otherwise the conventional defaults stand (preserving every standard file).
+  void discoverDocumentPart() {
+    final file = context.readContent('_rels/.rels');
+    if (file == null) return;
+    try {
+      final xml = XmlDocument.parse(file);
+      for (var rel in xml.findAllElements('Relationship')) {
+        final type = rel.getAttribute('Type') ?? '';
+        if (type == _officeDocumentType || type.endsWith('/officeDocument')) {
+          final target = rel.getAttribute('Target');
+          if (target == null) continue;
+          final resolved = context.resolveFromPackageRoot(target);
+          if (context.archive.findFile(resolved) != null) {
+            context.setDocumentPart(resolved);
+          }
+          return;
+        }
+      }
+    } catch (_) {}
+  }
+
   /// Load content types from [Content_Types].xml.
   void loadContentTypes() {
     final file = context.readContent('[Content_Types].xml');
@@ -42,9 +76,11 @@ class RelationshipManager {
     } catch (_) {}
   }
 
-  /// Load document relationships from word/_rels/document.xml.rels.
+  /// Load document relationships from the main document part's `.rels`
+  /// (conventionally `word/_rels/document.xml.rels`, but resolved relative to
+  /// the discovered document part).
   void loadDocumentRelationships() {
-    final file = context.readContent('word/_rels/document.xml.rels');
+    final file = context.readContent(context.documentRelsPath);
     if (file == null) return;
 
     try {
@@ -117,7 +153,8 @@ class RelationshipManager {
 
   /// Resolves the full archive path for a relationship target.
   ///
-  /// Handles both absolute paths (starting with /) and relative paths.
+  /// Handles package-absolute paths (starting with /) and paths relative to the
+  /// document base directory (see [ReaderContext.resolveRelative]).
   String? resolveTarget(String rId) {
     final rel = context.relationships[rId];
     if (rel == null) return null;
@@ -125,14 +162,7 @@ class RelationshipManager {
     // External targets are not archive paths
     if (rel.targetMode == 'External') return rel.target;
 
-    String target = rel.target;
-    if (target.startsWith('/')) {
-      // Absolute path - remove leading slash
-      return target.substring(1);
-    } else {
-      // Relative to word/ directory
-      return 'word/$target';
-    }
+    return context.resolveRelative(rel.target);
   }
 
   /// Validates that all referenced relationship IDs exist.
