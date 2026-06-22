@@ -372,15 +372,15 @@ class DocxStyle {
       }
     }
 
-    // Shading
+    // Shading — collapse the three-part `w:shd` (pattern/fill/colour) to the
+    // flat colour Word paints (handles `solid`/pctN, not just `fill`).
     final shdElem = pPr.getElement('w:shd');
     if (shdElem != null) {
-      shadingFill = shdElem.getAttribute('w:fill');
-      if (shadingFill == 'auto') shadingFill = null;
-
-      themeFill = shdElem.getAttribute('w:themeFill');
-      themeFillTint = shdElem.getAttribute('w:themeFillTint');
-      themeFillShade = shdElem.getAttribute('w:themeFillShade');
+      final shd = resolveShdFill(shdElem);
+      shadingFill = shd.fill;
+      themeFill = shd.themeFill;
+      themeFillTint = shd.themeFillTint;
+      themeFillShade = shd.themeFillShade;
     }
 
     // Numbering/Lists
@@ -528,11 +528,11 @@ class DocxStyle {
 
       final shdElem = rPr.getElement('w:shd');
       if (shdElem != null) {
-        shadingFill = shdElem.getAttribute('w:fill');
-        if (shadingFill == 'auto') shadingFill = null;
-        themeFill = shdElem.getAttribute('w:themeFill');
-        themeFillTint = shdElem.getAttribute('w:themeFillTint');
-        themeFillShade = shdElem.getAttribute('w:themeFillShade');
+        final shd = resolveShdFill(shdElem);
+        shadingFill = shd.fill;
+        themeFill = shd.themeFill;
+        themeFillTint = shd.themeFillTint;
+        themeFillShade = shd.themeFillShade;
       }
 
       final spacingElem = rPr.getElement('w:spacing');
@@ -605,17 +605,22 @@ class DocxStyle {
 
     // Parse Cell Properties
     if (tcPr != null) {
-      // Shading (Cell shading overrides paragraph shading if present)
+      // Shading (cell shading overrides paragraph shading if present). Resolve
+      // the three-part shd to its flat colour so `solid`/pctN styles take effect.
+      // This (table-style) path keeps the historical `#` prefix on a plain hex
+      // for backward compatibility with the conditional-shading contract.
       final tcShd = tcPr.getElement('w:shd');
       if (tcShd != null) {
-        final fill = tcShd.getAttribute('w:fill');
-        if (fill != null && fill != 'auto') {
-          // Normalize hex
-          if (fill.length == 6 && RegExp(r'^[0-9A-Fa-f]{6}$').hasMatch(fill)) {
-            shadingFill = '#$fill';
-          } else {
-            shadingFill = fill;
-          }
+        final resolved = resolveShdFill(tcShd);
+        final f = resolved.fill;
+        if (f != null) {
+          shadingFill =
+              RegExp(r'^[0-9A-Fa-f]{6}$').hasMatch(f) ? '#$f' : f;
+        }
+        if (resolved.themeFill != null) {
+          themeFill = resolved.themeFill;
+          themeFillTint = resolved.themeFillTint;
+          themeFillShade = resolved.themeFillShade;
         }
       }
 
@@ -695,20 +700,53 @@ class DocxStyle {
       if (s != null) size = s;
     }
 
+    // `w:space` — the gap between the border and the text, in points
+    // (CT_Border, ISO/IEC 29500 §17.18.3). Previously dropped, so a bordered
+    // paragraph hugged its text instead of keeping Word's offset.
+    int space = 0;
+    final spaceAttr = el.getAttribute('w:space');
+    if (spaceAttr != null) {
+      final s = int.tryParse(spaceAttr);
+      if (s != null) space = s;
+    }
+
     var color = DocxColor.black;
     final colorAttr = el.getAttribute('w:color');
     if (colorAttr != null && colorAttr != 'auto') {
       color = DocxColor(colorAttr);
     }
 
+    // Theme colour for the line (resolved by the viewer against the document
+    // theme). Without these a border with `w:themeColor` lost its hue and fell
+    // back to black; the cell/table parser already read them — this brings the
+    // paragraph/run/style border parser to parity.
+    final themeColor = el.getAttribute('w:themeColor');
+    final themeTint = el.getAttribute('w:themeTint');
+    final themeShade = el.getAttribute('w:themeShade');
+
     var style = DocxBorder.single;
+    String? rawVal;
+    bool found = false;
     for (var b in DocxBorder.values) {
       if (b.xmlValue == val) {
         style = b;
+        found = true;
         break;
       }
     }
+    // An art/decorative or otherwise unmodelled `w:val` is preserved verbatim
+    // (rendered as `single` by the viewer; see Plan §8.2 #3/#17).
+    if (!found) rawVal = val;
 
-    return DocxBorderSide(style: style, size: size, color: color);
+    return DocxBorderSide(
+      style: style,
+      size: size,
+      space: space,
+      color: color,
+      themeColor: themeColor,
+      themeTint: themeTint,
+      themeShade: themeShade,
+      rawVal: rawVal,
+    );
   }
 }

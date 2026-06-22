@@ -43,23 +43,37 @@ class TableParser {
         );
       }
 
-      // Parse table shading (background)
+      // Parse table shading (background) — flat colour from the three-part shd.
       final shd = tblPr.getElement('w:shd');
       if (shd != null) {
-        final fill = shd.getAttribute('w:fill');
-        if (fill != null && fill != 'auto') {
+        final fill = resolveShdFill(shd).fill;
+        if (fill != null) {
           style = style.copyWith(fill: fill);
         }
       }
 
       final tblW = tblPr.getElement('w:tblW');
       if (tblW != null) {
-        final w = int.tryParse(tblW.getAttribute('w:w') ?? '');
+        final rawW = tblW.getAttribute('w:w') ?? '';
         final type = tblW.getAttribute('w:type');
-        if (w != null) tableWidth = w;
-        if (type == 'dxa') widthType = DocxWidthType.dxa;
-        if (type == 'pct') widthType = DocxWidthType.pct;
-        if (type == 'auto') widthType = DocxWidthType.auto;
+        if (rawW.endsWith('%')) {
+          // Modern percentage form (`w:w="50%"`, ST_DecimalNumberOrPercent):
+          // Word writes this instead of fiftieths-of-a-percent. Convert to the
+          // same fiftieths unit (5000 = 100%) so it flows through the existing
+          // pct width path; previously `int.tryParse("50%")` returned null and
+          // the width was dropped silently.
+          final pct = double.tryParse(rawW.substring(0, rawW.length - 1));
+          if (pct != null) {
+            tableWidth = (pct * 50).round();
+            widthType = DocxWidthType.pct;
+          }
+        } else {
+          final w = int.tryParse(rawW);
+          if (w != null) tableWidth = w;
+          if (type == 'dxa') widthType = DocxWidthType.dxa;
+          if (type == 'pct') widthType = DocxWidthType.pct;
+          if (type == 'auto') widthType = DocxWidthType.auto;
+        }
       }
 
       // Parse table style
@@ -410,20 +424,14 @@ class TableParser {
 
       final shd = tcPr.getElement('w:shd');
       if (shd != null) {
-        shadingFill = shd.getAttribute('w:fill');
-        if (shadingFill == 'auto' || shadingFill == null) {
-          shadingFill = null;
-        } else {
-          // Normalize to include # prefix if it's a hex color
-          if (shadingFill.length == 6 &&
-              RegExp(r'^[0-9A-Fa-f]{6}$').hasMatch(shadingFill)) {
-            shadingFill = '#$shadingFill';
-          }
-        }
-
-        themeFill = shd.getAttribute('w:themeFill');
-        themeFillTint = shd.getAttribute('w:themeFillTint');
-        themeFillShade = shd.getAttribute('w:themeFillShade');
+        // Collapse the three-part shading to its flat colour so a `solid` or
+        // pctN cell renders its background (the viewer's `_resolveColor` strips
+        // any leading `#`, so a plain hex is fine).
+        final resolved = resolveShdFill(shd);
+        shadingFill = resolved.fill;
+        themeFill = resolved.themeFill;
+        themeFillTint = resolved.themeFillTint;
+        themeFillShade = resolved.themeFillShade;
       }
 
       // Parse vertical alignment
@@ -535,11 +543,10 @@ class TableParser {
         if (val == 'left' || val == 'start') align = DocxAlign.left;
       }
 
-      // Shading
+      // Shading — flat colour from the three-part shd (handles solid/pctN).
       final shdElem = pPr.getElement('w:shd');
       if (shdElem != null) {
-        shadingFill = shdElem.getAttribute('w:fill');
-        if (shadingFill == 'auto') shadingFill = null;
+        shadingFill = resolveShdFill(shdElem).fill;
       }
 
       final cs = pPr.getElement('w:cnfStyle');
