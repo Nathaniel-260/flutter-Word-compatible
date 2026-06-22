@@ -14,6 +14,131 @@ bool readOnOff(XmlElement? element, {bool orElse = false}) {
   return v != '0' && v != 'false' && v != 'off';
 }
 
+/// The flat background colour a `w:shd` element resolves to, as the four
+/// attributes the viewer already renders (a hex/`null` [fill] plus an optional
+/// theme reference). Returned by [resolveShdFill].
+typedef ShdFill = ({
+  String? fill,
+  String? themeFill,
+  String? themeFillTint,
+  String? themeFillShade,
+});
+
+/// Coverage (0..1) of a non-`clear`/`solid` `w:shd` pattern, or `null` when the
+/// token carries no implied coverage. `pctN` maps to N%; the stripe/grid
+/// patterns are approximated at half coverage (the viewer paints one flat
+/// colour, so the exact hatch geometry is out of scope — Plan §8.2).
+double? _shdCoverage(String val) {
+  if (val.startsWith('pct')) {
+    final n = int.tryParse(val.substring(3));
+    if (n != null) return (n / 100.0).clamp(0.0, 1.0);
+  }
+  const patterned = {
+    'horzstripe', 'vertstripe', 'diagstripe', 'reversediagstripe',
+    'horzcross', 'diagcross', 'thinhorzstripe', 'thinvertstripe',
+    'thindiagstripe', 'thinreversediagstripe', 'thinhorzcross', 'thindiagcross',
+  };
+  return patterned.contains(val) ? 0.5 : null;
+}
+
+/// Normalises [v] to an uppercase 6-digit hex string, or `null` if it is not a
+/// plain hex colour (e.g. `auto`, a theme name, or absent).
+String? _plainHex(String? v) {
+  if (v == null) return null;
+  final h = v.toUpperCase().replaceAll('#', '');
+  return RegExp(r'^[0-9A-F]{6}$').hasMatch(h) ? h : null;
+}
+
+/// Blends two 6-digit hex colours: [a] at `1-t`, [b] at `t`. The mix is plain
+/// linear RGB (not gamma-corrected) — a minor, deliberate deviation that matches
+/// Word's own flat approximation of a hatch pattern closely enough.
+String _blendHex(String a, String b, double t) {
+  int ch(String s, int i) => int.parse(s.substring(i, i + 2), radix: 16);
+  int mix(int x, int y) => (x * (1 - t) + y * t).round().clamp(0, 255);
+  String hx(int n) => n.toRadixString(16).padLeft(2, '0').toUpperCase();
+  return '${hx(mix(ch(a, 0), ch(b, 0)))}'
+      '${hx(mix(ch(a, 2), ch(b, 2)))}'
+      '${hx(mix(ch(a, 4), ch(b, 4)))}';
+}
+
+/// Collapses a three-part `w:shd` (ISO/IEC 29500 §17.3.5) to the single flat
+/// colour Word effectively paints, as a [ShdFill].
+///
+/// `w:val` is the pattern (ST_Shd), `w:fill` the background, `w:color` the
+/// pattern foreground. Word renders:
+///   - `nil`/`none`        → no shading;
+///   - `clear` (or absent) → the fill alone (+ its theme);
+///   - `solid`             → the **pattern colour** (it fully covers the fill) —
+///     previously dropped, so a `solid` cell showed no background at all;
+///   - `pctN`/stripe/grid  → the colour mixed over the fill at the pattern's
+///     coverage when both are plain hex; a theme-driven pattern keeps the fill
+///     (the flat-colour model can't carry two theme refs — documented in §8.2).
+///
+/// Returning the existing four-attribute shape means callers (and the viewer's
+/// `resolveColor`) need no new fields, and there is no geometry change — only
+/// the resolved colour differs, so measure ≡ render is untouched.
+ShdFill resolveShdFill(XmlElement shd) {
+  final val = (shd.getAttribute('w:val') ?? 'clear').toLowerCase();
+
+  String? fill = shd.getAttribute('w:fill');
+  if (fill == 'auto') fill = null;
+  final themeFill = shd.getAttribute('w:themeFill');
+  final themeFillTint = shd.getAttribute('w:themeFillTint');
+  final themeFillShade = shd.getAttribute('w:themeFillShade');
+
+  if (val == 'nil' || val == 'none') {
+    return (
+      fill: null,
+      themeFill: null,
+      themeFillTint: null,
+      themeFillShade: null
+    );
+  }
+
+  final fillTuple = (
+    fill: fill,
+    themeFill: themeFill,
+    themeFillTint: themeFillTint,
+    themeFillShade: themeFillShade,
+  );
+  if (val == 'clear') return fillTuple;
+
+  // Pattern foreground (`w:color` + its own theme reference).
+  String? patternColor = shd.getAttribute('w:color');
+  if (patternColor == 'auto') patternColor = null;
+  final patternThemeColor = shd.getAttribute('w:themeColor');
+  final patternThemeTint = shd.getAttribute('w:themeTint');
+  final patternThemeShade = shd.getAttribute('w:themeShade');
+
+  if (val == 'solid') {
+    if (patternColor == null && patternThemeColor == null) return fillTuple;
+    return (
+      fill: patternColor,
+      themeFill: patternThemeColor,
+      themeFillTint: patternThemeTint,
+      themeFillShade: patternThemeShade,
+    );
+  }
+
+  // pctN / stripe / grid: blend when both endpoints are plain hex.
+  final coverage = _shdCoverage(val);
+  final plainColor = _plainHex(patternColor);
+  // A missing fill blends against the page background (white).
+  final plainFill = _plainHex(fill) ?? (themeFill == null ? 'FFFFFF' : null);
+  if (coverage != null &&
+      plainColor != null &&
+      plainFill != null &&
+      patternThemeColor == null) {
+    return (
+      fill: _blendHex(plainFill, plainColor, coverage),
+      themeFill: null,
+      themeFillTint: null,
+      themeFillShade: null,
+    );
+  }
+  return fillTuple;
+}
+
 /// Namespace URIs whose content the reader can render, used to decide whether
 /// an `mc:Choice` is satisfiable. The key entry is the WordprocessingShape
 /// namespace (`wps`): with prefix-agnostic shape parsing the reader now honours

@@ -297,16 +297,26 @@ class TextMeasurer {
   // asks for no spacing (e.g. a file with no `Normal` style, like Word's own
   // blank-template body). Injecting 80tw per paragraph inflated the page count
   // (~10px × every body paragraph) and broke 1:1 page-break parity with Word.
+  // A *visible* border's `w:space` (points → px at 96 DPI) added by
+  // [ParagraphBuilder._wrapWithParagraphStyle] as inner padding on the bordered
+  // side; mirrored here so a bordered paragraph's measured footprint stays 1:1
+  // with the painted block (CT_Border, ISO/IEC 29500 §17.18.3). A side with no
+  // rule (`style == none`) contributes nothing, exactly like the renderer.
+  static double _borderSpacePx(DocxBorderSide? side) =>
+      (side != null && side.style != DocxBorder.none)
+          ? side.space * (96.0 / 72.0)
+          : 0.0;
+
   double _spacingBefore(DocxParagraph p) {
     var top = ((p.spacingBefore ?? 0) / 15.0).clamp(0.0, double.infinity);
     if (_isHeading(p)) top = top.clamp(16.0, double.infinity);
-    return top;
+    return top + _borderSpacePx(p.borderTop);
   }
 
   double _spacingAfter(DocxParagraph p) {
     var bottom = ((p.spacingAfter ?? 0) / 15.0).clamp(0.0, double.infinity);
     if (_isHeading(p)) bottom = bottom.clamp(8.0, double.infinity);
-    return bottom;
+    return bottom + _borderSpacePx(p.borderBottomSide ?? p.borderBetween);
   }
 
   bool _isHeading(DocxParagraph p) {
