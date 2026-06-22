@@ -257,6 +257,8 @@ class BlockParser {
       ilvl: finalProps.ilvl,
       spacingAfter: finalProps.spacingAfter,
       spacingBefore: finalProps.spacingBefore,
+      spacingBeforeLines: finalProps.spacingBeforeLines,
+      spacingAfterLines: finalProps.spacingAfterLines,
       lineSpacing: finalProps.lineSpacing,
       lineRule: finalProps.lineRule,
       indentLeft: finalProps.indentLeft,

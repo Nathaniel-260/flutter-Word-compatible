@@ -31,6 +31,11 @@ class DocxStyle {
   final int? ilvl;
   final int? spacingAfter;
   final int? spacingBefore;
+
+  /// Spacing before/after in line units (hundredths of a line; `w:beforeLines`/
+  /// `w:afterLines`). Take precedence over the twips values when set.
+  final int? spacingBeforeLines;
+  final int? spacingAfterLines;
   final int? lineSpacing;
   final String? lineRule; // 'auto', 'exact', 'atLeast'
   final int? indentLeft;
@@ -95,6 +100,8 @@ class DocxStyle {
     this.ilvl,
     this.spacingAfter,
     this.spacingBefore,
+    this.spacingBeforeLines,
+    this.spacingAfterLines,
     this.lineSpacing,
     this.lineRule,
     this.indentLeft,
@@ -163,6 +170,8 @@ class DocxStyle {
       ilvl: pProps.ilvl,
       spacingAfter: pProps.spacingAfter,
       spacingBefore: pProps.spacingBefore,
+      spacingBeforeLines: pProps.spacingBeforeLines,
+      spacingAfterLines: pProps.spacingAfterLines,
       lineSpacing: pProps.lineSpacing,
       lineRule: pProps.lineRule,
       indentLeft: pProps.indentLeft,
@@ -217,6 +226,8 @@ class DocxStyle {
       ilvl: other.ilvl ?? ilvl,
       spacingAfter: other.spacingAfter ?? spacingAfter,
       spacingBefore: other.spacingBefore ?? spacingBefore,
+      spacingBeforeLines: other.spacingBeforeLines ?? spacingBeforeLines,
+      spacingAfterLines: other.spacingAfterLines ?? spacingAfterLines,
       lineSpacing: other.lineSpacing ?? lineSpacing,
       lineRule: other.lineRule ?? lineRule,
       indentLeft: other.indentLeft ?? indentLeft,
@@ -305,6 +316,8 @@ class DocxStyle {
     int? ilvl;
     int? spacingAfter;
     int? spacingBefore;
+    int? spacingBeforeLines;
+    int? spacingAfterLines;
     int? lineSpacing;
     String? lineRule;
     int? indentLeft;
@@ -341,6 +354,14 @@ class DocxStyle {
 
       final before = spacingElem.getAttribute('w:before');
       if (before != null) spacingBefore = int.tryParse(before);
+
+      // Line-unit spacing (1/100 line). Takes precedence over the twips value in
+      // the viewer; both are kept so a round-trip preserves the source.
+      final beforeLines = spacingElem.getAttribute('w:beforeLines');
+      if (beforeLines != null) spacingBeforeLines = int.tryParse(beforeLines);
+
+      final afterLines = spacingElem.getAttribute('w:afterLines');
+      if (afterLines != null) spacingAfterLines = int.tryParse(afterLines);
 
       final line = spacingElem.getAttribute('w:line');
       if (line != null) lineSpacing = int.tryParse(line);
@@ -419,6 +440,8 @@ class DocxStyle {
       ilvl: ilvl,
       spacingAfter: spacingAfter,
       spacingBefore: spacingBefore,
+      spacingBeforeLines: spacingBeforeLines,
+      spacingAfterLines: spacingAfterLines,
       lineSpacing: lineSpacing,
       lineRule: lineRule,
       indentLeft: indentLeft,

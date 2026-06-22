@@ -162,6 +162,40 @@ void main() {
   });
 
   // ===========================================================================
+  // §2 — line-unit paragraph spacing (item 8: w:beforeLines / w:afterLines)
+  // ===========================================================================
+  group('§2 line-unit spacing (w:beforeLines / w:afterLines)', () {
+    test('beforeLines / afterLines are read into the paragraph', () {
+      final p = _parsePara(
+          '<w:pPr><w:spacing w:beforeLines="150" w:afterLines="50" '
+          'w:before="240" w:after="120"/></w:pPr>'
+          '<w:r><w:t>שורות lines</w:t></w:r>');
+      expect(p.spacingBeforeLines, 150);
+      expect(p.spacingAfterLines, 50);
+      // The twips values are preserved alongside (for round-trip / fallback).
+      expect(p.spacingBefore, 240);
+      expect(p.spacingAfter, 120);
+    });
+
+    test('absent line-unit spacing → null (twips path unchanged)', () {
+      final p = _parsePara('<w:pPr><w:spacing w:before="240"/></w:pPr>'
+          '<w:r><w:t>x</w:t></w:r>');
+      expect(p.spacingBeforeLines, isNull);
+      expect(p.spacingAfterLines, isNull);
+      expect(p.spacingBefore, 240);
+    });
+
+    test('beforeLines / afterLines round-trip through buildXml', () {
+      final p = _parsePara(
+          '<w:pPr><w:spacing w:beforeLines="150" w:afterLines="50"/></w:pPr>'
+          '<w:r><w:t>x</w:t></w:r>');
+      final xml = _buildXml(p);
+      expect(xml, contains('w:beforeLines="150"'));
+      expect(xml, contains('w:afterLines="50"'));
+    });
+  });
+
+  // ===========================================================================
   // §2 — percentage-string table width (item 6)
   // ===========================================================================
   group('§2 table width as a percentage string (w:w="50%")', () {

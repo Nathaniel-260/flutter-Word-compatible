@@ -502,7 +502,10 @@ class TableBuilder {
       final children = <Widget>[];
       for (final child in cell.children) {
         if (child is DocxParagraph) {
-          children.add(paragraphBuilder.build(child, counter: counter));
+          // Pass the cell's resolved background so an `auto` run colour inside a
+          // shaded cell resolves to black/white against that fill (item 15).
+          children.add(paragraphBuilder.build(child,
+              counter: counter, inheritedBackground: color));
         } else if (child is DocxTable) {
           children
               .add(build(child, counter: counter, nested: true)); // Recursive

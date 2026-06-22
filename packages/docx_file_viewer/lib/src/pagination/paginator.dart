@@ -915,8 +915,11 @@ class Paginator {
     // the measurer and would push the body past the packed area (QA F1).
     if (_used == 0 &&
         block is DocxParagraph &&
-        ((block.spacingBefore ?? 0) != 0 || block.pageBreakBefore)) {
-      block = block.copyWith(spacingBefore: 0, pageBreakBefore: false);
+        ((block.spacingBefore ?? 0) != 0 ||
+            (block.spacingBeforeLines ?? 0) != 0 ||
+            block.pageBreakBefore)) {
+      block = block.copyWith(
+          spacingBefore: 0, spacingBeforeLines: 0, pageBreakBefore: false);
     }
 
     final height = _measureBlock(block, _activeContentWidth);

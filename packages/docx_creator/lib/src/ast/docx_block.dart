@@ -56,6 +56,16 @@ class DocxParagraph extends DocxBlock {
   /// Spacing before paragraph in twips.
   final int? spacingBefore;
 
+  /// Spacing before paragraph in line units — hundredths of a line
+  /// (`w:beforeLines`, ISO/IEC 29500 §17.3.1.33). When set it takes precedence
+  /// over [spacingBefore]; the viewer converts it with the paragraph's nominal
+  /// single-line height. Null = not specified (use [spacingBefore]).
+  final int? spacingBeforeLines;
+
+  /// Spacing after paragraph in line units — hundredths of a line
+  /// (`w:afterLines`). Takes precedence over [spacingAfter] when set.
+  final int? spacingAfterLines;
+
   /// Line spacing in twips (240 = single, 360 = 1.5, 480 = double).
   final int? lineSpacing;
 
@@ -147,6 +157,8 @@ class DocxParagraph extends DocxBlock {
     this.styleId,
     this.spacingAfter,
     this.spacingBefore,
+    this.spacingBeforeLines,
+    this.spacingAfterLines,
     this.lineSpacing,
     this.lineRule,
     this.indentLeft,
@@ -327,6 +339,8 @@ class DocxParagraph extends DocxBlock {
     String? styleId,
     int? spacingAfter,
     int? spacingBefore,
+    int? spacingBeforeLines,
+    int? spacingAfterLines,
     int? lineSpacing,
     String? lineRule,
     int? indentLeft,
@@ -366,6 +380,8 @@ class DocxParagraph extends DocxBlock {
       styleId: styleId ?? this.styleId,
       spacingAfter: spacingAfter ?? this.spacingAfter,
       spacingBefore: spacingBefore ?? this.spacingBefore,
+      spacingBeforeLines: spacingBeforeLines ?? this.spacingBeforeLines,
+      spacingAfterLines: spacingAfterLines ?? this.spacingAfterLines,
       lineSpacing: lineSpacing ?? this.lineSpacing,
       lineRule: lineRule ?? this.lineRule,
       indentLeft: indentLeft ?? this.indentLeft,
@@ -545,14 +561,24 @@ class DocxParagraph extends DocxBlock {
               // 6. spacing
               if (spacingAfter != null ||
                   spacingBefore != null ||
+                  spacingBeforeLines != null ||
+                  spacingAfterLines != null ||
                   lineSpacing != null ||
                   lineRule != null) {
                 builder.element('w:spacing', nest: () {
                   if (spacingAfter != null) {
                     builder.attribute('w:after', spacingAfter.toString());
                   }
+                  if (spacingAfterLines != null) {
+                    builder.attribute(
+                        'w:afterLines', spacingAfterLines.toString());
+                  }
                   if (spacingBefore != null) {
                     builder.attribute('w:before', spacingBefore.toString());
+                  }
+                  if (spacingBeforeLines != null) {
+                    builder.attribute(
+                        'w:beforeLines', spacingBeforeLines.toString());
                   }
                   if (lineSpacing != null) {
                     builder.attribute('w:line', lineSpacing.toString());

@@ -19,7 +19,8 @@ class MockParagraphBuilder extends ParagraphBuilder {
         );
 
   @override
-  Widget build(DocxParagraph paragraph, {BlockIndexCounter? counter}) {
+  Widget build(DocxParagraph paragraph,
+      {BlockIndexCounter? counter, Color? inheritedBackground}) {
     return const Text('Paragraph');
   }
 }

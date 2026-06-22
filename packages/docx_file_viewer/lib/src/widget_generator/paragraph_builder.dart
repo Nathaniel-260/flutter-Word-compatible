@@ -64,6 +64,25 @@ class ParagraphBuilder {
   Map<int, String> footnoteLabels = const {};
   Map<int, String> endnoteLabels = const {};
 
+  /// The effective background behind the paragraph currently being built — its
+  /// own `w:shd`, else the fill inherited from an enclosing table cell. Read by
+  /// [_buildTextSpan] to resolve an `auto` run colour against the shading the
+  /// text actually sits on (Word's rule, item 15). Transient render state set at
+  /// each public build entry; render-only, so it never affects measurement
+  /// (colour does not change text metrics → measure ≡ render is untouched).
+  Color? _autoColorBackground;
+
+  /// A paragraph's own shading fill as a [Color], falling back to an [inherited]
+  /// background (the enclosing cell's fill).
+  Color? _effectiveBackground(DocxParagraph p, Color? inherited) {
+    if (p.shadingFill != null || p.themeFill != null) {
+      return _spanFactory.resolveColor(
+              p.shadingFill, p.themeFill, p.themeFillTint, p.themeFillShade) ??
+          inherited;
+    }
+    return inherited;
+  }
+
   // Used for search highlighting
 
   ParagraphBuilder({
@@ -87,7 +106,9 @@ class ParagraphBuilder {
   /// §M.1). The [counter] only keeps this paragraph's block index aligned with
   /// the search index — no per-block [GlobalKey] is registered (navigation
   /// scrolls to the match's page instead).
-  Widget build(DocxParagraph paragraph, {BlockIndexCounter? counter}) {
+  Widget build(DocxParagraph paragraph,
+      {BlockIndexCounter? counter, Color? inheritedBackground}) {
+    _autoColorBackground = _effectiveBackground(paragraph, inheritedBackground);
     List<SearchMatch>? matches;
 
     if (counter != null && searchController != null) {
@@ -105,7 +126,8 @@ class ParagraphBuilder {
   /// Used when specific floats are being handled separately at the block level.
   Widget buildExcludingFloats(
       DocxParagraph paragraph, Set<DocxInline> excludedFloats,
-      {BlockIndexCounter? counter}) {
+      {BlockIndexCounter? counter, Color? inheritedBackground}) {
+    _autoColorBackground = _effectiveBackground(paragraph, inheritedBackground);
     List<SearchMatch>? matches;
 
     if (counter != null && searchController != null) {
@@ -577,14 +599,27 @@ class ParagraphBuilder {
     }
     double rightPadding = ((paragraph.indentRight ?? 0) * twipsToPixels)
         .clamp(0, double.infinity);
+    // Left/right border `w:space` (CT_Border, points) — the gap Word keeps
+    // between a vertical rule and the text. The measurer narrows its layout
+    // width by the same amount (TextMeasurer._hBorderSpacePx) so a paragraph
+    // with a side rule wraps identically in measure and render.
+    leftPadding += _borderSpacePx(paragraph.borderLeft);
+    rightPadding += _borderSpacePx(paragraph.borderRight);
     // Default 0 (OOXML spec) when nothing is resolved — must mirror
     // [TextMeasurer._spacingBefore/_spacingAfter]. The StyleEngine already folds
     // docDefaults + the style chain into spacingBefore/After, so a null means the
     // document asks for no spacing; the old guessed 80tw inflated every body
     // paragraph and broke page-break parity with Word.
-    double topPadding = ((paragraph.spacingBefore ?? 0) * twipsToPixels)
+    // Line-unit spacing (`w:beforeLines`/`w:afterLines`, hundredths of a line)
+    // takes precedence over the twips value when set (ISO/IEC 29500 §17.3.1.33);
+    // the shared helper is mirrored by [TextMeasurer] for measure ≡ render.
+    double topPadding = (_spanFactory.lineUnitSpacingPx(
+                paragraph, paragraph.spacingBeforeLines) ??
+            (paragraph.spacingBefore ?? 0) * twipsToPixels)
         .clamp(0, double.infinity);
-    double bottomPadding = ((paragraph.spacingAfter ?? 0) * twipsToPixels)
+    double bottomPadding = (_spanFactory.lineUnitSpacingPx(
+                paragraph, paragraph.spacingAfterLines) ??
+            (paragraph.spacingAfter ?? 0) * twipsToPixels)
         .clamp(0, double.infinity);
 
     // `w:space` on a paragraph border (CT_Border, in points) is the gap Word
@@ -895,6 +930,25 @@ class ParagraphBuilder {
         _spanFactory.resolveRunSegments(text, lineHeight: lineHeight);
     if (segments.isEmpty) return const [];
 
+    // `auto` run colour (`w:color w:val="auto"`): resolve to black/white against
+    // the *local document* shading behind this run — its own `w:shd`, else the
+    // paragraph/cell fill ([_autoColorBackground]). Only a real local fill
+    // triggers this (item 15); with no local shd the colour is left to the
+    // existing theme/dark-mode default (so dark reading mode keeps white70).
+    // Render-only — colour never affects metrics.
+    Color? autoColor;
+    if (SpanFactory.isAutoColor(text.color)) {
+      Color? runBg;
+      if (text.shadingFill != null || text.themeFill != null) {
+        runBg = _spanFactory.resolveColor(text.shadingFill, text.themeFill,
+            text.themeFillTint, text.themeFillShade);
+      }
+      final localBg = runBg ?? _autoColorBackground;
+      if (localBg != null) {
+        autoColor = _spanFactory.resolveAutoTextColor(localBg);
+      }
+    }
+
     // Tap handler (one per run; applies to every segment).
     TapGestureRecognizer? tapRecognizer;
     Color? linkColor;
@@ -927,7 +981,7 @@ class ParagraphBuilder {
                   TextSpan(
                     text: s.text,
                     style: s.style.copyWith(
-                      color: linkColor ?? s.style.color,
+                      color: linkColor ?? autoColor ?? s.style.color,
                       decoration: linkDecoration ?? s.style.decoration,
                     ),
                   ),
@@ -942,7 +996,7 @@ class ParagraphBuilder {
     for (final s in segments) {
       out.addAll(_overlaySegment(
         s.text,
-        s.style,
+        autoColor != null ? s.style.copyWith(color: autoColor) : s.style,
         offset + s.start,
         matches,
         tapRecognizer,
@@ -1035,6 +1089,9 @@ class ParagraphBuilder {
 
   /// Build a widget for a paragraph with a drop cap.
   Widget buildDropCap(DocxDropCap dropCap) {
+    // Drop-cap content sits on the page background; reset so no stale paragraph
+    // background leaks into an `auto` colour resolution.
+    _autoColorBackground = null;
     const pointToPx = 1.333;
     final defaultFontSize = theme.defaultTextStyle.fontSize ?? 14.0;
 

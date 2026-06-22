@@ -120,6 +120,37 @@ class SpanFactory {
     }
   }
 
+  /// The paragraph's nominal single-line height in px, used to convert line-unit
+  /// spacing (`w:beforeLines`/`w:afterLines`, hundredths of a line) to pixels.
+  /// Shared by the renderer and the measurer so a line-unit spacing produces an
+  /// identical footprint in both (measure ≡ render). The height is the effective
+  /// font size (first run, else theme default) × the `auto` line-height scale
+  /// (`lineSpacing/240`, default 1.0) — a deterministic nominal that ignores the
+  /// font's intrinsic leading (a small, documented approximation; line-unit
+  /// spacing is rare — 02-units.md ב.2).
+  double resolveSingleLineHeightPx(DocxParagraph paragraph) {
+    double? fontPt;
+    for (final c in paragraph.children) {
+      if (c is DocxText) {
+        fontPt = c.fontSize;
+        break;
+      }
+    }
+    final fontPx =
+        (fontPt != null ? fontPt * 1.333 : theme.defaultTextStyle.fontSize) ??
+            16.0;
+    final scale = resolveLineHeightScale(paragraph) ?? 1.0;
+    return fontPx * scale;
+  }
+
+  /// Converts a line-unit spacing value (hundredths of a line) to px for
+  /// [paragraph], or null when [hundredthsOfLine] is null. Centralised so the
+  /// renderer and measurer agree.
+  double? lineUnitSpacingPx(DocxParagraph paragraph, int? hundredthsOfLine) =>
+      hundredthsOfLine == null
+          ? null
+          : hundredthsOfLine / 100.0 * resolveSingleLineHeightPx(paragraph);
+
   /// Resolves the paragraph [StrutStyle] for `exact`/`atLeast` line spacing
   /// (Plan §C.2). `exact` forces every line to the given height
   /// ([StrutStyle.forceStrutHeight]); `atLeast` makes it a minimum (the line
@@ -700,6 +731,27 @@ class SpanFactory {
           );
     return TextSpan(text: text, style: style);
   }
+
+  /// Resolves an `auto` text colour (`w:color w:val="auto"`, ISO/IEC 29500
+  /// §17.3.2.6) to black or white for contrast against the effective
+  /// [background] behind the run — Word picks the colour from the shading the
+  /// text actually sits on, not a global guess. A null/absent background falls
+  /// back to the page background and finally the theme body colour (light page →
+  /// black, so the common case is unchanged).
+  Color resolveAutoTextColor(Color? background) {
+    final bg = background ?? theme.backgroundColor;
+    if (bg == null) {
+      return theme.defaultTextStyle.color ?? const Color(0xFF000000);
+    }
+    return bg.computeLuminance() < 0.5
+        ? const Color(0xFFFFFFFF)
+        : const Color(0xFF000000);
+  }
+
+  /// Whether [color] is an OOXML automatic colour (`w:val="auto"`), case- and
+  /// representation-insensitive (the factory upper-cases, the constant does not).
+  static bool isAutoColor(DocxColor? color) =>
+      color != null && color.hex.toLowerCase() == 'auto';
 
   /// Resolves a colour from a hex value and/or theme reference, applying
   /// tint/shade. Shared with the renderer's borders/shapes.

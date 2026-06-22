@@ -162,7 +162,8 @@ class TextMeasurer {
     TextDirection direction,
   ) {
     _layoutCount++;
-    _layoutInto(paragraph, width, direction);
+    final layoutW = (width - _hBorderSpacePx(paragraph)).clamp(1.0, width);
+    _layoutInto(paragraph, layoutW, direction);
 
     final lineMetrics = _painter.computeLineMetrics();
     final textHeight = _painter.height;
@@ -245,6 +246,10 @@ class TextMeasurer {
     TextDirection direction,
   ) {
     _layoutCount++;
+    // Narrow by horizontal border space so split offsets match the rendered
+    // (narrower) lines; [width] below is reused as the RTL leading edge, so use
+    // the same reduced value.
+    width = (width - _hBorderSpacePx(paragraph)).clamp(1.0, width);
     final built = _layoutInto(paragraph, width, direction);
     final lineMetrics = _painter.computeLineMetrics();
     final textLen = built.root.toPlainText(includePlaceholders: true).length;
@@ -307,14 +312,27 @@ class TextMeasurer {
           ? side.space * (96.0 / 72.0)
           : 0.0;
 
+  // Horizontal border `w:space` (left + right, px) narrows the text layout
+  // width, mirroring the renderer's left/right padding so a paragraph with a
+  // side rule wraps identically. Gated on a visible side, so paragraphs without
+  // left/right border space lay out at the full width exactly as before.
+  static double _hBorderSpacePx(DocxParagraph p) =>
+      _borderSpacePx(p.borderLeft) + _borderSpacePx(p.borderRight);
+
   double _spacingBefore(DocxParagraph p) {
-    var top = ((p.spacingBefore ?? 0) / 15.0).clamp(0.0, double.infinity);
+    // Line-unit spacing (`w:beforeLines`) wins over twips when set; mirrors
+    // [ParagraphBuilder._wrapWithParagraphStyle] via the shared helper.
+    var top = (spanFactory.lineUnitSpacingPx(p, p.spacingBeforeLines) ??
+            (p.spacingBefore ?? 0) / 15.0)
+        .clamp(0.0, double.infinity);
     if (_isHeading(p)) top = top.clamp(16.0, double.infinity);
     return top + _borderSpacePx(p.borderTop);
   }
 
   double _spacingAfter(DocxParagraph p) {
-    var bottom = ((p.spacingAfter ?? 0) / 15.0).clamp(0.0, double.infinity);
+    var bottom = (spanFactory.lineUnitSpacingPx(p, p.spacingAfterLines) ??
+            (p.spacingAfter ?? 0) / 15.0)
+        .clamp(0.0, double.infinity);
     if (_isHeading(p)) bottom = bottom.clamp(8.0, double.infinity);
     return bottom + _borderSpacePx(p.borderBottomSide ?? p.borderBetween);
   }
