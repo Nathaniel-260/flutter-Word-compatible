@@ -552,6 +552,14 @@ class ParagraphBuilder {
   }
 
   /// Helper to apply paragraph decorations (indent, padding, shading, borders)
+  /// A visible border's `w:space` (points → px at 96 DPI), or 0 when the side is
+  /// absent or has no rule (`style == none`). Mirrored verbatim by
+  /// [TextMeasurer] so the bordered block's footprint is identical in both.
+  static double _borderSpacePx(DocxBorderSide? side) =>
+      (side != null && side.style != DocxBorder.none)
+          ? side.space * (96.0 / 72.0)
+          : 0.0;
+
   Widget _wrapWithParagraphStyle(DocxParagraph paragraph, Widget content) {
     // Apply paragraph styling from DocxParagraph properties
     const double twipsToPixels = 1 / 15.0;
@@ -578,6 +586,18 @@ class ParagraphBuilder {
         .clamp(0, double.infinity);
     double bottomPadding = ((paragraph.spacingAfter ?? 0) * twipsToPixels)
         .clamp(0, double.infinity);
+
+    // `w:space` on a paragraph border (CT_Border, in points) is the gap Word
+    // keeps between the rule and the text. Add it to the matching side as inner
+    // padding; [TextMeasurer._spacingBefore]/[_spacingAfter] add the identical
+    // amount so the measured footprint stays 1:1 with the painted block. Only a
+    // *visible* border contributes (no rule → no gap), and only the vertical
+    // (top/bottom) axis is honoured — left/right `w:space` is a documented
+    // deviation (02-units.md ב.2), but skipping it identically here and in the
+    // measurer keeps measure ≡ render.
+    topPadding += _borderSpacePx(paragraph.borderTop);
+    bottomPadding +=
+        _borderSpacePx(paragraph.borderBottomSide ?? paragraph.borderBetween);
 
     // Heading detection
     if (paragraph.children.isNotEmpty) {
