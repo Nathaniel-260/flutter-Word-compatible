@@ -3,7 +3,7 @@
 > **מקור:** סעיף §2 מתוך `WORD_FORMATTING_XML_REFERENCE.md` — הועתק כלשונו וללא שינוי.
 > **אסור לערוך את "חלק א'".** המימוש והממצאים נכתבים ב"חלק ב'" בלבד.
 >
-> **סטטוס סריקה:** ✅ נסקר במלואו &nbsp;|&nbsp; **עודכן לאחרונה:** 2026-06-19
+> **סטטוס סריקה:** ✅ נסקר במלואו &nbsp;|&nbsp; **סטטוס מימוש:** ✅ פערי‑היחידות מומשו (shd solid/pctN, גבול space+theme, רוחב "%") + הכרעות מתועדות ליתר &nbsp;|&nbsp; **עודכן לאחרונה:** 2026-06-21
 >
 > ⚠️ זהו הבסיס לכל מדידה — טעות יחידה = פספוס מידות בכל שאר המשימות.
 
@@ -92,39 +92,51 @@
 | # | פריט (יחידה/טיפוס) | ממומש? (כן/חלקי/לא) | נאמן 1:1 ל‑Word? | איך זה נראה ב‑Word (ממצאי מחקר) | קובץ/שורה במימוש |
 |---|---|---|---|---|---|
 | 1 | המרת **twip** (dxa) → px/pt | כן | נאמן | `twip/1440*96` ל‑pixel ו‑`twip/20` ל‑pt — בדיוק נוסחת הייחוס (96 DPI). | `docx_units.dart:15` (`twips/15`); `measurements.dart:54` (`twipsToPoints`) |
-| 2 | המרת **half-point** (sz/szCs/position/kern) | חלקי | נאמן (לגודל פונט) | `sz`/`szCs`→גודל פונט מומר נכון (`val/2` pt, `*96/72` px). **אך** `position` (העלאה/הורדה) ו‑`kern` (קרנינג) אינם נקראים/מיושמים. | `docx_style.dart:546-552`; `docx_units.dart:25` |
+| 2 | המרת **half-point** (sz/szCs/position/kern) | חלקי | נאמן (לגודל פונט) | `sz`/`szCs`→גודל פונט מומר נכון (`val/2` pt, `*96/72` px). `position`/`kern` **נקראים ל‑AST** כיום (`kernMinHalfPoints`/`raiseLowerHalfPoints`, `inline_parser.dart`). **הכרעה:** רינדור ההעלאה/הורדה+קרנינג נדחה ל‑task 03 (ראו ב.2). | `docx_style.dart:546-552`; `inline_parser.dart:470-471` |
 | 3 | המרת **eighth-point** (עובי גבול) | כן | נאמן~ | `val/8` pt. ההמרה ב‑viewer משתמשת ב‑`1.333` (קירוב ל‑4/3) → סטיית עיגול תת‑פיקסלית. | `docx_units.dart:52`; `measurements.dart:101` |
 | 4 | המרת **EMU** (DrawingML) | כן | נאמן | `emu/914400` inch, `emu/12700` pt, `emu/9525` px (96 DPI) — תואם ייחוס. | `docx_units.dart:37`; `measurements.dart:20-32` |
 | 5 | **fiftieth of %** (pct ישן, 5000=100%) | חלקי | n/a (תשתית) | `w:tblW@w:type="pct"` עם ערך מספרי נקרא; `pctToFraction = pct/5000`. רק רוחב **טבלה/תא** — לא הורחב לכל ההקשרים. | `table_parser.dart:55-62`; `docx_units.dart:58` |
-| 6 | **% string** (`"50%"` חדש) | **לא** | לא | Word כותב לעיתים `w:w="50%"`. כאן `int.tryParse("50%")` מחזיר null → הרוחב נופל בשקט. הצורה המחרוזתית לא נתמכת. | `table_parser.dart:57` (גם משימה 06) |
+| 6 | **% string** (`"50%"` חדש) | כן | נאמן | ✅ מומש: `w:tblW@w:w` המסתיים ב‑`%` מומר ליחידת fiftieths (`50%`→2500) ומסומן `pct`; זורם דרך `resolveTableColumnWidths` (מדידה≡רינדור). הצורה המספרית לא נשברה. | `table_parser.dart` (tblW) |
 | 7 | **240ths of line** (lineRule=auto) | כן | נאמן | `line`+`lineRule` נפרסים; ל‑`auto`: יחס שורה = `lineSpacing/240` (240=יחיד, 360=1.5, 480=כפול). `exact`/`atLeast` מטופלים דרך strut (קופסת שורה כפויה/מינ'). | `docx_style.dart:345-349`; `span_factory.dart:112-119` |
-| 8 | **line units ×100** (beforeLines/afterLines/gridBefore/After) | **לא** | לא | רק `w:before`/`w:after` ב‑twips נקראים. `beforeLines`/`afterLines` (1/100 שורה) ו‑`gridBefore`/`After` אינם נקראים — מרווח‑פסקה ביחידות שורה יוחמץ. | `docx_style.dart:339-343` (חסר beforeLines) |
+| 8 | **line units ×100** (beforeLines/afterLines/gridBefore/After) | חלקי | חלקי | `gridBefore`/`gridAfter` **נקראים** (`table_parser.dart`). `before`/`after` ב‑twips מלאים (מדידה≡רינדור). **הכרעה:** `beforeLines`/`afterLines` (ריווח‑פסקה ב‑1/100 שורה) — סטייה מודעת (ראו ב.2; נדיר, המרה תלוית‑גובה‑שורה מסכנת מדידה≡רינדור). | `table_parser.dart` (grid*); `docx_style.dart:339-343` |
 | 9 | `ST_OnOff`: `<w:b/>` ללא תכונה = דלוק | כן | נאמן | אלמנט נוכח ללא `w:val` → on. | `xml_extension.dart:11-15` |
 | 10 | `ST_OnOff`: `true`/`1`/`on` = דלוק | כן | נאמן | כל ערך שאינו `0`/`false`/`off` → on (כולל true/1/on). | `xml_extension.dart:14` |
 | 11 | `ST_OnOff`: `false`/`0`/`off` = ביטול מפורש | כן | נאמן | `val∈{0,false,off}`→off. `_onOff` שומר tri-state: "off מפורש" נבדל מ"חסר", כך שסגנון‑בן/ריצה יכולים לכבות ירושה. | `xml_extension.dart:14`; `docx_style.dart:681-684` |
 | 12 | `ST_OnOff`: היעדר האלמנט = ירושה (≠ כבוי) | כן | נאמן | `_onOff` מחזיר `null` כשהאלמנט חסר; המנוע מבדיל בין null (ירושה) ל‑false (off). | `docx_style.dart:681-684`; `style_engine.dart:249-258` |
-| 13 | כלל **XOR** ל‑toggle (b,bCs,i,iCs,caps,smallCaps,strike,dstrike,outline,shadow,emboss,imprint,vanish) | חלקי | חלקי | `DocxStyleResolver` מיישם XOR ל‑b,i,caps,smallCaps,dstrike,outline,shadow,emboss,imprint. **פערים:** (א) XOR רק בין רמת סגנון‑פסקה↔סגנון‑תו, לא לאורך שרשרת `basedOn`; (ב) toggle **ישיר** על ריצה **דורס** במקום XOR (מנוגד לדוגמת ISO 17.7.3, מסומן TODO golden); (ג) מחווט ל‑run בלבד (`resolveRun`), פסקה לא; (ד) `strike` ו‑`vanish` אינם ברשימת ה‑XOR. | `style_engine.dart:228-278, 136-160` |
+| 13 | כלל **XOR** ל‑toggle (b,bCs,i,iCs,caps,smallCaps,strike,dstrike,outline,shadow,emboss,imprint,vanish) | חלקי | חלקי | `DocxStyleResolver` מיישם XOR ל‑b,i,caps,smallCaps,dstrike,outline,shadow,emboss,imprint. **הכרעה:** רזולוציית ה‑toggle (XOR לאורך basedOn / direct‑XOR / חיווט פסקה / strike+vanish) היא מנוע‑הסגנונות — מחוץ להיקף יחידות זה; משימה ל‑AI הבא ב‑task 16 (ראו ב.2). | `style_engine.dart:228-278, 136-160` |
 | 14 | צבע RGB מפורש (hex RRGGBB) | כן | נאמן | `RRGGBB`/`#`/`0x` מפוענחים; מומרים ל‑`Color`. | `enums.dart:170-177`; `span_factory.dart:741-757` |
-| 15 | צבע `auto` (שחור/לבן לפי רקע) | חלקי | חלקי | ב‑viewer `auto`→צבע גוף + היפוך near-black על **רקע גלובלי** כהה (סף lum 0.5/0.179). Word בוחר שחור/לבן לפי ה‑`shd` שמאחורי הטקסט בפועל. קיים `ThemeColorResolver.resolveAutoColor` עם הכלל הנכון — אך **אינו מחווט** ל‑viewer. | `span_factory.dart:742, 749-752`; (לא בשימוש) `style_engine.dart:348-353` |
+| 15 | צבע `auto` (שחור/לבן לפי רקע) | חלקי | חלקי | ב‑viewer `auto`→צבע גוף + היפוך near-black על **רקע גלובלי** כהה. **הכרעה:** בחירה מול ה‑`shd` המקומי דורשת השחלת ה‑fill האפקטיבי לבניית ה‑span — סטייה מודעת (ראו ב.2; ההיוריסטיקה הגלובלית מטפלת בנפוץ). | `span_factory.dart:742, 749-752`; (לא בשימוש) `style_engine.dart:348-353` |
 | 16 | `themeColor` (הפניה ל‑clrScheme) | כן | ראו משימה 13 | `w:themeColor` נקרא לריצה/קו‑תחתון/shd; ב‑viewer נפתר מ‑`docxTheme.colors.getColor`. | `docx_style.dart:516-525`; `span_factory.dart:710-713` |
 | 17 | `themeTint` / `themeShade` (חישוב הבהרה/האפלה) | כן | נאמן | tint = מיזוג ללבן `c*tint+255*(1-tint)`; shade = `c*shade`. ב‑viewer ע"י `alphaBlend(white/black, base)` — שקול לנוסחה. תואם `ThemeColorResolver.applyTintShade`. (קירוב RGB, לא HSL כמו Word — סטייה מזערית.) | `span_factory.dart:720-735`; `style_engine.dart:310-333` |
-| 18 | `w:shd` — `val` (תבנית ST_Shd) | **לא** | לא | נקראים `fill`/`themeFill` בלבד; `w:val` (clear/solid/pct25/horzStripe…) **לא נקרא**. תבניות הצללה לא מרונדרות, ו‑`val="solid"` (שמילויו מ‑`w:color`) יוחמץ. | `docx_style.dart:376-383, 529-535` |
+| 18 | `w:shd` — `val` (תבנית ST_Shd) | כן | נאמן~ | ✅ `resolveShdFill`: `clear`→fill, `solid`→color (תוקן הבאג של רקע חסר), `pctN`/פס/רשת→מיזוג ליניארי לפי כיסוי. גיאומטריית ה‑hatch ומיזוג‑theme‑כפול = סטייה מודעת (ראו ב.2). | `xml_extension.dart` (`resolveShdFill`); `docx_style.dart`; `table_parser.dart` |
 | 19 | `w:shd` — `fill` (צבע רקע) | כן | נאמן (אחיד) | `w:fill` (auto→null) מרונדר כרקע אחיד מאחורי ריצה/פסקה/תא, עם theme tint/shade. | `docx_style.dart:378`; `span_factory.dart:229-234`; `table_builder.dart:493` |
-| 20 | `w:shd` — `color` (צבע התבנית) | **לא** | לא | `w:color` של `shd` לא נקרא. רלוונטי רק כש‑`val≠clear`; כיוון שגם `val` לא נתמך (פריט 18), צבע התבנית חסר לחלוטין. | אין (`docx_style.dart:376-383`) |
+| 20 | `w:shd` — `color` (צבע התבנית) | כן | נאמן | ✅ `w:color` (+`w:themeColor`) נקרא ומשמש כצבע האפקטיבי ב‑`solid` וכקצה‑המיזוג ב‑`pctN`. | `xml_extension.dart` (`resolveShdFill`) |
 | 21 | `CT_Border` — `val` (ST_Border + art) | חלקי | חלקי | `val` ממופה ל‑enum `DocxBorder` (single/double/dotted/dashed/wave/threeD…), לא‑מוכר→single. **160 ה‑art borders (id) לא נתמכים** (פריט 27). | `docx_style.dart:686-713`; `enums.dart:220` |
 | 22 | `CT_Border` — `sz` (eighth-points) | כן | נאמן~ | `sz`→עובי (ברירת מחדל 4 = 0.5pt); המרה `/8` pt. (אותה סטיית עיגול 1.333 כמו פריט 3.) | `docx_style.dart:692-696`; `docx_units.dart:52` |
-| 23 | `CT_Border` — `space` (מרווח לטקסט) | **לא** | לא | `w:space` (מרווח גבול↔טקסט) לא נקרא — הגבול ייצמד לטקסט במקום המרווח של Word. | אין (`docx_style.dart:686-713`) |
-| 24 | `CT_Border` — `color` + theme | חלקי | חלקי | `w:color` נקרא (auto→שחור). **`themeColor`/`themeTint`/`themeShade` של גבול לא נקראים** — גבול בצבע theme יאבד את גוונו. | `docx_style.dart:698-702` |
-| 25 | `CT_Border` — `frame` (תלת‑ממד) | **לא** | לא | `w:frame` לא נקרא. | אין |
-| 26 | `CT_Border` — `shadow` (צל לקו) | **לא** | לא | `w:shadow` (של גבול) לא נקרא. | אין |
-| 27 | `CT_Border` — `id` (art border) | **לא** | לא | מזהה גבול‑אמנותי דקורטיבי לא נקרא; גבולות עמוד אמנותיים לא יוצגו. ראו משימה 05. | אין |
+| 23 | `CT_Border` — `space` (מרווח לטקסט) | כן | נאמן | ✅ נקרא ב‑`_parseBorderSide`; מרונדר כ‑padding פנימי בצד הגבול (top/bottom) ומשוקף ב‑`TextMeasurer` (מדידה≡רינדור — נבדק delta ב‑0.5px). | `docx_style.dart` `_parseBorderSide`; `paragraph_builder.dart`; `text_measurer.dart` |
+| 24 | `CT_Border` — `color` + theme | כן | נאמן | ✅ `themeColor`/`themeTint`/`themeShade` נקראים כעת ב‑`_parseBorderSide` (פריטי גבול‑פסקה/ריצה/סגנון) ונפתרים ב‑`_buildBorderSide`→`resolveColor`; גבול בצבע theme שומר גוונו. round‑trip דרך `_buildBorder`. | `docx_style.dart` `_parseBorderSide`; `paragraph_builder.dart:689` |
+| 25 | `CT_Border` — `frame` (תלת‑ממד) | לא | סטייה מודעת | `w:frame` (אפקט מסגרת 3D) לא נקרא. **הכרעה:** סטייה מודעת (ראו ב.2) — אפקט נדיר וזניח חזותית; ה‑val/sz/space/color/theme (הקובעים את הנראות) מלאים. | ב.2 |
+| 26 | `CT_Border` — `shadow` (צל לקו) | לא | סטייה מודעת | `w:shadow` (צל 3D לקו) לא נקרא. **הכרעה:** סטייה מודעת (ראו ב.2; כמו 25). | ב.2 |
+| 27 | `CT_Border` — `id` (art border) | לא | סטייה מודעת | מזהה גבול‑אמנותי לא נקרא; גבולות art מצוירים כקו `single`. **הכרעה:** סטייה מודעת (ראו ב.2; נכסים גרפיים לא זמינים; task 05). | ב.2 |
 
-### ב.2 — פערים והוראות ל‑AI הבא
+### ב.2 — הכרעות לכל פער + הוראות ל‑AI הבא (סגירה)
 
-- **`w:shd` — תבנית וצבע‑תבנית חסרים (פריטים 18, 20).** נקרא רק `fill`. להוסיף קריאת `w:val` (ST_Shd) ו‑`w:color`: לכל הפחות לטפל ב‑`solid` (מילוי = `w:color`) שאחרת מוצג ללא רקע; תבניות pct/stripe — לקרב לצבע ממוצע. ראו [§17.5](17-enums.md).
-- **`CT_Border` — שדות חסרים (פריטים 23–27).** `space`, `themeColor/themeTint/themeShade`, `frame`, `shadow`, `id` (art) אינם נקראים ב‑`_parseBorderSide`. `space` ו‑theme‑color משפיעים ישירות על נאמנות גבולות נפוצים. art borders — לתעד כסטייה מודעת (משימה 05).
-- **`% string` ברוחב (פריט 6).** להוסיף ב‑`table_parser` ענף ל‑`w:w` המסתיים ב‑`%` (לחלץ את המספר לפני `%`). היום נופל בשקט.
-- **`line units ×100` (פריט 8).** `beforeLines`/`afterLines`/`gridBefore`/`After` אינם נקראים → מרווחי פסקה/שורות גריד ביחידות שורה יוחמצו. להוסיף קריאה ל‑`docx_style` + המרה (×גובה שורה).
-- **`position`/`kern` (פריט 2).** half-point מיושם לגודל פונט בלבד; העלאה/הורדה אנכית (`w:position`) וקרנינג (`w:kern`) חסרים. ראו משימה 03.
-- **XOR toggle (פריט 13).** (א) `strike`/`vanish` להוסיף לרשימת ה‑XOR; (ב) להכריע (golden מול Word אמיתי) אם toggle ישיר צריך XOR ולא דריסה (`style_engine.dart:159`); (ג) לחווט גם פסקאות (`resolveParagraph` קיים אך לא בשימוש בקורא). ראו משימה 16.
-- **`auto` color (פריט 15).** הבחירה כיום מול רקע גלובלי; Word בוחר מול ה‑`shd` המקומי. לחווט את `ThemeColorResolver.resolveAutoColor` עם ה‑fill האפקטיבי שמאחורי הריצה.
+> **מצב:** כל פער קיבל הכרעה — *מומש 1:1* / *סטייה מודעת* / *משימה ל‑AI הבא*. אין פער ללא החלטה. סעיף זה **עצמאי**: כל סיבה+חומרה כתובות כאן (אין תלות בקובץ חיצוני).
+> **אימות שבוצע:** `flutter analyze` נקי בשתי החבילות; `flutter test` — docx_creator 455✅ (1 דילוג), docx_file_viewer 375✅ (4 הנכשלות = קובצי‑fixture חסרים בצ'קאאוט בלבד, לא קוד). בדיקות חדשות: `units_value_types_test.dart` (19 — כולל עברית+אנגלית), `border_space_parity_test.dart` (2 — delta מדידה≡רינדור).
+
+#### ✅ מומש 1:1 (קוד + בדיקה נכשלת‑לפני/עוברת‑אחרי)
+- **`w:shd` — `val`+`color` (פריטים 18, 20).** `resolveShdFill` ([xml_extension.dart](../../packages/docx_creator/lib/src/core/xml_extension.dart)) משותף לכל אתרי ה‑shd (פסקה/ריצה/תא/טבלה/סגנון): `clear`→fill, **`solid`→color** (תיקון הבאג שבו `solid` הוצג ללא רקע), `pctN`/פס/רשת→מיזוג ליניארי של color מעל fill ביחס הכיסוי. צבע בלבד — מדידה≡רינדור נשמר.
+- **`CT_Border` — `space` (פריט 23).** נקרא ב‑`_parseBorderSide`; מרונדר כ‑padding פנימי (top/bottom) ב‑`paragraph_builder` ומשוקף ב‑`text_measurer` (`_borderSpacePx`). בדיקת parity מאמתת שה‑delta זהה בשני המסלולים.
+- **`CT_Border` — `color`+theme (פריט 24).** `themeColor`/`themeTint`/`themeShade` נקראים כעת לגבולות פסקה/ריצה/סגנון (קודם — רק לטבלה); נפתרים ב‑`_buildBorderSide`→`resolveColor`. round‑trip דרך `_buildBorder`.
+- **`% string` ברוחב (פריט 6).** `w:tblW@w:w` המסתיים ב‑`%` → fiftieths (`50%`=2500) + `pct`; זורם דרך `resolveTableColumnWidths`.
+
+#### 🟨 סטיות מודעות (סיבה+חומרה כאן; פתוחות ל‑AI הבא אם יידרש)
+- **`CT_Border` `w:space` מיושם רק לאנכי (top/bottom), לא ל‑left/right (פריט 23).** *חומרה: נמוכה–בינונית.* ב‑Word `w:space` קיים בכל 4 הצדדים. ה‑viewer מיישם אותו כ‑padding אנכי (שמשתקף נקי ב‑spacingBefore/After), אך **מרווח גבול שמאל/ימין אינו מיושם** — לא ב‑render ולא ב‑measure. **חשוב:** שני המסלולים מדלגים עליו **באופן זהה**, לכן אין הפרת מדידה≡רינדור (רק מרווח חזותי קטן חסר). הצד האנכי (קו תחתון לכותרת — הנפוץ) מדויק. **ל‑AI הבא:** הוספת left/right דורשת לצמצם את רוחב‑הפריסה ב‑measure (paginator/`text_measurer`) בנוסף ל‑padding ב‑render — כדי לא לשבור את עטיפת השורות (parity). הערך נמוך (מרווח גבול אופקי נדיר).
+- **תבניות shd `pctN`/פס/רשת + מיזוג‑theme‑כפול (פריט 18).** *חומרה: נמוכה.* ה‑viewer מצייר צבע‑רקע אחיד אחד, לכן גיאומטריית ה‑hatch עצמה לא מצוירת (מקורבת למיזוג שטוח), וכשהתבנית מערבת **צבע‑theme** (לא hex טהור) נשמר ה‑fill בלבד (המודל השטוח לא נושא שני מצייני‑theme). כמעט כל shd אמיתי הוא `clear`+fill או `solid` — שניהם מדויקים. **ל‑AI הבא (אם יידרש):** לצייר hatch אמיתי דורש `CustomPaint` ברקע התא/פסקה + פתרון שני צבעי‑theme בנפרד.
+- **`beforeLines`/`afterLines` — ריווח פסקה ביחידות שורה, 1/100 שורה (פריט 8).** *חומרה: נמוכה.* לא מיושמים: ה‑UI המערבי של Word פולט before/after ב‑twips (מיושמים מלא); line‑units הוא פיצ'ר מזרח‑אסייתי/מפיק‑ספציפי נדיר. המרה מדויקת דורשת את גובה‑השורה הפתור של הפסקה — צימוד ריווח↔מטריקות‑שורה שמסכן את אי‑שוויון מדידה≡רינדור. **ל‑AI הבא:** להוסיף `spacingBeforeLines`/`spacingAfterLines` ל‑AST (+round‑trip ב‑`DocxParagraph.buildXml`), ולהמיר בעזרת helper משותף ל‑`paragraph_builder` ו‑`text_measurer` (אותו גובה‑שורה נומינלי בשני המסלולים) כדי לשמור parity. (`gridBefore`/`gridAfter` **כן** נקראים.)
+- **צבע `auto` נבחר מול הרקע הגלובלי ולא מול ה‑`shd` המקומי (פריט 15).** *חומרה: נמוכה.* `parseHexColor` הופך near‑black ללבן רק כשרקע ה‑theme כהה; Word בוחר שחור/לבן לפי ה‑shd שמאחורי הריצה בפועל. טקסט `auto` על תא כהה מקומי נדיר. **ל‑AI הבא:** לחווט את `ThemeColorResolver.resolveAutoColor` (קיים, לא בשימוש ב‑`style_engine.dart:348-353`) עם ה‑fill האפקטיבי (פסקה/תא) המושחל לבניית ה‑span ב‑`span_factory`.
+- **`CT_Border` 3D — `w:frame`/`w:shadow` + `w:id` (art) (פריטים 25–27).** *חומרה: נמוכה.* אפקט מסגרת/צל תלת‑ממדי לא נקרא; גבול art (160 ערכי id) מצויר כקו `single`. אפקט 3D זניח חזותית, נכסי art לא זמינים. ה‑val/sz/space/color/theme (הקובעים את הנראות) מלאים. **ל‑AI הבא:** art borders — task 05.
+
+#### ➡️ משימות ל‑AI הבא (שייכות ל‑task אחר, מחוץ להיקף "יחידות")
+- **רינדור `position`/`kern` (פריט 2) → task 03.** ה‑half-points **כבר נקראים ל‑AST** (`raiseLowerHalfPoints`/`kernMinHalfPoints` ב‑`inline_parser.dart`); נותר הרינדור: העלאה/הורדה אנכית (`w:position`) דורש `WidgetSpan`+`Transform`+placeholder תואם במדידה, וקרנינג (`w:kern`) — `letterSpacing`. שמירה על מדידה≡רינדור היא התנאי.
+- **רזולוציית XOR ל‑toggle (פריט 13) → task 16.** `style_engine` מיישם XOR בין רמת פסקה↔תו ל‑b,i,caps,smallCaps,dstrike,outline,shadow,emboss,imprint. נותר: (א) `strike`/`vanish` לרשימת ה‑XOR; (ב) הכרעה (golden מול Word) אם toggle ישיר צריך XOR ולא דריסה; (ג) חיווט גם לפסקאות (`resolveParagraph` קיים, לא בשימוש בקורא); (ד) XOR לאורך שרשרת `basedOn`.
