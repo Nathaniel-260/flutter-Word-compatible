@@ -90,7 +90,12 @@ class BlockParser {
             }
           } else {
             final para = parseParagraph(child);
-            if (para.numId != null) {
+            // `w:numId="0"` is Word's explicit *cancel* of an inherited list
+            // (ISO/IEC 29500 §17.9.18): the paragraph carries `numId=0` but is
+            // NOT a list item — it renders as an ordinary paragraph. Treating it
+            // as a list (numId 0) used to group it under a missing definition and
+            // paint a bogus default bullet (item 19).
+            if (para.numId != null && para.numId != 0) {
               // List item
               if (currentNumId != null && currentNumId != para.numId) {
                 flushPendingList();
