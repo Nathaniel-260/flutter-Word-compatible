@@ -278,6 +278,11 @@ class BlockParser {
       suppressHyphens: suppressHyphens,
       contextualSpacing: contextualSpacing,
       tabStops: tabStops,
+      // Paragraph-mark font size, read *directly* from pPr/rPr/sz (parsedProps
+      // carries only the mark rPr here). Drives an empty paragraph's height
+      // (03-run-rpr.md item 1). Direct-only — no style inheritance — so a
+      // paragraph without an explicit mark size is unchanged.
+      markRunFontSize: parsedProps.fontSize,
     );
   }
 

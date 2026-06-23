@@ -128,4 +128,28 @@ void main() {
       expect(out, isNot(contains('w:contextualSpacing')));
     });
   });
+
+  // 03-run-rpr.md item 1: the paragraph-mark run size (w:pPr/w:rPr/w:sz) is read
+  // directly and drives an empty paragraph's height in the viewer.
+  group('A.1 paragraph-mark run size (w:pPr/w:rPr/w:sz)', () {
+    test('mark sz → markRunFontSize (half-points → points)', () {
+      final p = parsePara('<w:pPr><w:rPr><w:sz w:val="48"/></w:rPr></w:pPr>');
+      expect(p.markRunFontSize, 24.0);
+    });
+
+    test('no mark rPr/sz → null (common case unchanged)', () {
+      expect(parsePara('<w:pPr/>').markRunFontSize, isNull);
+      expect(parsePara('<w:pPr><w:rPr><w:b/></w:rPr></w:pPr>').markRunFontSize,
+          isNull);
+    });
+
+    test('round-trips through buildXml (pPr/rPr/sz+szCs) and re-parses', () {
+      final out =
+          buildXml(const DocxParagraph(children: [], markRunFontSize: 24));
+      expect(out, contains('<w:rPr>'));
+      expect(out, contains('<w:sz w:val="48"/>'));
+      expect(out, contains('<w:szCs w:val="48"/>'));
+      expect(parseParaDoc(out).markRunFontSize, 24.0);
+    });
+  });
 }

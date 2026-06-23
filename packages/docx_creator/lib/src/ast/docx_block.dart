@@ -149,6 +149,14 @@ class DocxParagraph extends DocxBlock {
   /// Conditional formatting style flags for table paragraphs.
   final String? cnfStyle;
 
+  /// Effective font size (points) of the paragraph-mark run
+  /// (`w:pPr/w:rPr/w:sz`) when set **directly** on the paragraph. Word uses the
+  /// mark's formatting for the height of an **empty** paragraph (a blank line);
+  /// the viewer applies it there so a hand-sized blank line matches Word. Null
+  /// when no direct mark size is present — the paragraph then uses the body
+  /// default, so the common case is unchanged (03-run-rpr.md item 1).
+  final double? markRunFontSize;
+
   /// Creates a paragraph with specified children and formatting.
   const DocxParagraph({
     this.children = const [],
@@ -190,6 +198,7 @@ class DocxParagraph extends DocxBlock {
     this.numId,
     this.ilvl,
     this.cnfStyle,
+    this.markRunFontSize,
     super.id,
   });
 
@@ -372,6 +381,7 @@ class DocxParagraph extends DocxBlock {
     int? numId,
     int? ilvl,
     String? cnfStyle,
+    double? markRunFontSize,
   }) {
     return DocxParagraph(
       children: children ?? this.children,
@@ -412,6 +422,7 @@ class DocxParagraph extends DocxBlock {
       numId: numId ?? this.numId,
       ilvl: ilvl ?? this.ilvl,
       cnfStyle: cnfStyle ?? this.cnfStyle,
+      markRunFontSize: markRunFontSize ?? this.markRunFontSize,
       id: id,
     );
   }
@@ -635,6 +646,21 @@ class DocxParagraph extends DocxBlock {
               if (cnfStyle != null) {
                 builder.element('w:cnfStyle', nest: () {
                   builder.attribute('w:val', cnfStyle!);
+                });
+              }
+
+              // 11. rPr — paragraph-mark run properties. Currently only the
+              // mark's font size is modelled (it drives an empty paragraph's
+              // height); round-tripped as w:sz + w:szCs (half-points).
+              if (markRunFontSize != null) {
+                final hp = (markRunFontSize! * 2).round().toString();
+                builder.element('w:rPr', nest: () {
+                  builder.element('w:sz', nest: () {
+                    builder.attribute('w:val', hp);
+                  });
+                  builder.element('w:szCs', nest: () {
+                    builder.attribute('w:val', hp);
+                  });
                 });
               }
             },
