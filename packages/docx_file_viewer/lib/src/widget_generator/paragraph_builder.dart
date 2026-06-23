@@ -683,25 +683,10 @@ class ParagraphBuilder {
 
     BoxDecoration? decoration = _buildParagraphDecoration(paragraph);
 
-    // Page break
-    if (paragraph.pageBreakBefore) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Divider(height: 32, thickness: 2),
-          Container(
-            padding: EdgeInsets.only(
-              left: leftPadding,
-              right: rightPadding,
-              top: topPadding,
-              bottom: bottomPadding,
-            ),
-            decoration: decoration,
-            child: content,
-          ),
-        ],
-      );
-    }
+    // `w:pageBreakBefore` is realised by the paginator (paged mode), which clears
+    // the flag before this builder runs. In continuous mode there are no pages,
+    // and Word draws no horizontal rule for a page break — so we render the
+    // paragraph normally rather than injecting a Divider artifact (item 4).
 
     return Container(
       padding: EdgeInsets.only(
