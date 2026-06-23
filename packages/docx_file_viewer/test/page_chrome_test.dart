@@ -127,6 +127,65 @@ void main() {
     expect(borderPaint(), findsOneWidget);
   });
 
+  testWidgets('dashed/dotted/triple page borders render without error (item 13)',
+      (tester) async {
+    Finder borderPaint() => find.byWidgetPredicate(
+        (w) => w is CustomPaint && w.painter is PageBorderPainter);
+    for (final style in const [
+      DocxBorder.dashed,
+      DocxBorder.dotted,
+      DocxBorder.triple,
+    ]) {
+      final side = DocxBorderSide(style: style, color: DocxColor.black, size: 16);
+      await pumpFirstPage(
+        tester,
+        DocxBuiltDocument(
+          elements: [para('x')],
+          section: DocxSectionDef(
+            pageBorders: DocxPageBorders(
+                top: side, bottom: side, left: side, right: side),
+          ),
+        ),
+      );
+      expect(tester.takeException(), isNull, reason: 'style $style must paint');
+      expect(borderPaint(), findsOneWidget, reason: 'style $style');
+    }
+  });
+
+  testWidgets('zOrder=back paints the frame behind the body (item 12)',
+      (tester) async {
+    const side = DocxBorderSide(color: DocxColor.black);
+    final doc = DocxBuiltDocument(
+      elements: [para('x')],
+      section: const DocxSectionDef(
+        pageBorders: DocxPageBorders(
+          zOrderBack: true,
+          top: side,
+          bottom: side,
+          left: side,
+          right: side,
+        ),
+      ),
+    );
+    await pumpFirstPage(tester, doc);
+    expect(tester.takeException(), isNull);
+    // The page Stack lists the border CustomPaint *before* the PageBody, so it
+    // paints underneath (front would list it last).
+    final stack = tester.widgetList<Stack>(find.byType(Stack)).firstWhere((s) =>
+        s.children.any((c) =>
+            c is Positioned &&
+            c.child is CustomPaint &&
+            (c.child as CustomPaint).painter is PageBorderPainter));
+    final borderIdx = stack.children.indexWhere((c) =>
+        c is Positioned &&
+        c.child is CustomPaint &&
+        (c.child as CustomPaint).painter is PageBorderPainter);
+    final bodyIdx = stack.children.indexWhere(
+        (c) => c is Positioned && c.child is PageBody);
+    expect(borderIdx, lessThan(bodyIdx),
+        reason: 'back frame must precede the body in the Stack');
+  });
+
   testWidgets('firstPage-only borders are gated by the page position (§E.1.4)',
       (tester) async {
     const side = DocxBorderSide(color: DocxColor.black);

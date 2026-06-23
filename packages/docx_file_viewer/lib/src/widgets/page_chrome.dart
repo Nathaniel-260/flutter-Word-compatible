@@ -126,8 +126,9 @@ class RenderPageBody extends RenderShiftedBox {
 ///
 /// The frame rectangle is placed relative to the content area (`offsetFrom`
 /// = text, the default) or the page edge (`offsetFrom` = page), each side offset
-/// by its own `w:space`. Line styles single/double/thick are drawn; dashed,
-/// dotted and triple fall back to a solid single line (Plan §8.2).
+/// by its own `w:space`. Line styles single/double/thick/triple/dashed/dotted
+/// are drawn (05-section-sectpr.md item 13); other art/decorative styles still
+/// fall back to a solid single line.
 class PageBorderPainter extends CustomPainter {
   const PageBorderPainter({
     required this.borders,
@@ -195,16 +196,40 @@ class PageBorderPainter extends CustomPainter {
         canvas.drawLine(a, b, paint);
         final shift = inward * (width * 2);
         canvas.drawLine(a + shift, b + shift, paint);
+      case DocxBorder.triple:
+        // Three parallel hairlines (05-section-sectpr.md item 13).
+        canvas.drawLine(a, b, paint);
+        for (final m in [2, 4]) {
+          final shift = inward * (width * m);
+          canvas.drawLine(a + shift, b + shift, paint);
+        }
       case DocxBorder.thick:
         canvas.drawLine(a, b, paint..strokeWidth = width * 2);
+      case DocxBorder.dashed:
+        _drawDashed(canvas, a, b, paint,
+            dashLen: width * 3, gapLen: width * 2);
+      case DocxBorder.dotted:
+        // Round-capped short segments read as dots.
+        _drawDashed(canvas, a, b, paint..strokeCap = StrokeCap.round,
+            dashLen: width, gapLen: width * 2);
       case DocxBorder.none:
         break;
-      // single / dashed / dotted / triple → solid single (§8.2).
       case DocxBorder.single:
-      case DocxBorder.dashed:
-      case DocxBorder.dotted:
-      case DocxBorder.triple:
         canvas.drawLine(a, b, paint);
+    }
+  }
+
+  /// Strokes an axis-aligned segment [a]→[b] as a dash/dot pattern.
+  static void _drawDashed(Canvas canvas, Offset a, Offset b, Paint paint,
+      {required double dashLen, required double gapLen}) {
+    final total = (b - a).distance;
+    if (total <= 0) return;
+    final dir = (b - a) / total;
+    final step = dashLen + gapLen;
+    for (var d = 0.0; d < total; d += step) {
+      final start = a + dir * d;
+      final end = a + dir * math.min(d + dashLen, total);
+      canvas.drawLine(start, end, paint);
     }
   }
 

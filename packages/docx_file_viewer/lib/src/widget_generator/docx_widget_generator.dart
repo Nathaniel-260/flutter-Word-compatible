@@ -933,6 +933,24 @@ class DocxWidgetGenerator {
           DocxPageBorderDisplay.firstPage => isFirstPage,
           DocxPageBorderDisplay.notFirstPage => !isFirstPage,
         };
+    // The page-border frame, painted *behind* the body when `w:zOrder="back"`
+    // and otherwise on top (Word's default `front`) — 05-section-sectpr.md item
+    // 12. Placed as the first/last Stack child accordingly below.
+    final Widget? borderLayer = drawBorder
+        ? Positioned.fill(
+            child: CustomPaint(
+              painter: PageBorderPainter(
+                borders: pageBorders,
+                padLeft: padLeft,
+                padTop: padTop,
+                padRight: padRight,
+                padBottom: padBottom,
+                defaultColor: theme.defaultTextStyle.color ?? Colors.black,
+              ),
+            ),
+          )
+        : null;
+    final bool borderBehind = drawBorder && pageBorders.zOrderBack;
 
     // Vertical alignment of the body within the fixed content region (`w:vAlign`,
     // §E.1.3). PageBody lays the body out at natural height, aligns it, clips
@@ -1004,6 +1022,8 @@ class DocxWidgetGenerator {
       // השוליים, ומסגרת עמוד מעל (front, ברירת המחדל של Word).
       child: Stack(
         children: [
+          // zOrder="back": frame paints under the body/text.
+          if (borderBehind) borderLayer!,
           Positioned(
             left: padLeft,
             top: bodyTop,
@@ -1056,19 +1076,8 @@ class DocxWidgetGenerator {
                 children: footerCol,
               ),
             ),
-          if (drawBorder)
-            Positioned.fill(
-              child: CustomPaint(
-                painter: PageBorderPainter(
-                  borders: pageBorders,
-                  padLeft: padLeft,
-                  padTop: padTop,
-                  padRight: padRight,
-                  padBottom: padBottom,
-                  defaultColor: theme.defaultTextStyle.color ?? Colors.black,
-                ),
-              ),
-            ),
+          // zOrder="front" (Word default): frame paints over the content.
+          if (drawBorder && !borderBehind) borderLayer!,
         ],
       ),
     );
