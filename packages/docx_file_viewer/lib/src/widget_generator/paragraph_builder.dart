@@ -27,6 +27,12 @@ class ParagraphBuilder {
   final void Function(int id)? onFootnoteTap;
   final void Function(int id)? onEndnoteTap;
 
+  /// Document default tab interval (`w:defaultTabStop`, settings.xml; Word's
+  /// default is 720 twips = ½"). Threaded from [DocxBuiltDocument.defaultTabStop]
+  /// so a tab that falls past the last explicit stop advances to the document's
+  /// real default rather than a hardcoded 720 (04-paragraph-ppr.md item 29).
+  final int defaultTabStopTwips;
+
   /// Called when an internal link (anchor to a bookmark) is tapped, with the
   /// bookmark name (Plan §K.2). When null the tap is ignored.
   final void Function(String bookmark)? onInternalLink;
@@ -90,6 +96,7 @@ class ParagraphBuilder {
     this.onInternalLink,
     this.onExternalLink,
     this.docxTheme,
+    this.defaultTabStopTwips = 720,
   }) : _spanFactory = SpanFactory(
           theme: theme,
           config: config,
@@ -497,7 +504,7 @@ class ParagraphBuilder {
     }
     flush();
 
-    const engine = TabEngine();
+    final engine = TabEngine(defaultTabStopTwips: defaultTabStopTwips);
     final widget = TabbedLineRenderer(
       segments: segments,
       tabsBefore: tabsBefore,

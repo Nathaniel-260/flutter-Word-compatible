@@ -163,6 +163,10 @@ class DocxWidgetGenerator {
       onInternalLink: onInternalLink,
       onExternalLink: onExternalLink,
       docxTheme: doc.theme,
+      // Wire the document's `w:defaultTabStop` (settings.xml) into the tab engine
+      // so unset tabs advance to the real default, not a hardcoded 720
+      // (04-paragraph-ppr.md item 29; 14-settings.md item 1).
+      defaultTabStopTwips: doc.defaultTabStop,
     );
     // Plan §G: one document-order numbering pass so list markers continue
     // correctly across interrupting blocks, table cells and same-`numId` lists,

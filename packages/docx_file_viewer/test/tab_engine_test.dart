@@ -76,6 +76,18 @@ void main() {
       expect(segs[1].start, closeTo(48, 0.001));
     });
 
+    test('custom defaultTabStop changes the fallback interval (item 29)', () {
+      // 1440tw = 96px interval (wired from settings.xml w:defaultTabStop).
+      const wide = TabEngine(defaultTabStopTwips: 1440);
+      final segs = wide.position(
+        widths: [10, 5],
+        tabsBefore: [0, 1],
+        stops: const [],
+      );
+      // cursor after seg0 = 10 → next 96px multiple = 96 (not the default 48).
+      expect(segs[1].start, closeTo(96, 0.001));
+    });
+
     test('"left⇥center⇥right" header line (the §C.3 DoD case)', () {
       final segs = engine.position(
         widths: [20, 30, 25],
