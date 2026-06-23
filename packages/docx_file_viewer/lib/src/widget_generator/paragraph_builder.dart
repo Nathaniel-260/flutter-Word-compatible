@@ -391,6 +391,29 @@ class ParagraphBuilder {
     // Flush any remaining content
     flushBuffer();
 
+    // Empty paragraph → render exactly one blank line so the painted height
+    // equals the measurer's (which always reserves one line via a zero-width
+    // space). Without this an empty paragraph collapsed to zero height, a
+    // pre-existing measure≠render gap. The size comes from the paragraph-mark
+    // run (`w:pPr/w:rPr/w:sz`) when set, else the body default — byte-identical
+    // to [TextMeasurer]'s blank-line style (03-run-rpr.md item 1).
+    if (columnChildren.isEmpty) {
+      final markPx = paragraph.markRunFontSize != null
+          ? paragraph.markRunFontSize! * 1.333
+          : null;
+      final blankSpan = TextSpan(
+        text: '​', // zero-width space, identical to TextMeasurer._blankLine
+        style: theme.defaultTextStyle.copyWith(
+          fontSize: markPx,
+          height: lineHeightScale ?? theme.defaultTextStyle.height,
+        ),
+      );
+      final Widget blank = config.enableSelection
+          ? SelectableText.rich(blankSpan, strutStyle: strut)
+          : RichText(text: blankSpan, strutStyle: strut);
+      columnChildren.add(SizedBox(width: double.infinity, child: blank));
+    }
+
     // Final Assembly
     Widget finalContent;
     if (columnChildren.isEmpty) {

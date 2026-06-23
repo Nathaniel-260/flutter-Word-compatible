@@ -211,12 +211,20 @@ class TextMeasurer {
     InlineSpan span = built.root;
     var placeholders = built.placeholders;
 
-    // Empty / content-less paragraph → one line height of the body font.
+    // Empty / content-less paragraph → one line height. The size comes from the
+    // paragraph-mark run (`w:pPr/w:rPr/w:sz`) when set directly, else the body
+    // font — the renderer's empty-paragraph branch uses the identical style, so
+    // measure ≡ render (03-run-rpr.md item 1). `copyWith(fontSize: null)` keeps
+    // the default.
     final rootChildren = (span as TextSpan).children;
     if (rootChildren == null || rootChildren.isEmpty) {
+      final markPx = paragraph.markRunFontSize != null
+          ? paragraph.markRunFontSize! * 1.333
+          : null;
       span = TextSpan(
         text: _blankLine,
         style: spanFactory.theme.defaultTextStyle.copyWith(
+          fontSize: markPx,
           height: lineHeight ?? spanFactory.theme.defaultTextStyle.height,
         ),
       );
