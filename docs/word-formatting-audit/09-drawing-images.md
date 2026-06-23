@@ -3,7 +3,7 @@
 > **מקור:** סעיף §9 מתוך `WORD_FORMATTING_XML_REFERENCE.md` — הועתק כלשונו וללא שינוי.
 > **אסור לערוך את "חלק א'".** המימוש והממצאים נכתבים ב"חלק ב'" בלבד.
 >
-> **סטטוס סריקה:** ✅ נסקר במלואו &nbsp;|&nbsp; **עודכן לאחרונה:** 2026-06-21
+> **סטטוס סריקה:** ✅ נסקר במלואו &nbsp;|&nbsp; **סטטוס מימוש:** 🔄 noFill (24) מומש; chart/SmartArt/effects נותרו נדחים &nbsp;|&nbsp; **עודכן לאחרונה:** 2026-06-23
 
 ---
 
@@ -248,3 +248,19 @@
 - **VML כצורה גאומטרית / `v:textbox` / `v:fill`+`v:stroke` (38-40)** — VML מודרני מגיע כמעט תמיד דרך `mc:Fallback` של DrawingML (שכבר נבחר ה‑Choice עליו), כך שהמסלול הזה רלוונטי בעיקר למסמכים ישנים; לתעד כסטייה מודעת.
 - **`docPr@descr/title` (5)** — לא ויזואלי; רלוונטי רק אם תתווסף נגישות/alt‑text.
 - **`cNvGraphicFramePr` locks (6)** — אין השפעת תצוגה.
+
+### ב.3 — עדכון מימוש (בוצע ע"י ה‑AI המבצע, 2026‑06‑23)
+
+> מבוצע לפי `PROMPTER.md`. בדיקות נלוות; `flutter analyze` נקי; סוויטות הציור ירוקות.
+
+**מומש 1:1:**
+
+| פריט | מה תוקן | קובץ | בדיקה |
+|---|---|---|---|
+| 24 | `a:noFill` בצורה → **שקוף** (לא ריבוע אפור): דגל `noFill` נקרא ב‑reader, נשמר ב‑`DocxShape`, ו‑`shape_builder` מצייר `Colors.transparent` במקום ה‑placeholder האפור | `inline_parser.dart`, `docx_drawing.dart`, `shape_builder.dart` | `drawing_transform_test.dart`, `shape_nofill_test.dart` |
+
+**נותר נדחה / סטיות מודעות (פערים גדולים):**
+
+- **chart / SmartArt / OLE / group — אובדן תוכן (43–45,14):** דורש fallback‑image / placeholder גלוי — נדחה (גדול).
+- **צורת `behindDoc` לא מרונדרת (10), `@wrapText`/`wrapPolygon` (28–32), מתאר/מסגרת תמונה (21,23), `bodyPr` שוליים/יישור (36), `wps:style` theme refs (34), `effectLst`/`alphaModFix` (25,26), `dash` במתאר (23):** נותרו פערים מתועדים — נדחים.
+- **`simplePos`/`hidden`/`allowOverlap`/`r:link`/`tile`/VML‑גאומטרי/`docPr@descr`:** סטיות מודעות (נדיר/לא‑ויזואלי).
