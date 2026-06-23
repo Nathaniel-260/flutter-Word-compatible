@@ -3,7 +3,7 @@
 > **מקור:** סעיף §7 מתוך `WORD_FORMATTING_XML_REFERENCE.md` — הועתק כלשונו וללא שינוי.
 > **אסור לערוך את "חלק א'".** המימוש והממצאים נכתבים ב"חלק ב'" בלבד.
 >
-> **סטטוס סריקה:** ✅ נסקר במלואו &nbsp;|&nbsp; **עודכן לאחרונה:** 2026-06-21
+> **סטטוס סריקה:** ✅ נסקר במלואו &nbsp;|&nbsp; **סטטוס מימוש:** 🔄 פערים מרכזיים (5,19) מומשו; resolveParagraph engine נותר נדחה &nbsp;|&nbsp; **עודכן לאחרונה:** 2026-06-23
 
 ---
 
@@ -125,3 +125,21 @@
 - **`latentStyles` נפרס אך לא נצרך (פריט 24).** נשמר ב‑`theme.latentStyles` ללא שימוש. השפעה אמיתית רק כשמסמך מפנה ל‑built‑in style שאינו מוגדר כ‑`w:style` מלא — אז הוא נופל ל‑Normal במקום לברירות‑המחדל המובנות של אותו סגנון (נדיר ב‑.docx שנשמר מ‑Word, נפוץ יותר ב‑.docx מינימליים). לתעד כסטייה מודעת; פתרון מלא דורש טבלת built‑in styles מובנית.
 - **מאפיינים לא‑ויזואליים / UI‑בלבד (פריטים 6–8, 10–18).** `customStyle`/`aliases`/`next`/`autoRedefine`/`hidden`/`semiHidden`/`unhideWhenUsed`/`uiPriority`/`qFormat`/`locked`/`rsid` — אין צורך ברינדור; לתעד כ"לא רלוונטי לתצוגה". **חריג לבדיקה:** `w:name` (פריט 7) ו‑`w:link` (פריט 11) עשויים להידרש לעתיד אם יתווסף תמיכה ב‑`STYLEREF`/TOC המתאימים סגנון לפי שם.
 - **`StyleResolver`/`ResolvedStyle` הישן הוא קוד מת.** `resolved_style.dart` מגדיר resolver חלופי שאינו מחווט לאף נתיב ייצור (רק טסטים). אם המנוע (`DocxStyleResolver`) יתבסס — למחוק את הישן כדי למנוע בלבול בין שני ה‑resolvers.
+
+### ב.3 — עדכון מימוש (בוצע ע"י ה‑AI המבצע, 2026‑06‑23)
+
+> מבוצע לפי `PROMPTER.md`. בדיקות נלוות; `flutter analyze` נקי; הסוויטה ירוקה.
+
+**מומש 1:1:**
+
+| פריט | מה תוקן | קובץ | בדיקה |
+|---|---|---|---|
+| 5 | `w:default="1"` (סוג paragraph) נקרא → `ReaderContext.defaultParagraphStyleId`; פסקה ללא `pStyle` יורשת את סגנון ברירת‑המחדל האמיתי (למשל 'Standard') במקום 'Normal' קשיח | `style_parser.dart`, `reader_context.dart`, `block_parser.dart` | `styles_default_07_test.dart` |
+| 19 (רוב) | **נסגר דרך משימה 04:** pPr של סגנון — `keepNext`/`keepLines`/`widowControl`/`pageBreakBefore`/`bidi`/`outlineLvl`/`textAlignment`/`contextualSpacing`/`suppressAutoHyphens` נקראים ל‑`DocxStyle` ומיושבים `direct ?? style ?? default`. קריטי לעברית (סגנון עם `w:bidi`) ולכותרות (keepNext). | `docx_style.dart`, `block_parser.dart` | `paragraph_ppr_04_test.dart` |
+
+**נותר נדחה / סטיות מודעות:**
+
+- **`resolveParagraph` engine לא מחווט (2, 23):** פסקאות עדיין במסלול `resolveStyle` הישן (ללא toggle‑XOR ברמת פסקה); ריפקטור עם השלכות golden — נדחה (`TODO(golden)` ב‑`style_engine.dart`).
+- **`tabs`/`framePr` של סגנון (חלק מ‑19):** עדיין נקראים מ‑pPr ישיר בלבד (סמנטיקת `clear` של tabs מורכבת) — סטייה מודעת.
+- **`trPr` של סגנון + רוב `tblPr` (21), `tblStylePr` wholeTable/קדימות/bandSize (22), `latentStyles` (24):** ראו גם משימה 06 — נותרו פערים מתועדים.
+- **מאפיינים לא‑ויזואליים/UI (6–18 חלקם):** `customStyle`/`aliases`/`next`/`link`/`hidden`/`uiPriority`/`qFormat`/`rsid` וכו' — לא רלוונטיים לתצוגה.
