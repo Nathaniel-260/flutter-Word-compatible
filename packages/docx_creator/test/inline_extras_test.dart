@@ -114,4 +114,32 @@ void main() {
       expect(text, 'legacy');
     });
   });
+
+  // The run-level w:cs flag (03-run-rpr.md item 40) is a CT_OnOff *element* child
+  // of rPr — distinct from the w:rFonts/@w:cs *font* attribute. It is read into
+  // [DocxText.complexScript] and round-tripped, like the sibling w:rtl flag.
+  group('A.3 run complex-script flag (w:cs)', () {
+    test('bare w:cs element → complexScript=true, separate from the cs font', () {
+      final i = parseInlines(
+          '<w:r><w:rPr><w:rFonts w:cs="David"/><w:cs/></w:rPr><w:t>א A</w:t></w:r>');
+      final t = i.single as DocxText;
+      expect(t.complexScript, isTrue); // the flag element
+      expect(t.fonts?.cs, 'David'); // the font attribute, unchanged
+    });
+
+    test('w:cs w:val="0" → explicit off (false), absent → null', () {
+      final off = parseInlines(
+          '<w:r><w:rPr><w:cs w:val="0"/></w:rPr><w:t>x א</w:t></w:r>');
+      expect((off.single as DocxText).complexScript, isFalse);
+      final none = parseInlines('<w:r><w:rPr/><w:t>x א</w:t></w:r>');
+      expect((none.single as DocxText).complexScript, isNull);
+    });
+
+    test('round-trips through buildXml (on and explicit-off)', () {
+      expect(buildXml(const DocxText('A א', complexScript: true)),
+          contains('<w:cs/>'));
+      expect(buildXml(const DocxText('A א', complexScript: false)),
+          contains('<w:cs w:val="0"/>'));
+    });
+  });
 }

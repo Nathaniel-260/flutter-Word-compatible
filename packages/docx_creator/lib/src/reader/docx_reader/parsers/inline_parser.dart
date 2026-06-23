@@ -463,6 +463,9 @@ class InlineParser {
         themeFillShade: parsedProps.themeFillShade,
         characterSpacing: finalProps.characterSpacing,
         rtl: _toggle(rPr, 'w:rtl'),
+        // The run-level w:cs flag (a direct rPr child element), NOT the
+        // w:rFonts/@w:cs font attribute read into `fonts` above.
+        complexScript: _toggle(rPr, 'w:cs'),
         boldCs: _toggle(rPr, 'w:bCs'),
         italicCs: _toggle(rPr, 'w:iCs'),
         hidden: readOnOff(rPr?.getElement('w:vanish')),

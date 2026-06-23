@@ -75,6 +75,13 @@ class DocxText extends DocxInline {
   /// properties apply. Null when unset.
   final bool? rtl;
 
+  /// Complex-script formatting flag (`w:cs`) — the run-level toggle, distinct
+  /// from the `w:rFonts` `w:cs` *font* attribute. When on, the run's
+  /// complex-script properties apply; for font selection it forces
+  /// otherwise-neutral characters (digits/punctuation) into the complex script,
+  /// like an explicit [rtl]. Null when unset.
+  final bool? complexScript;
+
   /// Complex-script font size in points (`w:szCs`) — the size for
   /// Hebrew/Arabic characters in this run. Null falls back to [fontSize].
   final double? fontSizeCs;
@@ -141,6 +148,7 @@ class DocxText extends DocxInline {
     this.isEmboss = false,
     this.isImprint = false,
     this.rtl,
+    this.complexScript,
     this.fontSizeCs,
     this.boldCs,
     this.italicCs,
@@ -191,6 +199,7 @@ class DocxText extends DocxInline {
         isEmboss = false,
         isImprint = false,
         rtl = null,
+        complexScript = null,
         fontSizeCs = null,
         boldCs = null,
         italicCs = null,
@@ -235,6 +244,7 @@ class DocxText extends DocxInline {
         isEmboss = false,
         isImprint = false,
         rtl = null,
+        complexScript = null,
         fontSizeCs = null,
         boldCs = null,
         italicCs = null,
@@ -279,6 +289,7 @@ class DocxText extends DocxInline {
         isEmboss = false,
         isImprint = false,
         rtl = null,
+        complexScript = null,
         fontSizeCs = null,
         boldCs = null,
         italicCs = null,
@@ -327,6 +338,7 @@ class DocxText extends DocxInline {
         isEmboss = false,
         isImprint = false,
         rtl = null,
+        complexScript = null,
         fontSizeCs = null,
         boldCs = null,
         italicCs = null,
@@ -371,6 +383,7 @@ class DocxText extends DocxInline {
         isEmboss = false,
         isImprint = false,
         rtl = null,
+        complexScript = null,
         fontSizeCs = null,
         boldCs = null,
         italicCs = null,
@@ -415,6 +428,7 @@ class DocxText extends DocxInline {
         isEmboss = false,
         isImprint = false,
         rtl = null,
+        complexScript = null,
         fontSizeCs = null,
         boldCs = null,
         italicCs = null,
@@ -458,6 +472,7 @@ class DocxText extends DocxInline {
         isEmboss = false,
         isImprint = false,
         rtl = null,
+        complexScript = null,
         fontSizeCs = null,
         boldCs = null,
         italicCs = null,
@@ -502,6 +517,7 @@ class DocxText extends DocxInline {
         isEmboss = false,
         isImprint = false,
         rtl = null,
+        complexScript = null,
         fontSizeCs = null,
         boldCs = null,
         italicCs = null,
@@ -545,6 +561,7 @@ class DocxText extends DocxInline {
         isEmboss = false,
         isImprint = false,
         rtl = null,
+        complexScript = null,
         fontSizeCs = null,
         boldCs = null,
         italicCs = null,
@@ -588,6 +605,7 @@ class DocxText extends DocxInline {
         isEmboss = false,
         isImprint = false,
         rtl = null,
+        complexScript = null,
         fontSizeCs = null,
         boldCs = null,
         italicCs = null,
@@ -632,6 +650,7 @@ class DocxText extends DocxInline {
         isEmboss = false,
         isImprint = false,
         rtl = null,
+        complexScript = null,
         fontSizeCs = null,
         boldCs = null,
         italicCs = null,
@@ -676,6 +695,7 @@ class DocxText extends DocxInline {
         isEmboss = false,
         isImprint = false,
         rtl = null,
+        complexScript = null,
         fontSizeCs = null,
         boldCs = null,
         italicCs = null,
@@ -722,6 +742,7 @@ class DocxText extends DocxInline {
     bool? isEmboss,
     bool? isImprint,
     bool? rtl,
+    bool? complexScript,
     double? fontSizeCs,
     bool? boldCs,
     bool? italicCs,
@@ -764,6 +785,7 @@ class DocxText extends DocxInline {
       isEmboss: isEmboss ?? this.isEmboss,
       isImprint: isImprint ?? this.isImprint,
       rtl: rtl ?? this.rtl,
+      complexScript: complexScript ?? this.complexScript,
       fontSizeCs: fontSizeCs ?? this.fontSizeCs,
       boldCs: boldCs ?? this.boldCs,
       italicCs: italicCs ?? this.italicCs,
@@ -1093,6 +1115,13 @@ class DocxText extends DocxInline {
                 });
               }
 
+              // 20.5 cs (use complex-script formatting on the run)
+              if (complexScript != null) {
+                builder.element('w:cs', nest: () {
+                  if (!complexScript!) builder.attribute('w:val', '0');
+                });
+              }
+
               // 21. em (emphasis mark)
               if (emphasisMark != null) {
                 builder.element('w:em', nest: () {
@@ -1149,6 +1178,7 @@ class DocxText extends DocxInline {
       themeFillTint != null ||
       themeFillShade != null ||
       rtl != null ||
+      complexScript != null ||
       fontSizeCs != null ||
       boldCs != null ||
       italicCs != null ||
