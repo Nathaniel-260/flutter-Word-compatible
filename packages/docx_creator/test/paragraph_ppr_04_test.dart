@@ -51,4 +51,25 @@ void main() {
       expect(nodes.whereType<DocxParagraph>(), hasLength(1));
     });
   });
+
+  // 04-paragraph-ppr.md item 47 — when both `w:hanging` and `w:firstLine` are
+  // present, Word's hanging indent wins (ISO/IEC 29500 §17.3.1.12). Stored as a
+  // signed value: hanging → negative, firstLine → positive.
+  group('hanging wins over firstLine (item 47)', () {
+    test('both present → hanging (negative) wins', () {
+      final p = parsePara(
+          '<w:pPr><w:ind w:firstLine="240" w:hanging="360"/></w:pPr>');
+      expect(p.indentFirstLine, -360);
+    });
+
+    test('firstLine alone → positive', () {
+      final p = parsePara('<w:pPr><w:ind w:firstLine="240"/></w:pPr>');
+      expect(p.indentFirstLine, 240);
+    });
+
+    test('hanging alone → negative', () {
+      final p = parsePara('<w:pPr><w:ind w:hanging="360"/></w:pPr>');
+      expect(p.indentFirstLine, -360);
+    });
+  });
 }

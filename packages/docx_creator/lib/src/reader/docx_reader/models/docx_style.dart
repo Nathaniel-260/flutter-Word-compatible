@@ -381,15 +381,17 @@ class DocxStyle {
           indElem.getAttribute('w:right') ?? indElem.getAttribute('w:end');
       if (right != null) indentRight = int.tryParse(right);
 
-      final firstLine = indElem.getAttribute('w:firstLine');
-      if (firstLine != null) {
-        indentFirstLine = int.tryParse(firstLine);
+      // `w:hanging` takes precedence over `w:firstLine` when both are present
+      // (ISO/IEC 29500 §17.3.1.12 — a hanging indent overrides a first-line
+      // indent), so it is read first. Stored as a single signed value: a
+      // hanging indent is negative, a first-line indent positive.
+      final hanging = indElem.getAttribute('w:hanging');
+      if (hanging != null) {
+        final hVal = int.tryParse(hanging);
+        if (hVal != null) indentFirstLine = -hVal;
       } else {
-        final hanging = indElem.getAttribute('w:hanging');
-        if (hanging != null) {
-          final hVal = int.tryParse(hanging);
-          if (hVal != null) indentFirstLine = -hVal;
-        }
+        final firstLine = indElem.getAttribute('w:firstLine');
+        if (firstLine != null) indentFirstLine = int.tryParse(firstLine);
       }
     }
 
