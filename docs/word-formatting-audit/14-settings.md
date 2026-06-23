@@ -3,7 +3,7 @@
 > **מקור:** סעיף §14 מתוך `WORD_FORMATTING_XML_REFERENCE.md` — הועתק כלשונו וללא שינוי.
 > **אסור לערוך את "חלק א'".** המימוש והממצאים נכתבים ב"חלק ב'" בלבד.
 >
-> **סטטוס סריקה:** ✅ נסקר במלואו &nbsp;|&nbsp; **עודכן לאחרונה:** 2026-06-21
+> **סטטוס סריקה:** ✅ נסקר במלואו &nbsp;|&nbsp; **סטטוס מימוש:** 🔄 defaultTabStop (1, במשימה 04) + displayBackgroundShape (14) מומשו &nbsp;|&nbsp; **עודכן לאחרונה:** 2026-06-23
 
 ---
 
@@ -102,3 +102,16 @@
 - `defaultParagraphStyle` (22) — אינו אלמנט `settings` תקני; המקור האמיתי הוא docDefaults (§07).
 - `compat`/`compatibilityMode`/דגלי תאימות (18‑20) — המנוע מכוון לקבצים מודרניים; להתייחס רק אם יתגלה מסמך ישן עם פריסה שונה.
 - `characterSpacingControl` (12), `bookFoldPrinting` (5), `gutterAtTop` (4) — נדירים/EA, עדיפות נמוכה.
+
+### ב.3 — עדכון מימוש (בוצע ע"י ה‑AI המבצע, 2026‑06‑23)
+
+> מבוצע לפי `PROMPTER.md`. בדיקות נלוות; `flutter analyze` נקי; הסוויטה המלאה ירוקה (496).
+
+**מומש 1:1:**
+
+| פריט | מה תוקן | קובץ | בדיקה |
+|---|---|---|---|
+| 1 | `defaultTabStop` מחווט ל‑`TabEngine` — **נסגר במשימה 04** | `docx_widget_generator.dart`, `paragraph_builder.dart` | `tab_engine_test.dart` |
+| 14 | `displayBackgroundShape` נקרא; רקע `w:background` מצויר **רק** כשהדגל קיים (כמו print layout) — מבטל over‑display. היצואן כותב את הדגל, כך ש‑round‑trip של החבילה נשמר | `docx_reader.dart` | `settings_parsing_test.dart` |
+
+**נותר נדחה / סטיות מודעות:** `themeFontLang`+`clrSchemeMapping` (16,17 — תלוי §13, קריטי לעברית), `autoHyphenation` (8 — שבירת שורות), `mirrorMargins` (3), `defaultTableStyle` (7), `compat`/`proofState`/`documentProtection` — סטיות מודעות.
