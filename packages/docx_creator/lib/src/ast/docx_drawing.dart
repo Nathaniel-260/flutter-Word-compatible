@@ -203,6 +203,12 @@ class DocxShape extends DocxInline {
   /// Fill color (null for no fill or when a [gradientFill] is used).
   final DocxColor? fillColor;
 
+  /// True when the shape declares an explicit `a:noFill` (transparent). Lets the
+  /// renderer distinguish "no colour known" (a default grey placeholder) from
+  /// "deliberately transparent" so a `noFill` arrow/text box does not paint a
+  /// grey box (09-drawing-images.md item 24).
+  final bool noFill;
+
   /// Gradient fill (`a:gradFill`); takes precedence over [fillColor] when set.
   final DocxGradientFill? gradientFill;
 
@@ -264,6 +270,7 @@ class DocxShape extends DocxInline {
     this.preset = DocxShapePreset.rect,
     this.position = DocxDrawingPosition.inline,
     this.fillColor,
+    this.noFill = false,
     this.gradientFill,
     this.outlineColor,
     this.outlineWidth = 1,

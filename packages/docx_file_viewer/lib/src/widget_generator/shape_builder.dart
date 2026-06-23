@@ -45,7 +45,10 @@ class ShapeBuilder {
   Widget buildInlineShape(DocxShape shape) => _buildShape(shape);
 
   Widget _buildShape(DocxShape shape) {
-    final fill = _resolveColor(shape.fillColor);
+    // An explicit `a:noFill` is deliberately transparent — not the grey
+    // placeholder used when no colour is known (09-drawing-images.md item 24).
+    final fill =
+        shape.noFill ? Colors.transparent : _resolveColor(shape.fillColor);
     final outline = _resolveColor(shape.outlineColor);
     final gradient = _resolveGradient(shape.gradientFill);
     final size = Size(shape.width, shape.height);

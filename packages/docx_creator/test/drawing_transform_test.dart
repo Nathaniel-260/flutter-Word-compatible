@@ -257,6 +257,19 @@ void main() {
       expect(s.fillColor!.hex, '4472C4');
     });
 
+    // 09-drawing-images.md item 24: a:noFill → deliberately transparent.
+    test('a:noFill → noFill flag, no fill colour', () {
+      final s = parseShape('<a:prstGeom prst="rect"/><a:noFill/>');
+      expect(s.noFill, isTrue);
+      expect(s.fillColor, isNull);
+    });
+
+    test('a solid fill is not flagged noFill', () {
+      final s = parseShape('<a:prstGeom prst="rect"/>'
+          '<a:solidFill><a:srgbClr val="4472C4"/></a:solidFill>');
+      expect(s.noFill, isFalse);
+    });
+
     test('parses theme-colour (schemeClr) gradient stops', () {
       // Word gradients are almost always theme colours; the scheme token is
       // normalised to the alias the theme resolver understands (bg1→background1).

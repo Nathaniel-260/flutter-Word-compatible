@@ -920,6 +920,11 @@ class InlineParser {
       final solidFill = spPr.findElements('a:solidFill').firstOrNull;
       if (solidFill != null) fillColor = _ooxmlColor(solidFill);
     }
+    // Explicit `a:noFill` → deliberately transparent (no grey placeholder),
+    // only when no solid/gradient fill is present (09-drawing-images.md item 24).
+    final noFill = fillColor == null &&
+        gradientFill == null &&
+        spPr.findElements('a:noFill').isNotEmpty;
 
     // Read outline color and width
     DocxColor? outlineColor;
@@ -996,6 +1001,7 @@ class InlineParser {
       preset: preset,
       position: position,
       fillColor: fillColor,
+      noFill: noFill,
       gradientFill: gradientFill,
       outlineColor: outlineColor,
       outlineWidth: outlineWidth,
