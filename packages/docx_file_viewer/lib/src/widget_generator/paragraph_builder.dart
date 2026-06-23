@@ -612,23 +612,34 @@ class ParagraphBuilder {
     // Apply paragraph styling from DocxParagraph properties
     const double twipsToPixels = 1 / 15.0;
 
-    // Clamp all padding values to non-negative to prevent assertion errors
-    double leftPadding =
+    // Indents are *logical*: `indentLeft` holds `w:start`/`w:left` (the leading
+    // edge) and `indentRight` holds `w:end`/`w:right` (the trailing edge). Map
+    // them to physical left/right by the paragraph's direction so an RTL
+    // (Hebrew) paragraph's start indent lands on the right, as Word draws it
+    // (04-paragraph-ppr.md items 44/45). The left+right *sum* is unchanged by
+    // the swap, so the measurer (which only narrows width by border space) stays
+    // 1:1. Clamped to non-negative to avoid padding assertion errors.
+    final bool isRtl = _detectDirection(paragraph) == TextDirection.rtl;
+    double leadingPad =
         ((paragraph.indentLeft ?? 0) * twipsToPixels).clamp(0, double.infinity);
     // Hanging indent (w:hanging): negative indentFirstLine pulls the first line
-    // to the left of the body text. Approximate by reducing the container's left
-    // edge to the hanging position; all lines sit at the same widget position.
+    // toward the leading edge of the body text. Approximate by reducing the
+    // container's leading edge to the hanging position; body lines get a spacer
+    // (added in _buildNativeParagraph) to realign at the leading indent.
     if ((paragraph.indentFirstLine ?? 0) < 0) {
       final hangingPx = ((-paragraph.indentFirstLine!) * twipsToPixels)
-          .clamp(0.0, leftPadding);
-      leftPadding = (leftPadding - hangingPx).clamp(0.0, double.infinity);
+          .clamp(0.0, leadingPad);
+      leadingPad = (leadingPad - hangingPx).clamp(0.0, double.infinity);
     }
-    double rightPadding = ((paragraph.indentRight ?? 0) * twipsToPixels)
+    final double trailingPad = ((paragraph.indentRight ?? 0) * twipsToPixels)
         .clamp(0, double.infinity);
+    double leftPadding = isRtl ? trailingPad : leadingPad;
+    double rightPadding = isRtl ? leadingPad : trailingPad;
     // Left/right border `w:space` (CT_Border, points) — the gap Word keeps
     // between a vertical rule and the text. The measurer narrows its layout
     // width by the same amount (TextMeasurer._hBorderSpacePx) so a paragraph
-    // with a side rule wraps identically in measure and render.
+    // with a side rule wraps identically in measure and render. Border sides
+    // are physical, so this is applied after the logical→physical mapping.
     leftPadding += _borderSpacePx(paragraph.borderLeft);
     rightPadding += _borderSpacePx(paragraph.borderRight);
     // Default 0 (OOXML spec) when nothing is resolved — must mirror
