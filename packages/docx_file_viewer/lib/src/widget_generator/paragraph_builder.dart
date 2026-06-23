@@ -993,32 +993,46 @@ class ParagraphBuilder {
       tapRecognizer = TapGestureRecognizer()..onTap = () => _onLinkTap(href);
     }
 
-    // Text border boxes the whole run; search highlighting takes precedence over
-    // it (matching the pre-Part-L behaviour). Mixed-script bordered text keeps
-    // its per-script styles via a rich child.
-    if (text.textBorder != null && (matches == null || matches.isEmpty)) {
+    // Text border boxes the whole run as an atomic [WidgetSpan] `Container`
+    // (item 37). The box geometry (horizontal `w:space` padding + border width)
+    // comes from the shared [SpanFactory.textBorderBox] so the measurer reserves
+    // the identical size (measure ≡ render). Rendered on the search path too —
+    // the highlight is threaded into the boxed child via [_overlaySegment]
+    // instead of dropping the border. Single-line (`maxLines: 1`) to match the
+    // measured intrinsic width; a bordered run wider than the line is a
+    // documented deviation. Mixed-script bordered text keeps its per-script
+    // styles via the rich child.
+    final box = _spanFactory.textBorderBox(text.textBorder);
+    if (box != null) {
       final side = _buildBorderSide(text.textBorder!);
       if (side != BorderSide.none) {
+        final childSpans = <InlineSpan>[];
+        for (final s in segments) {
+          childSpans.addAll(_overlaySegment(
+            s.text,
+            autoColor != null ? s.style.copyWith(color: autoColor) : s.style,
+            offset + s.start,
+            matches,
+            tapRecognizer,
+            linkColor,
+            linkDecoration,
+          ));
+        }
         return [
           WidgetSpan(
             alignment: PlaceholderAlignment.middle,
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 0),
+              padding: EdgeInsets.symmetric(horizontal: box.padH, vertical: 0),
               decoration: BoxDecoration(
                 border: Border.all(
                     color: side.color, width: side.width, style: side.style),
                 color: segments.first.style.backgroundColor,
               ),
-              child: Text.rich(TextSpan(children: [
-                for (final s in segments)
-                  TextSpan(
-                    text: s.text,
-                    style: s.style.copyWith(
-                      color: linkColor ?? autoColor ?? s.style.color,
-                      decoration: linkDecoration ?? s.style.decoration,
-                    ),
-                  ),
-              ])),
+              child: Text.rich(
+                TextSpan(children: childSpans),
+                softWrap: false,
+                maxLines: 1,
+              ),
             ),
           )
         ];

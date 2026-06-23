@@ -637,12 +637,43 @@ class SpanFactory {
         // resolved content exactly, so the painter text — and therefore the
         // split-point mapping below — is unchanged from a single span.
         final segs = resolveRunSegments(inline, lineHeight: lineHeight);
-        var total = 0;
-        for (final s in segs) {
-          spans.add(TextSpan(text: s.text, style: s.style));
-          total += s.text.length;
+        final box = textBorderBox(inline.textBorder);
+        if (box != null && segs.isNotEmpty) {
+          // Bordered run (`w:bdr`, item 37): the renderer boxes it as a
+          // [WidgetSpan] `Container`, so it is an *atomic* inline box, not
+          // flowing text. Model the same box here: measure the run's single-line
+          // intrinsic text size and add padding + border on both axes, matching
+          // the rendered `Container` exactly so measure ≡ render. A bordered run
+          // is a short boxed word/phrase; one wider than the line is a
+          // documented deviation (it stays single-line here).
+          final tp = TextPainter(
+            text: TextSpan(
+              children: [for (final s in segs) TextSpan(text: s.text, style: s.style)],
+            ),
+            textDirection: TextDirection.ltr, // width is direction-independent
+            textScaler: TextScaler.noScaling,
+            maxLines: 1,
+          )..layout();
+          final w = tp.width + 2 * box.padH + 2 * box.borderWidth;
+          final h = tp.height + 2 * box.borderWidth;
+          tp.dispose();
+          spans.add(WidgetSpan(
+            alignment: PlaceholderAlignment.middle,
+            child: SizedBox(width: w, height: h),
+          ));
+          placeholders.add(PlaceholderDimensions(
+            size: Size(w, h),
+            alignment: PlaceholderAlignment.middle,
+          ));
+          seg(1, inline); // atomic box → one U+FFFC, not splittable
+        } else {
+          var total = 0;
+          for (final s in segs) {
+            spans.add(TextSpan(text: s.text, style: s.style));
+            total += s.text.length;
+          }
+          seg(total, inline, atomic: false); // splittable text run
         }
-        seg(total, inline, atomic: false); // splittable text run
       } else if (inline is DocxLineBreak) {
         spans.add(const TextSpan(text: '\n'));
         seg(1, inline);
@@ -986,6 +1017,19 @@ class SpanFactory {
       case DocxHighlight.none:
         return null;
     }
+  }
+
+  /// Geometry of a run's text-border box (`w:bdr`, 03-run-rpr.md item 37):
+  /// the inner horizontal padding (from `w:space`, points → px at 96 DPI) and
+  /// the border line width (from `w:sz`, eighth-points → px, clamped 0.5–10).
+  /// Shared by the renderer's `Container` and the measurer's placeholder so the
+  /// box is the *same* size in both (measure ≡ render). Returns null when there
+  /// is no border or it is `none`/`nil`.
+  ({double padH, double borderWidth})? textBorderBox(DocxBorderSide? side) {
+    if (side == null || side.style == DocxBorder.none) return null;
+    final borderWidth = (side.size / 8.0).clamp(0.5, 10.0);
+    final padH = side.space * 96.0 / 72.0; // points → logical px
+    return (padH: padH.toDouble(), borderWidth: borderWidth.toDouble());
   }
 }
 
