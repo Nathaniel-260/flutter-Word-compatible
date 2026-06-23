@@ -1433,9 +1433,14 @@ class Paginator {
     final pageHeight =
         config.pageHeight ?? DocxUnits.twipsToPixels(section.effectiveHeight);
 
+    // The binding gutter sits on the leading edge: the left margin by default,
+    // or the right margin when `w:rtlGutter` is set (RTL/Hebrew binding,
+    // 05-section-sectpr.md item 32). Was always added to the left before.
     final gutter = DocxUnits.twipsToPixels(section.gutter);
-    final padLeft = DocxUnits.twipsToPixels(section.marginLeft) + gutter;
-    final padRight = DocxUnits.twipsToPixels(section.marginRight);
+    final padLeft =
+        DocxUnits.twipsToPixels(section.marginLeft) + (section.rtlGutter ? 0 : gutter);
+    final padRight =
+        DocxUnits.twipsToPixels(section.marginRight) + (section.rtlGutter ? gutter : 0);
     final padTop = DocxUnits.twipsToPixels(section.marginTop);
     final padBottom = DocxUnits.twipsToPixels(section.marginBottom);
     final headerDist = DocxUnits.twipsToPixels(section.marginHeader);
