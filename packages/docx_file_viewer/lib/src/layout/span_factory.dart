@@ -937,41 +937,46 @@ class SpanFactory {
     }
   }
 
-  /// Maps a Word highlight enum to its rendered colour.
+  /// Maps a Word highlight to its rendered colour. `w:highlight` is a **fixed
+  /// 16-colour palette** (ISO/IEC 29500 `ST_HighlightColor`), not an arbitrary
+  /// RGB — these are the exact values Word paints, so we use them verbatim rather
+  /// than the visibly-off Material approximations (e.g. yellow is FFFF00, not
+  /// Material's FFEB3B; blue is 0000FF, not 2196F3). Render-only (a background
+  /// colour never changes metrics → measure ≡ render). 03-run-rpr.md item 28.
   Color? highlightToColor(DocxHighlight highlight) {
     switch (highlight) {
       case DocxHighlight.black:
-        return Colors.black;
+        return const Color(0xFF000000);
       case DocxHighlight.blue:
-        return Colors.blue;
+        return const Color(0xFF0000FF);
       case DocxHighlight.cyan:
-        return Colors.cyan;
+        return const Color(0xFF00FFFF);
       case DocxHighlight.green:
-        return Colors.green;
+        return const Color(0xFF00FF00);
       case DocxHighlight.magenta:
         return const Color(0xFFFF00FF);
       case DocxHighlight.red:
-        return Colors.red;
+        return const Color(0xFFFF0000);
       case DocxHighlight.yellow:
-        return Colors.yellow;
+        return const Color(0xFFFFFF00);
       case DocxHighlight.white:
-        return Colors.white;
+        return const Color(0xFFFFFFFF);
       case DocxHighlight.darkBlue:
-        return Colors.blue.shade900;
+        return const Color(0xFF000080);
       case DocxHighlight.darkCyan:
-        return Colors.cyan.shade900;
+        return const Color(0xFF008080);
       case DocxHighlight.darkGreen:
-        return Colors.green.shade900;
+        return const Color(0xFF008000);
       case DocxHighlight.darkMagenta:
-        return Colors.purple.shade900;
+        return const Color(0xFF800080);
       case DocxHighlight.darkRed:
-        return Colors.red.shade900;
+        return const Color(0xFF800000);
       case DocxHighlight.darkYellow:
-        return Colors.yellow.shade800;
+        return const Color(0xFF808000);
       case DocxHighlight.darkGray:
-        return Colors.grey.shade700;
+        return const Color(0xFF808080);
       case DocxHighlight.lightGray:
-        return Colors.grey.shade300;
+        return const Color(0xFFC0C0C0);
       case DocxHighlight.none:
         return null;
     }
