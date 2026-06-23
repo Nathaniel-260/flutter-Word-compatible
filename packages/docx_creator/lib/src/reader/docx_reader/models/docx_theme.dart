@@ -127,17 +127,25 @@ class DocxThemeColors {
   /// and OOXML aliases (text1/2, background1/2).
   String? getColor(String schemeName) {
     switch (schemeName) {
+      // `w:themeColor` (ST_ThemeColor) tokens use the `dark*`/`light*`/
+      // `hyperlink` spelling, while a clrScheme element uses `dk*`/`lt*`/`hlink`.
+      // Map both so a run/border `w:themeColor="dark1"` or `"hyperlink"` resolves
+      // (13-theme.md items 3, 6) instead of falling back to black.
       case 'dk1':
       case 'text1': // OOXML alias for dk1
+      case 'dark1': // ST_ThemeColor token
         return dk1;
       case 'lt1':
       case 'background1': // OOXML alias for lt1
+      case 'light1': // ST_ThemeColor token
         return lt1;
       case 'dk2':
       case 'text2': // OOXML alias for dk2
+      case 'dark2': // ST_ThemeColor token
         return dk2;
       case 'lt2':
       case 'background2': // OOXML alias for lt2
+      case 'light2': // ST_ThemeColor token
         return lt2;
       case 'accent1':
         return accent1;
@@ -152,8 +160,10 @@ class DocxThemeColors {
       case 'accent6':
         return accent6;
       case 'hlink':
+      case 'hyperlink': // ST_ThemeColor token
         return hlink;
       case 'folHlink':
+      case 'followedHyperlink': // ST_ThemeColor token
         return folHlink;
       default:
         return null;
