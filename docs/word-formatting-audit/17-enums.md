@@ -3,7 +3,7 @@
 > **מקור:** סעיף §17 מתוך `WORD_FORMATTING_XML_REFERENCE.md` — הועתק כלשונו וללא שינוי.
 > **אסור לערוך את "חלק א'".** המימוש והממצאים נכתבים ב"חלק ב'" בלבד.
 >
-> **סטטוס סריקה:** ✅ נסקר במלואו &nbsp;|&nbsp; **עודכן לאחרונה:** 2026-06-21
+> **סטטוס סריקה:** ✅ נסקר במלואו &nbsp;|&nbsp; **סטטוס מימוש:** 🔄 over‑collapse של גבולות (dashed/dotted) שופר דרך 05/06; שאר ה‑enums כפי שתועד &nbsp;|&nbsp; **עודכן לאחרונה:** 2026-06-23
 >
 > 💡 הסריקה כאן: לכל enum — האם כל ערכיו ממופים נכון (כולל fallback סביר לערך לא מוכר),
 > והאם כל ערך נראה ב‑Word כפי שהמנוע מציג אותו.
@@ -179,3 +179,16 @@
 **לא נקרא כלל (אין מימוש):** `ST_BrClear` (16), `ST_TextEffect` (24), `ST_MultiLevelType` (32), `ST_DocGrid` (34), `ST_View` (35), `ST_Wrap`/text‑frames (36), `ST_CombineBrackets` (38), וערך `nextColumn` ב‑`ST_SectionMark` (25) + `nil` ב‑`ST_TblWidth` (29). רובם נדירים/לא‑ויזואליים, אך `BrClear` ו‑`SectionMark/nextColumn` משפיעים על פריסה.
 
 **נאמנים במלואם:** `ST_TabTlc` (14), `ST_BrType` (15), `ST_LineSpacingRule` (17), `ST_HeightRule` (18), `ST_PageOrientation` (26), `ST_ChapterSep` (30), ועברית ב‑`ST_NumberFormat` (8, בטווח). `ST_HighlightColor` (5) נאמן מבנית אך הגוונים מקורבים לפלטת Material.
+
+### ב.3 — עדכון מימוש (בוצע ע"י ה‑AI המבצע, 2026‑06‑23)
+
+> מבוצע לפי `PROMPTER.md`. שיפורי ה‑enums נעשו בהקשר של המשימות הרלוונטיות (לא נפרדות):
+
+**שופר (דרך משימות אחרות):**
+
+- **`ST_Border` over‑collapse (1):** `dashed`/`dotted` שוב **נראים** — בגבול עמוד מצוירים מקווקו/מנוקד אמיתי (משימה 05, `page_chrome.dart`), ובתא כקו מלא נראה במקום בלתי‑נראה (משימה 06); `triple` מצויר בעמוד.
+- **`ST_ThemeColor` (3):** טוקני `dark1`/`light1`/`hyperlink`/`followedHyperlink` ממופים (משימה 13).
+- **`ST_SectionMark/nextColumn`+continuous (25):** `w:type` נקרא → `breakType`; continuous שוב לא מוצג כעמוד חדש (משימה 05). `nextColumn`→`nextPage` (סטייה מודעת).
+- **`ST_Shd val` (solid/pctNN):** מיושב ל‑צבע שטוח דרך `resolveShdFill` (קיים).
+
+**נותר נדחה / סטיות מודעות:** `ST_Border` art (27+), `ST_NumberFormat` לא‑לטיני (ערבי/CJK→decimal; עברית נאמנה), `hMerge` (table 30), `ST_BrClear`/`ST_TextEffect`/`ST_MultiLevelType`/`ST_DocGrid`/`ST_View`/`ST_Wrap` — נדירים/לא‑ויזואליים או ריפקטור גדול.
