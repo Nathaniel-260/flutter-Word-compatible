@@ -28,6 +28,14 @@ class ReaderContext {
   /// Parsed styles (styleId -> DocxStyle)
   final Map<String, DocxStyle> styles = {};
 
+  /// The styleId of the document's default *paragraph* style — the `w:style`
+  /// carrying `w:default="1"` with `w:type="paragraph"` (ISO/IEC 29500
+  /// §17.7.4.17). Used for a paragraph with no explicit `w:pStyle`. Defaults to
+  /// the conventional `'Normal'`, but a file whose default is named otherwise
+  /// (e.g. LibreOffice's `'Standard'`) sets it here so such paragraphs still
+  /// inherit their real default style (07-styles.md item 5).
+  String defaultParagraphStyleId = 'Normal';
+
   /// Raw numbering XML for list type detection
   String? numberingXml;
 

@@ -108,6 +108,17 @@ class StyleParser {
       final type = styleElem.getAttribute('w:type');
       if (styleId == null) continue;
 
+      // `w:default="1"` marks the default style for its type. Record the default
+      // *paragraph* style id so a paragraph with no `w:pStyle` inherits it
+      // instead of a hardcoded 'Normal' (07-styles.md item 5). First one wins
+      // (Word writes exactly one default per type).
+      if ((type == 'paragraph' || type == null) &&
+          (styleElem.getAttribute('w:default') == '1' ||
+              styleElem.getAttribute('w:default') == 'true') &&
+          context.defaultParagraphStyleId == 'Normal') {
+        context.defaultParagraphStyleId = styleId;
+      }
+
       final basedOn = styleElem.getElement('w:basedOn')?.getAttribute('w:val');
       final pPr = styleElem.getElement('w:pPr');
       final rPr = styleElem.getElement('w:rPr');

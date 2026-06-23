@@ -209,8 +209,11 @@ class BlockParser {
       }
     }
 
-    // Resolve Style Properties
-    final effectiveStyle = context.resolveStyle(pStyle ?? 'Normal');
+    // Resolve Style Properties. A paragraph with no `w:pStyle` falls back to the
+    // document's default paragraph style (`w:default="1"`), not a hardcoded
+    // 'Normal' (07-styles.md item 5).
+    final defaultPStyle = context.defaultParagraphStyleId;
+    final effectiveStyle = context.resolveStyle(pStyle ?? defaultPStyle);
 
     // Direct pPr props for the paragraph-level fields below (align/spacing/
     // indent/borders/numId). NOTE: the paragraph-mark rPr is the pilcrow's own
@@ -226,7 +229,7 @@ class BlockParser {
     // the engine via the paragraph's styleId (the paragraph-mark rPr is the
     // pilcrow's formatting, not a run base, so it is not forwarded here).
     final children = inlineParser.parseChildren(xml.children,
-        paragraphStyleId: pStyle ?? 'Normal');
+        paragraphStyleId: pStyle ?? defaultPStyle);
 
     // Paragraph display flags now resolve through the style engine: [finalProps]
     // = effectiveStyle.merge(direct pPr), so each flag is `direct ?? style ??
