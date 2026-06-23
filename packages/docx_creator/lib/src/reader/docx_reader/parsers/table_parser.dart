@@ -255,6 +255,12 @@ class TableParser {
 
         // Check for header row property, cnfStyle, and row height
         final trPr = child.getElement('w:trPr');
+        // A whole row marked deleted (`w:trPr/w:del`) is omitted in the final
+        // view, exactly as Word renders it (12-revisions.md item 9). Previously
+        // the marker was ignored and the deleted row still showed.
+        if (trPr?.getElement('w:del') != null) {
+          continue;
+        }
         if (trPr != null) {
           if (trPr.getElement('w:tblHeader') != null) {
             isHeader = true;
@@ -503,8 +509,13 @@ class TableParser {
       } else if (c is XmlElement && c.name.local == 'tbl') {
         children.add(parse(c)); // Recursive for nested tables
       } else if (c is XmlElement &&
-          ['ins', 'del', 'smartTag', 'sdt'].contains(c.name.local)) {
-        // Handle block-level containers in cells
+          (c.name.local == 'del' || c.name.local == 'moveFrom')) {
+        // Tracked deletion / move-source: omitted in the final view, matching
+        // the document-body handling (12-revisions.md items 3,4). Previously
+        // `del` was grouped with `ins` and left an empty paragraph behind.
+      } else if (c is XmlElement &&
+          ['ins', 'moveTo', 'smartTag', 'sdt'].contains(c.name.local)) {
+        // Handle block-level containers in cells (insertions/moves shown).
         var contentNodes = c.children;
         if (c.name.local == 'sdt') {
           final content = c.findAllElements('w:sdtContent').firstOrNull;

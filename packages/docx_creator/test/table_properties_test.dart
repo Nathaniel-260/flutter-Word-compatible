@@ -232,6 +232,32 @@ void main() {
     });
   });
 
+  // 12-revisions.md: final view — a deleted row/cell-content is omitted.
+  group('table tracked-changes (final view)', () {
+    test('a w:trPr/w:del row is omitted (item 9)', () {
+      final t = parseTable('<w:tr>$_cell</w:tr>'
+          '<w:tr><w:trPr><w:del w:id="1"/></w:trPr>$_cell</w:tr>');
+      expect(t.rows.length, 1); // deleted row dropped
+    });
+
+    test('a w:del block inside a cell is omitted, not opened (item 3)', () {
+      // Cell holds one real paragraph + a deleted-paragraph wrapper.
+      final t = parseTable('<w:tr><w:tc><w:tcPr><w:tcW w:w="5000" w:type="dxa"/>'
+          '</w:tcPr><w:p><w:r><w:t>keep</w:t></w:r></w:p>'
+          '<w:del><w:p><w:r><w:t>gone</w:t></w:r></w:p></w:del></w:tc></w:tr>');
+      final cell = t.rows.single.cells.single;
+      expect(cell.children.whereType<DocxParagraph>().length, 1);
+    });
+
+    test('a w:moveTo block inside a cell is shown (item 4)', () {
+      final t = parseTable('<w:tr><w:tc><w:tcPr><w:tcW w:w="5000" w:type="dxa"/>'
+          '</w:tcPr><w:moveTo><w:p><w:r><w:t>moved</w:t></w:r></w:p></w:moveTo>'
+          '</w:tc></w:tr>');
+      final cell = t.rows.single.cells.single;
+      expect(cell.children.whereType<DocxParagraph>().length, 1);
+    });
+  });
+
   // 06-tables.md item 9: table jc start/end are direction-relative.
   group('table jc start/end (item 9)', () {
     test('start → left in LTR, right in RTL (bidiVisual)', () {
