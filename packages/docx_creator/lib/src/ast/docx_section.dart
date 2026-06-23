@@ -456,6 +456,20 @@ class DocxSectionDef extends DocxSection {
           _buildNoteProperties(builder, 'w:endnotePr', endnoteProperties!);
         }
 
+        // Section break kind (`w:type`); omit the `nextPage` default so files
+        // that never specified it stay byte-clean, but persist a non-default
+        // (e.g. `continuous`) so it survives a read→write round-trip.
+        if (breakType != DocxSectionBreak.nextPage) {
+          builder.element('w:type', nest: () {
+            builder.attribute('w:val', switch (breakType) {
+              DocxSectionBreak.continuous => 'continuous',
+              DocxSectionBreak.evenPage => 'evenPage',
+              DocxSectionBreak.oddPage => 'oddPage',
+              DocxSectionBreak.nextPage => 'nextPage',
+            });
+          });
+        }
+
         final isLandscape = orientation == DocxPageOrientation.landscape;
         builder.element(
           'w:pgSz',

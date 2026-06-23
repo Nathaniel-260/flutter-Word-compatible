@@ -108,11 +108,15 @@ class BlockParser {
             }
           }
 
-          // Check for section break embedded in this paragraph (reuse pPr from above)
+          // Check for section break embedded in this paragraph (reuse pPr from
+          // above). An intermediate section (`w:sectPr` inside `pPr`) is parsed
+          // through the *same* full SectionParser as the final section, so it no
+          // longer loses headers/footers/columns/borders/vAlign/pgNumType/bidi/
+          // type — only pgSz+margins were read before (05 structural gap).
           if (pPr != null) {
             final sectPr = pPr.getElement('w:sectPr');
             if (sectPr != null) {
-              final sectionDef = _parseSectionProperties(sectPr);
+              final sectionDef = SectionParser(context).parseSectPr(sectPr);
               result.add(DocxSectionBreakBlock(sectionDef));
             }
           }
@@ -477,63 +481,6 @@ class BlockParser {
     } catch (_) {}
 
     return false;
-  }
-
-  /// Parse section properties from a w:sectPr element.
-  DocxSectionDef _parseSectionProperties(XmlElement sectPr) {
-    DocxPageSize pageSize = DocxPageSize.letter;
-    DocxPageOrientation orientation = DocxPageOrientation.portrait;
-    int? customWidth;
-    int? customHeight;
-    int marginTop = kDefaultMarginTop;
-    int marginBottom = kDefaultMarginBottom;
-    int marginLeft = kDefaultMarginLeft;
-    int marginRight = kDefaultMarginRight;
-
-    // Page Size
-    final pgSz = sectPr.getElement('w:pgSz');
-    if (pgSz != null) {
-      final w = int.tryParse(pgSz.getAttribute('w:w') ?? '12240') ?? 12240;
-      final h = int.tryParse(pgSz.getAttribute('w:h') ?? '15840') ?? 15840;
-      final orient = pgSz.getAttribute('w:orient');
-
-      if (orient == 'landscape') {
-        orientation = DocxPageOrientation.landscape;
-      }
-
-      if ((w == 12240 && h == 15840) || (w == 15840 && h == 12240)) {
-        pageSize = DocxPageSize.letter;
-      } else if ((w == 11906 && h == 16838) || (w == 16838 && h == 11906)) {
-        pageSize = DocxPageSize.a4;
-      } else {
-        pageSize = DocxPageSize.custom;
-        customWidth = w;
-        customHeight = h;
-      }
-    }
-
-    // Margins
-    final pgMar = sectPr.getElement('w:pgMar');
-    if (pgMar != null) {
-      marginTop = int.tryParse(pgMar.getAttribute('w:top') ?? '') ?? marginTop;
-      marginBottom =
-          int.tryParse(pgMar.getAttribute('w:bottom') ?? '') ?? marginBottom;
-      marginLeft =
-          int.tryParse(pgMar.getAttribute('w:left') ?? '') ?? marginLeft;
-      marginRight =
-          int.tryParse(pgMar.getAttribute('w:right') ?? '') ?? marginRight;
-    }
-
-    return DocxSectionDef(
-      pageSize: pageSize,
-      orientation: orientation,
-      customWidth: customWidth,
-      customHeight: customHeight,
-      marginTop: marginTop,
-      marginBottom: marginBottom,
-      marginLeft: marginLeft,
-      marginRight: marginRight,
-    );
   }
 
   /// Parse a drop cap paragraph from w:framePr with w:dropCap.

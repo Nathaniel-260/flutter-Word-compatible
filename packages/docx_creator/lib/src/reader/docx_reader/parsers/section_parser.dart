@@ -9,10 +9,19 @@ class SectionParser {
 
   SectionParser(this.context) : blockParser = BlockParser(context);
 
-  /// Parse section properties from document body.
-  DocxSectionDef parse(XmlElement body, {DocxColor? backgroundColor}) {
-    final sectPr = body.getElement('w:sectPr');
+  /// Parse section properties from a document body (the final `w:sectPr`).
+  DocxSectionDef parse(XmlElement body, {DocxColor? backgroundColor}) =>
+      parseSectPr(body.getElement('w:sectPr'),
+          backgroundColor: backgroundColor);
 
+  /// Parse a `w:sectPr` element directly into a full [DocxSectionDef].
+  ///
+  /// Shared by the final-section path ([parse]) and the intermediate-section
+  /// path ([BlockParser], for a `w:sectPr` inside a paragraph's `w:pPr`), so a
+  /// non-final section no longer loses everything but page size + margins
+  /// (05-section-sectpr.md — structural gap). A null [sectPr] yields all-default
+  /// geometry.
+  DocxSectionDef parseSectPr(XmlElement? sectPr, {DocxColor? backgroundColor}) {
     DocxPageSize pageSize = DocxPageSize.letter;
     DocxPageOrientation orientation = DocxPageOrientation.portrait;
     int? customWidth;
@@ -42,10 +51,17 @@ class SectionParser {
     DocxLineNumbering? lineNumbering;
     bool isRtlSection = false;
     bool rtlGutter = false;
+    DocxSectionBreak breakType = DocxSectionBreak.nextPage;
     DocxNoteProperties? footnoteProperties;
     DocxNoteProperties? endnoteProperties;
 
     if (sectPr != null) {
+      // Section break kind (`w:type`): nextPage (default), continuous, evenPage,
+      // oddPage. Previously never read → every section started a new page even
+      // when `continuous` (the most common fidelity gap, item 6). The paginator
+      // already honours these once breakType is set.
+      breakType = _mapBreakType(sectPr.getElement('w:type')?.getAttribute('w:val')) ??
+          breakType;
       // Page Size
       final pgSz = sectPr.getElement('w:pgSz');
       if (pgSz != null) {
@@ -254,9 +270,28 @@ class SectionParser {
       lineNumbering: lineNumbering,
       isRtlSection: isRtlSection,
       rtlGutter: rtlGutter,
+      breakType: breakType,
       footnoteProperties: footnoteProperties,
       endnoteProperties: endnoteProperties,
     );
+  }
+
+  /// Maps a `w:sectPr/w:type w:val` to [DocxSectionBreak], or null when
+  /// absent/unrecognized (caller keeps the `nextPage` default). `nextColumn`
+  /// has no section-level model here and falls back to `nextPage`.
+  static DocxSectionBreak? _mapBreakType(String? val) {
+    switch (val) {
+      case 'continuous':
+        return DocxSectionBreak.continuous;
+      case 'evenPage':
+        return DocxSectionBreak.evenPage;
+      case 'oddPage':
+        return DocxSectionBreak.oddPage;
+      case 'nextPage':
+        return DocxSectionBreak.nextPage;
+      default:
+        return null;
+    }
   }
 
   /// Parse a `w:pgBorders` side into a [DocxBorderSide], or null when absent or
