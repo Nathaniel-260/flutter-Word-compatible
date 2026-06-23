@@ -3,7 +3,7 @@
 > **מקור:** סעיף §5 מתוך `WORD_FORMATTING_XML_REFERENCE.md` — הועתק כלשונו וללא שינוי.
 > **אסור לערוך את "חלק א'".** המימוש והממצאים נכתבים ב"חלק ב'" בלבד.
 >
-> **סטטוס סריקה:** ✅ נסקר במלואו &nbsp;|&nbsp; **עודכן לאחרונה:** 2026-06-19
+> **סטטוס סריקה:** ✅ נסקר במלואו &nbsp;|&nbsp; **סטטוס מימוש:** ✅ פערים מרכזיים מומשו 1:1 (ראו ב.3) &nbsp;|&nbsp; **עודכן לאחרונה:** 2026-06-23
 
 ---
 
@@ -183,3 +183,30 @@
 - **`docGrid`/`textDirection` ברמת מקטע (פריטים 33, 36).** לא נקראים. רלוונטי בעיקר ל‑EA (אנכי/רשת); לזרימה לטינית/עברית רגילה ההשפעה מזערית — לתעד כסטייה מודעת.
 - **`w:pgSz w:code` ו‑`paperSrc`/`printerSettings`/`formProt` (פריטים 7, 9, 34, 37).** מאפיינים לא‑ויזואליים (קוד נייר/מגש/מדפסת/הגנת טופס) — אין צורך לרינדור; לתעד כ"לא רלוונטי לתצוגה".
 - **שוליים שליליים ב‑`pgMar` (פריט 8).** `top`/`bottom` שליליים (כותרת שחורגת לגוף) נקראים אך `Positioned`/padding לא תומך ערך שלילי → ייתכן חיתוך. לבחון מול קובץ Word עם header גדול.
+
+### ב.3 — עדכון מימוש (בוצע ע"י ה‑AI המבצע, 2026‑06‑23)
+
+> מבוצע לפי `PROMPTER.md`. כל פער שנסגר קיבל בדיקה; `flutter analyze` נקי; הסוויטה המלאה ירוקה
+> (docx_creator 477; viewer — פרט ל‑4 בדיקות גולדן עבריות שכשלות מראש בגלל fixture חסר, לא קשור).
+
+**מומש 1:1:**
+
+| פריט | מה תוקן | קובץ עיקרי | בדיקה |
+|---|---|---|---|
+| פער מבני | מקטעי ביניים (`sectPr` בתוך `pPr`) עוברים את **אותו** `SectionParser` המלא — שוב לא מאבדים כותרות/טורים/גבולות/vAlign/pgNumType/bidi/type | `section_parser.dart` (`parseSectPr`), `block_parser.dart` | `section_sectpr_05_test.dart` |
+| 6 | `w:type` נקרא → `breakType` (continuous/evenPage/oddPage/nextPage); **continuous שוב לא מוצג כעמוד חדש** | `section_parser.dart` (`_mapBreakType`) | `section_sectpr_05_test.dart` |
+| — | round‑trip ל‑`w:type` ב‑`buildXml` (נכתב כשאינו ברירת‑המחדל) | `docx_section.dart` | `section_sectpr_05_test.dart` |
+| 32 | `rtlGutter` — מרווח כריכה בצד ימין (RTL) במקום שמאל | `paginator.dart` (`_computeGeometry`) | `section_gutter_rtl_test.dart` |
+| 12 | `pgBorders zOrder="back"` — המסגרת מצוירת **מאחורי** הגוף (Stack child ראשון) | `docx_widget_generator.dart` | `page_chrome_test.dart` |
+| 13 | `pgBorders` `dashed`/`dotted`/`triple` מצוירים (לא נופלים ל‑single) | `page_chrome.dart` (`_drawDashed`) | `page_chrome_test.dart` |
+
+**סטיות מודעות (לא מומשו):**
+
+- **גבולות עמוד אמנותיים (art borders, 14):** `w:id`+val אמנותי דורשים תמונות חוזרות — סטייה מודעת (חומרה נמוכה).
+- **מספור שורות `lnNumType` (15–18):** נקרא ל‑AST אך לא מרונדר; ציור מספרי‑שורה בשוליים הוא פיצ'ר נפרד גדול — סטייה מודעת (חומרה בינונית למסמכים משפטיים/תורניים).
+- **קידומת פרק במספרי עמוד `chapStyle`/`chapSep` (21–22):** נקראים, לא מרונדרים — סטייה מודעת.
+- **`footnotePr`/`endnotePr` — `numStart`/`numStartCount`+`pos` (3–4):** ראו משימה 10.
+- **`themeColor` לגבול עמוד (13):** עדיין נופל לצבע ברירת‑מחדל ב‑chrome (עקבי עם §8.2) — סטייה מודעת.
+- **`docGrid`/`textDirection` ברמת מקטע (33,36), `noEndnote` (35), שוליים שליליים (8):** EA/נדיר/מגבלת פלטפורמה — סטיות מודעות.
+- **`w:pgSz w:code`, `paperSrc`, `printerSettings`, `formProt` (7,9,34,37):** לא‑ויזואליים — לא רלוונטיים לתצוגה.
+- **`nextColumn` ב‑`w:type`:** ממופה ל‑`nextPage` (אין מודל מקטע‑לפי‑טור) — סטייה מודעת.
