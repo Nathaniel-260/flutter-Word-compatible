@@ -726,7 +726,10 @@ class TableBuilder {
   }
 
   /// Converts a resolved source border to a Flutter [BorderSide] (colour/width).
-  /// Dashed/dotted collapse to a hairline-suppressed solid (no native dashes).
+  /// Flutter's `Border` has no native dash support, so dashed/dotted render as a
+  /// solid line of the same weight — a *visible* line, matching Word's intent.
+  /// Previously they collapsed to [BorderStyle.none] and vanished entirely
+  /// (06-tables.md item 46 — a visual regression).
   BorderSide _convertSide(DocxBorderSide? eff, DocxTableStyle tableStyle) {
     if (eff == null || eff.style == DocxBorder.none) return BorderSide.none;
 
@@ -748,9 +751,8 @@ class TableBuilder {
     return BorderSide(
       color: borderColor,
       width: borderWidth,
-      style: eff.style == DocxBorder.dotted || eff.style == DocxBorder.dashed
-          ? BorderStyle.none
-          : BorderStyle.solid,
+      // Always solid: any non-none Word border style is at least a visible line.
+      style: BorderStyle.solid,
     );
   }
 

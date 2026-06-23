@@ -266,6 +266,35 @@ void main() {
     );
   });
 
+  testWidgets('dashed/dotted cell borders render visibly (item 46)',
+      (WidgetTester tester) async {
+    final builder = _builder();
+    for (final style in const [DocxBorder.dashed, DocxBorder.dotted]) {
+      final b = DocxBorderSide(style: style, size: 8);
+      final table = DocxTable(
+        rows: [
+          DocxTableRow(cells: [DocxTableCell.text('A')]),
+        ],
+        gridColumns: [1000],
+        style: DocxTableStyle(
+            borderTop: b, borderBottom: b, borderLeft: b, borderRight: b),
+      );
+      await tester.pumpWidget(MaterialApp(home: Scaffold(body: builder.build(table))));
+
+      final cellBorders = tester
+          .widgetList<Container>(find.byType(Container))
+          .map((c) => c.decoration)
+          .whereType<BoxDecoration>()
+          .map((d) => d.border)
+          .whereType<Border>()
+          .where((bd) => bd.top.style == BorderStyle.solid)
+          .toList();
+      // A dashed/dotted border is at least a *visible* solid line — never the
+      // invisible BorderStyle.none it collapsed to before.
+      expect(cellBorders, isNotEmpty, reason: 'style $style must be visible');
+    }
+  });
+
   testWidgets('vertical merge continuation inherits the leader fill',
       (WidgetTester tester) async {
     final builder = _builder();

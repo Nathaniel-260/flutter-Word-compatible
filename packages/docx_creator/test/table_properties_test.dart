@@ -214,4 +214,30 @@ void main() {
     expect(out, isNot(contains('w:textDirection')));
     expect(out, isNot(contains('w:noWrap')));
   });
+
+  // 06-tables.md item 9: table jc start/end are direction-relative.
+  group('table jc start/end (item 9)', () {
+    test('start → left in LTR, right in RTL (bidiVisual)', () {
+      expect(parseTable('<w:tblPr><w:jc w:val="start"/></w:tblPr>$_cell').alignment,
+          DocxAlign.left);
+      expect(
+          parseTable('<w:tblPr><w:bidiVisual/><w:jc w:val="start"/></w:tblPr>$_cell')
+              .alignment,
+          DocxAlign.right);
+    });
+
+    test('end → right in LTR, left in RTL (bidiVisual)', () {
+      expect(parseTable('<w:tblPr><w:jc w:val="end"/></w:tblPr>$_cell').alignment,
+          DocxAlign.right);
+      expect(
+          parseTable('<w:tblPr><w:bidiVisual/><w:jc w:val="end"/></w:tblPr>$_cell')
+              .alignment,
+          DocxAlign.left);
+    });
+
+    test('explicit left/center/right unchanged', () {
+      expect(parseTable('<w:tblPr><w:jc w:val="center"/></w:tblPr>$_cell').alignment,
+          DocxAlign.center);
+    });
+  });
 }

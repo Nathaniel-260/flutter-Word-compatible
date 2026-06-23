@@ -82,13 +82,19 @@ class TableParser {
         styleId = tblStyle.getAttribute('w:val');
       }
 
-      // Parse table alignment (justification)
+      // Parse table alignment (justification). `start`/`end` are direction-
+      // relative: in an RTL table (`w:bidiVisual`) `start` is the right edge.
+      // Previously start/end were dropped, so an RTL table's `jc=start` lost its
+      // (right) alignment entirely (06-tables.md item 9).
       final jc = tblPr.getElement('w:jc');
       if (jc != null) {
         final val = jc.getAttribute('w:val');
+        final rtl = readOnOff(tblPr.getElement('w:bidiVisual'));
         if (val == 'left') alignment = DocxAlign.left;
         if (val == 'center') alignment = DocxAlign.center;
         if (val == 'right') alignment = DocxAlign.right;
+        if (val == 'start') alignment = rtl ? DocxAlign.right : DocxAlign.left;
+        if (val == 'end') alignment = rtl ? DocxAlign.left : DocxAlign.right;
       }
 
       // Parse floating table position
