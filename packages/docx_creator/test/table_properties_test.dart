@@ -215,6 +215,23 @@ void main() {
     expect(out, isNot(contains('w:noWrap')));
   });
 
+  // 11-sdt.md item 1: a row/cell wrapped in a content control (w:sdt) must not
+  // be dropped — the parser unwraps sdt/customXml.
+  group('SDT-wrapped rows/cells are not dropped (11 item 1)', () {
+    test('a w:sdt-wrapped row is parsed', () {
+      final t = parseTable(
+          '<w:tr>$_cell</w:tr>'
+          '<w:sdt><w:sdtContent><w:tr>$_cell</w:tr></w:sdtContent></w:sdt>');
+      expect(t.rows.length, 2);
+    });
+
+    test('a w:sdt-wrapped cell is parsed', () {
+      final t = parseTable('<w:tr>$_cell'
+          '<w:sdt><w:sdtContent>$_cell</w:sdtContent></w:sdt></w:tr>');
+      expect(t.rows.single.cells.length, 2);
+    });
+  });
+
   // 06-tables.md item 9: table jc start/end are direction-relative.
   group('table jc start/end (item 9)', () {
     test('start → left in LTR, right in RTL (bidiVisual)', () {

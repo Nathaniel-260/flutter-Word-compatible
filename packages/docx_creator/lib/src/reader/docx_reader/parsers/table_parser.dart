@@ -12,6 +12,24 @@ class TableParser {
   /// Creates a [TableParser] with the specified [context] and [inlineParser].
   TableParser(this.context, this.inlineParser);
 
+  /// Yields the [local]-named element children of [parent], transparently
+  /// descending through `w:sdt`/`w:sdtContent` and `w:customXml` wrappers so a
+  /// row/cell wrapped in a content control is not dropped (11-sdt.md item 1).
+  static Iterable<XmlElement> _unwrappedChildren(
+      XmlElement parent, String local) sync* {
+    for (final c in parent.childElements) {
+      final name = c.name.local;
+      if (name == local) {
+        yield c;
+      } else if (name == 'sdt') {
+        final content = c.getElement('w:sdtContent');
+        if (content != null) yield* _unwrappedChildren(content, local);
+      } else if (name == 'customXml') {
+        yield* _unwrappedChildren(c, local);
+      }
+    }
+  }
+
   /// Parse a table element into DocxTable.
   DocxTable parse(XmlElement node) {
     // 1. Parse Table Properties
@@ -217,11 +235,13 @@ class TableParser {
       if (gridColumns.isEmpty) gridColumns = null;
     }
 
-    // 2. Parse Rows and Cells
+    // 2. Parse Rows and Cells. Rows may be wrapped in a content control
+    // (`w:sdt`) or `w:customXml`; unwrap so such a row is not dropped
+    // (11-sdt.md item 1).
     final rawRows = <_TempRow>[];
 
-    for (var child in node.children) {
-      if (child is XmlElement && child.name.local == 'tr') {
+    for (var child in _unwrappedChildren(node, 'tr')) {
+      if (child.name.local == 'tr') {
         final cells = <_TempCell>[];
         bool isHeader = false;
         String? cnfStyle;
@@ -265,8 +285,8 @@ class TableParser {
               trPr.getElement('w:wAfter')?.getAttribute('w:w') ?? '');
         }
 
-        for (var cellNode in child.children) {
-          if (cellNode is XmlElement && cellNode.name.local == 'tc') {
+        for (var cellNode in _unwrappedChildren(child, 'tc')) {
+          if (cellNode.name.local == 'tc') {
             cells.add(_parseCell(cellNode));
           }
         }
