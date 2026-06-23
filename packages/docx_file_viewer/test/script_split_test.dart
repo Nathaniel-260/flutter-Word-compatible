@@ -225,6 +225,42 @@ void main() {
     });
   });
 
+  // 03-run-rpr.md item 15: Flutter shares one decorationStyle per span, so a
+  // run with w:dstrike + underline cannot be single-underline + double-strike.
+  // Chosen compromise — the double wins, keeping the strike's doubling.
+  group('w:dstrike + underline → double decoration wins', () {
+    test('double-strike alone uses the double style', () {
+      final s =
+          spanFactory.resolveRunStyle(const DocxText('x', isDoubleStrike: true));
+      expect(s.decorationStyle, TextDecorationStyle.double);
+      expect(s.decoration!.contains(TextDecoration.lineThrough), isTrue);
+    });
+
+    test('double-strike + underline → both lines double (Hebrew+Latin)', () {
+      const run = DocxText(
+        'שלום x',
+        isDoubleStrike: true,
+        decorations: [DocxTextDecoration.underline],
+      );
+      final s = spanFactory.resolveRunStyle(run);
+      expect(s.decorationStyle, TextDecorationStyle.double);
+      expect(s.decoration!.contains(TextDecoration.underline), isTrue);
+      expect(s.decoration!.contains(TextDecoration.lineThrough), isTrue);
+    });
+
+    test('single strike + underline stays solid (not double)', () {
+      const run = DocxText(
+        'x א',
+        decorations: [
+          DocxTextDecoration.strikethrough,
+          DocxTextDecoration.underline,
+        ],
+      );
+      final s = spanFactory.resolveRunStyle(run);
+      expect(s.decorationStyle, TextDecorationStyle.solid);
+    });
+  });
+
   test('buildMeasurementSpans emits one painter segment but per-script spans',
       () {
     const run = DocxText(

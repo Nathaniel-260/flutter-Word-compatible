@@ -250,7 +250,13 @@ class SpanFactory {
 
     if (text.isStrike || text.isDoubleStrike) {
       decorations.add(TextDecoration.lineThrough);
-      if (text.isDoubleStrike && !text.isUnderline) {
+      if (text.isDoubleStrike) {
+        // Flutter shares a single decorationStyle across all of a span's
+        // decorations, so a run with both `w:dstrike` and an underline cannot be
+        // single-underline + double-strike. Chosen compromise (03-run-rpr.md
+        // item 15): the double wins — the strike keeps its doubling (the
+        // author's intent), even though a coexisting underline then also renders
+        // double. Paint-only → measure ≡ render is untouched.
         decorationStyle = TextDecorationStyle.double;
       }
     }
