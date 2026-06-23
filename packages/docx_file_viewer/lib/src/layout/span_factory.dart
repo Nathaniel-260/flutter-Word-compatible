@@ -123,16 +123,25 @@ class SpanFactory {
   /// The paragraph's nominal single-line height in px, used to convert line-unit
   /// spacing (`w:beforeLines`/`w:afterLines`, hundredths of a line) to pixels.
   /// Shared by the renderer and the measurer so a line-unit spacing produces an
-  /// identical footprint in both (measure ≡ render). The height is the effective
-  /// font size (first run, else theme default) × the `auto` line-height scale
-  /// (`lineSpacing/240`, default 1.0) — a deterministic nominal that ignores the
-  /// font's intrinsic leading (a small, documented approximation; line-unit
-  /// spacing is rare — 02-units.md ב.2).
+  /// identical footprint in both (measure ≡ render).
+  ///
+  /// For `exact`/`atLeast` line spacing the line is the absolute strut height
+  /// ([resolveStrut]'s `lineSpacing/15`). Otherwise it is the effective font size
+  /// (first run — a complex/Hebrew run reads `szCs` first, like [resolveRunStyle];
+  /// else the theme default) × the `auto` line-height scale (`lineSpacing/240`,
+  /// default 1.0). This nominal ignores the font's intrinsic leading and any
+  /// super/subscript shrink — a small, documented approximation for a rare
+  /// feature (02-units.md ב.2).
   double resolveSingleLineHeightPx(DocxParagraph paragraph) {
+    final rule = paragraph.lineRule ?? 'auto';
+    if ((rule == 'exact' || rule == 'atLeast') &&
+        paragraph.lineSpacing != null) {
+      return (paragraph.lineSpacing! / 15.0).clamp(1.0, 2000.0);
+    }
     double? fontPt;
     for (final c in paragraph.children) {
       if (c is DocxText) {
-        fontPt = c.fontSize;
+        fontPt = c.fontSizeCs ?? c.fontSize;
         break;
       }
     }
@@ -171,11 +180,15 @@ class SpanFactory {
     );
   }
 
-  /// Applies Word's caps transforms to a run's text. `allCaps` and `smallCaps`
-  /// both uppercase the glyphs; `smallCaps` additionally shrinks them (handled
-  /// as a font-size factor in [resolveRunStyle]).
+  /// Applies Word's caps transform to a run's text. `allCaps` uppercases the
+  /// glyphs (visual only — the source string is preserved for search/copy).
+  /// `smallCaps` is *not* an uppercase transform: it is rendered with the
+  /// OpenType `smcp` feature in [resolveRunStyle], which turns only lowercase
+  /// letters into small capitals while leaving real uppercase at full height —
+  /// exactly Word's behaviour, and a fidelity fix over the former
+  /// uppercase-everything-then-shrink approximation (03-run-rpr.md item 13).
   String resolveContent(DocxText text) {
-    if (text.isAllCaps || text.isSmallCaps) {
+    if (text.isAllCaps) {
       return text.content.toUpperCase();
     }
     return text.content;
@@ -315,9 +328,6 @@ class SpanFactory {
     if (text.isSuperscript || text.isSubscript) {
       fontSize = (fontSize ?? 14) * 0.7;
     }
-    if (text.isSmallCaps && !text.isAllCaps) {
-      fontSize = (fontSize ?? 14) * 0.85;
-    }
 
     List<Shadow>? shadows;
     if (text.isShadow) {
@@ -373,15 +383,25 @@ class SpanFactory {
         text.kernMinHalfPoints! > 0 &&
         (fontSize ?? 0) >= (text.kernMinHalfPoints! / 2.0 * 96.0 / 72.0);
 
-    List<FontFeature>? fontFeatures;
-    if (text.isSuperscript || text.isSubscript) {
-      fontFeatures = [
-        if (text.isSuperscript) const FontFeature.superscripts(),
-        if (text.isSubscript) const FontFeature.subscripts(),
-      ];
-    } else if (wantsKern) {
-      fontFeatures = const [FontFeature.enable('kern')];
+    // Build the feature list additively so small-caps can coexist with kerning.
+    // Sub/superscript claim the vertical-variant slot, so smcp/kern are not
+    // combined with them (matching the pre-existing behaviour).
+    final bool variantClaimed = text.isSuperscript || text.isSubscript;
+    final features = <FontFeature>[];
+    if (text.isSuperscript) features.add(const FontFeature.superscripts());
+    if (text.isSubscript) features.add(const FontFeature.subscripts());
+    // smallCaps (`w:smallCaps`): real OpenType small caps — lowercase → small
+    // capitals, real uppercase stays full height (Word's behaviour). Falls back
+    // gracefully to plain lowercase for a font without an `smcp` table (rare;
+    // the common Word/clone fonts ship it). `caps` already uppercased, so smcp
+    // is a no-op there and is skipped (03-run-rpr.md item 13).
+    if (text.isSmallCaps && !text.isAllCaps && !variantClaimed) {
+      features.add(const FontFeature.enable('smcp'));
     }
+    if (wantsKern && !variantClaimed) {
+      features.add(const FontFeature.enable('kern'));
+    }
+    final List<FontFeature>? fontFeatures = features.isEmpty ? null : features;
 
     return TextStyle(
       fontWeight: fontWeight,
@@ -426,11 +446,21 @@ class SpanFactory {
     final content = resolveContent(text);
     if (content.isEmpty) return const [];
 
-    final runs = classifyScript(content, hintComplex: text.fonts?.hint == 'cs');
+    // Force otherwise-neutral characters (digits/punctuation) into the complex
+    // script when the run explicitly asks for complex/RTL handling — `w:hint=cs`
+    // on the fonts, an explicit `w:rtl`, or the `w:cs` flag. For genuine Hebrew
+    // text the classification is already complex (no change); this only affects
+    // a neutral/digit run that Word forces RTL/CS via the flag (03-run-rpr.md
+    // items 39, 40). Strong Latin in the run still stays Latin.
+    final forceComplex = text.fonts?.hint == 'cs' ||
+        text.rtl == true ||
+        text.complexScript == true;
+    final runs = classifyScript(content, hintComplex: forceComplex);
     // Common case: one script → one style. Avoids per-segment substring/style
     // work for the bulk of (single-script) runs.
+    final List<RunSegment> base;
     if (runs.length == 1) {
-      return [
+      base = [
         RunSegment(
           content,
           resolveRunStyle(text,
@@ -439,16 +469,81 @@ class SpanFactory {
           content.length,
         ),
       ];
+    } else {
+      base = [
+        for (final r in runs)
+          RunSegment(
+            content.substring(r.start, r.end),
+            resolveRunStyle(text, lineHeight: lineHeight, script: r.script),
+            r.start,
+            r.end,
+          ),
+      ];
     }
-    return [
-      for (final r in runs)
-        RunSegment(
-          content.substring(r.start, r.end),
-          resolveRunStyle(text, lineHeight: lineHeight, script: r.script),
-          r.start,
-          r.end,
-        ),
+
+    // `w:u w:val="words"`: the underline runs under word characters only, not
+    // the spaces between them (Word). Re-split each segment at whitespace and
+    // drop the underline (only) from the whitespace pieces; any strike stays
+    // continuous. This changes only the paint-time decoration per sub-span, not
+    // glyph advances/height, and the sub-segments tile the content exactly — so
+    // the painter text, line breaking, pagination split offsets and search
+    // ranges are all unchanged (measure ≡ render). 03-run-rpr.md item 29.
+    if (text.effectiveUnderlineStyle == DocxUnderlineStyle.words) {
+      return _splitWordsUnderline(base);
+    }
+    return base;
+  }
+
+  /// True for a character the `words` underline does not draw under — the word
+  /// separators (ASCII space and tab). Other whitespace is treated as a word
+  /// character (a negligible, documented edge).
+  static bool _isWordsUnderlineGap(int c) => c == 0x20 || c == 0x09;
+
+  /// Re-splits [base] segments at whitespace for a `words` underline, returning
+  /// the whitespace pieces with the underline stripped (strike/overline kept).
+  /// The pieces tile each segment exactly, preserving offsets.
+  List<RunSegment> _splitWordsUnderline(List<RunSegment> base) {
+    final out = <RunSegment>[];
+    for (final s in base) {
+      final stripped = _styleWithoutUnderline(s.style);
+      if (identical(stripped, s.style)) {
+        out.add(s); // no underline on this segment — nothing to carve out
+        continue;
+      }
+      final text = s.text;
+      var i = 0;
+      while (i < text.length) {
+        final gap = _isWordsUnderlineGap(text.codeUnitAt(i));
+        var j = i + 1;
+        while (j < text.length &&
+            _isWordsUnderlineGap(text.codeUnitAt(j)) == gap) {
+          j++;
+        }
+        out.add(RunSegment(
+          text.substring(i, j),
+          gap ? stripped : s.style,
+          s.start + i,
+          s.start + j,
+        ));
+        i = j;
+      }
+    }
+    return out;
+  }
+
+  /// Returns [style] with [TextDecoration.underline] removed (keeping any
+  /// line-through/overline), or the same instance when there is no underline.
+  TextStyle _styleWithoutUnderline(TextStyle style) {
+    final d = style.decoration;
+    if (d == null || !d.contains(TextDecoration.underline)) return style;
+    final kept = <TextDecoration>[
+      if (d.contains(TextDecoration.lineThrough)) TextDecoration.lineThrough,
+      if (d.contains(TextDecoration.overline)) TextDecoration.overline,
     ];
+    return style.copyWith(
+      decoration:
+          kept.isEmpty ? TextDecoration.none : TextDecoration.combine(kept),
+    );
   }
 
   /// Builds the canonical span tree + placeholder dims for a paragraph's

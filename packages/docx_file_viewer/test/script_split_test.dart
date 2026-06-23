@@ -102,6 +102,129 @@ void main() {
     });
   });
 
+  // 03-run-rpr.md item 13: small caps must be real OpenType small caps (lowercase
+  // → small capitals, real uppercase stays full), not the old uppercase-then-×0.85
+  // approximation which wrongly shrank already-uppercase letters.
+  group('w:smallCaps → OpenType small caps', () {
+    test('lowercase preserved, smcp applied, size not shrunk (Hebrew+Latin)', () {
+      const run = DocxText(
+        'hello שלום',
+        isSmallCaps: true,
+        fonts: DocxFont(ascii: 'Arial', cs: 'David'),
+        fontSize: 12,
+      );
+      final segs = spanFactory.resolveRunSegments(run);
+      expect(segs, hasLength(2));
+      // Latin: source case preserved (not uppercased), smcp on, full 12pt.
+      expect(segs[0].text, 'hello ');
+      expect(segs[0].style.fontFeatures,
+          contains(const FontFeature.enable('smcp')));
+      expect(segs[0].style.fontSize, closeTo(12 * 1.333, 0.01));
+      // Hebrew is caseless; smcp is harmless and the text is intact.
+      expect(segs[1].text, 'שלום');
+    });
+
+    test('allCaps still uppercases the glyphs and does not use smcp', () {
+      const run = DocxText('hello', isAllCaps: true);
+      final seg = spanFactory.resolveRunSegments(run).single;
+      expect(seg.text, 'HELLO');
+      expect(seg.style.fontFeatures ?? const <FontFeature>[],
+          isNot(contains(const FontFeature.enable('smcp'))));
+    });
+  });
+
+  // 03-run-rpr.md items 39, 40: an explicit w:rtl / w:cs flag forces an
+  // otherwise-neutral run into the complex script (the cs font / szCs apply),
+  // following the audit's recommendation. Strong Latin still stays Latin.
+  group('explicit w:rtl / w:cs force a neutral run complex', () {
+    const fonts = DocxFont(ascii: 'Arial', cs: 'David');
+
+    test('w:rtl selects the cs font + szCs for a neutral run', () {
+      const plain = DocxText('()', fonts: fonts, fontSize: 12, fontSizeCs: 14);
+      const rtl =
+          DocxText('()', fonts: fonts, fontSize: 12, fontSizeCs: 14, rtl: true);
+      // Without the flag a neutral run is Latin → the ascii font.
+      expect(
+          spanFactory.resolveRunSegments(plain).single.style.fontFamily, 'Arial');
+      // With w:rtl it is complex → the cs font at the complex size.
+      final r = spanFactory.resolveRunSegments(rtl).single;
+      expect(r.style.fontFamily, 'David');
+      expect(r.style.fontSize, closeTo(14 * 1.333, 0.01));
+    });
+
+    test('w:cs flag forces the same complex selection', () {
+      const run = DocxText('()', fonts: fonts, complexScript: true);
+      expect(
+          spanFactory.resolveRunSegments(run).single.style.fontFamily, 'David');
+    });
+
+    test('strong Latin in an rtl run stays Latin (e.g. "A1")', () {
+      const run = DocxText('A1', fonts: fonts, rtl: true);
+      expect(
+          spanFactory.resolveRunSegments(run).single.style.fontFamily, 'Arial');
+    });
+  });
+
+  // 03-run-rpr.md item 29: w:u val="words" underlines word characters only, not
+  // the spaces between them. The run is re-split at whitespace; the gap pieces
+  // drop the underline. Char count is preserved → pagination/search unaffected.
+  group('w:u val="words" underlines words, not the spaces', () {
+    bool hasUnderline(RunSegment s) =>
+        s.style.decoration?.contains(TextDecoration.underline) ?? false;
+
+    test('space piece drops the underline, word pieces keep it (Hebrew+Latin)',
+        () {
+      const run = DocxText(
+        'אב cd',
+        decorations: [DocxTextDecoration.underline],
+        underlineStyle: DocxUnderlineStyle.words,
+      );
+      final segs = spanFactory.resolveRunSegments(run);
+      expect(segs.map((s) => s.text).toList(), ['אב', ' ', 'cd']);
+      expect(hasUnderline(segs[0]), isTrue); // אב
+      expect(hasUnderline(segs[1]), isFalse); // the space
+      expect(hasUnderline(segs[2]), isTrue); // cd
+      // Painter text is byte-identical to the source (offsets preserved).
+      expect(segs.map((s) => s.text).join(), 'אב cd');
+      expect(segs.last.end, 'אב cd'.length);
+    });
+
+    test('strike stays continuous under the spaces', () {
+      const run = DocxText(
+        'one two',
+        decorations: [
+          DocxTextDecoration.underline,
+          DocxTextDecoration.strikethrough,
+        ],
+        underlineStyle: DocxUnderlineStyle.words,
+      );
+      final segs = spanFactory.resolveRunSegments(run);
+      final space = segs.firstWhere((s) => s.text == ' ');
+      // The space keeps line-through but not the underline.
+      expect(space.style.decoration!.contains(TextDecoration.lineThrough),
+          isTrue);
+      expect(space.style.decoration!.contains(TextDecoration.underline),
+          isFalse);
+      // Every word piece keeps both decorations.
+      for (final s in segs.where((s) => s.text != ' ')) {
+        expect(s.style.decoration!.contains(TextDecoration.underline), isTrue);
+        expect(
+            s.style.decoration!.contains(TextDecoration.lineThrough), isTrue);
+      }
+    });
+
+    test('a plain (non-words) underline stays continuous — one segment', () {
+      const run = DocxText(
+        'one two',
+        decorations: [DocxTextDecoration.underline],
+        underlineStyle: DocxUnderlineStyle.single,
+      );
+      final segs = spanFactory.resolveRunSegments(run);
+      expect(segs, hasLength(1));
+      expect(hasUnderline(segs.single), isTrue);
+    });
+  });
+
   test('buildMeasurementSpans emits one painter segment but per-script spans',
       () {
     const run = DocxText(
