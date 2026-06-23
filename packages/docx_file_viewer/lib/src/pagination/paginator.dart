@@ -1297,6 +1297,11 @@ class Paginator {
           .buildMeasurementSpans(p.children,
               lineHeight: lineHeight, skipHidden: true)
           .root;
+      // TODO(units): the float-wrap path uses the full content width, not the
+      // border-space-narrowed width (TextMeasurer._hBorderSpacePx). A paragraph
+      // that both anchors a side float and carries a left/right border w:space
+      // would wrap slightly differently here than when rendered — a rare combo;
+      // narrow `width` by the horizontal border space if this surfaces.
       final wrap = layoutFloatWrap(
         text: span,
         floats: sideRects,

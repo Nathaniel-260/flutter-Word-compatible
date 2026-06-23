@@ -64,16 +64,12 @@ class ParagraphBuilder {
   Map<int, String> footnoteLabels = const {};
   Map<int, String> endnoteLabels = const {};
 
-  /// The effective background behind the paragraph currently being built — its
-  /// own `w:shd`, else the fill inherited from an enclosing table cell. Read by
-  /// [_buildTextSpan] to resolve an `auto` run colour against the shading the
-  /// text actually sits on (Word's rule, item 15). Transient render state set at
-  /// each public build entry; render-only, so it never affects measurement
-  /// (colour does not change text metrics → measure ≡ render is untouched).
-  Color? _autoColorBackground;
-
   /// A paragraph's own shading fill as a [Color], falling back to an [inherited]
-  /// background (the enclosing cell's fill).
+  /// background (the enclosing cell's fill). The result is threaded explicitly
+  /// through the build/span helpers as the `autoBackground` argument (never held
+  /// as mutable state) so an `auto` run colour resolves against the shading the
+  /// text actually sits on, with no risk of a stale value leaking between
+  /// paragraphs (item 15). Render-only — colour never affects measurement.
   Color? _effectiveBackground(DocxParagraph p, Color? inherited) {
     if (p.shadingFill != null || p.themeFill != null) {
       return _spanFactory.resolveColor(
@@ -108,26 +104,6 @@ class ParagraphBuilder {
   /// scrolls to the match's page instead).
   Widget build(DocxParagraph paragraph,
       {BlockIndexCounter? counter, Color? inheritedBackground}) {
-    _autoColorBackground = _effectiveBackground(paragraph, inheritedBackground);
-    List<SearchMatch>? matches;
-
-    if (counter != null && searchController != null) {
-      final blockIndex = counter.value;
-      matches = searchController!.matches
-          .where((m) => m.blockIndex == blockIndex)
-          .toList();
-      counter.increment();
-    }
-
-    return _buildNativeParagraph(paragraph, matches: matches);
-  }
-
-  /// Build a paragraph widget, excluding specific floating images.
-  /// Used when specific floats are being handled separately at the block level.
-  Widget buildExcludingFloats(
-      DocxParagraph paragraph, Set<DocxInline> excludedFloats,
-      {BlockIndexCounter? counter, Color? inheritedBackground}) {
-    _autoColorBackground = _effectiveBackground(paragraph, inheritedBackground);
     List<SearchMatch>? matches;
 
     if (counter != null && searchController != null) {
@@ -139,7 +115,29 @@ class ParagraphBuilder {
     }
 
     return _buildNativeParagraph(paragraph,
-        excludedFloats: excludedFloats, matches: matches);
+        matches: matches,
+        autoBackground: _effectiveBackground(paragraph, inheritedBackground));
+  }
+
+  /// Build a paragraph widget, excluding specific floating images.
+  /// Used when specific floats are being handled separately at the block level.
+  Widget buildExcludingFloats(
+      DocxParagraph paragraph, Set<DocxInline> excludedFloats,
+      {BlockIndexCounter? counter, Color? inheritedBackground}) {
+    List<SearchMatch>? matches;
+
+    if (counter != null && searchController != null) {
+      final blockIndex = counter.value;
+      matches = searchController!.matches
+          .where((m) => m.blockIndex == blockIndex)
+          .toList();
+      counter.increment();
+    }
+
+    return _buildNativeParagraph(paragraph,
+        excludedFloats: excludedFloats,
+        matches: matches,
+        autoBackground: _effectiveBackground(paragraph, inheritedBackground));
   }
 
   /// מזהה את כיוון הפסקה (RTL/LTR).
@@ -155,13 +153,15 @@ class ParagraphBuilder {
 
   /// Native Flutter builder for standard paragraphs.
   Widget _buildNativeParagraph(DocxParagraph paragraph,
-      {Set<DocxInline>? excludedFloats, List<SearchMatch>? matches}) {
+      {Set<DocxInline>? excludedFloats,
+      List<SearchMatch>? matches,
+      Color? autoBackground}) {
     // Tab-stop layout (§C.3): only when the author defined explicit stops, the
     // paragraph has a tab, and its content is plain text. This keeps ordinary
     // leading-tab body paragraphs on the wrapping RichText path (the tabbed
     // renderer does not wrap) and keeps segment measurement placeholder-free.
     if (paragraph.tabStops.isNotEmpty && _isPlainTabbedLine(paragraph)) {
-      return _buildTabbedParagraph(paragraph);
+      return _buildTabbedParagraph(paragraph, autoBackground: autoBackground);
     }
 
     List<(DocxInline, DocxAlign?)> textChildren = [];
@@ -251,6 +251,7 @@ class ParagraphBuilder {
         matches: matches,
         startOffset: currentTextOffset,
         firstLineIndentPx: isFirstFlush ? firstLineIndentPx : bodyLineIndentPx,
+        autoBackground: autoBackground,
       );
       isFirstFlush = false;
 
@@ -441,7 +442,8 @@ class ParagraphBuilder {
   /// Renders a tab-stop line through the [TabEngine]/[TabbedLineRenderer]
   /// (§C.3). Segments are split at tabs; search highlighting is skipped on this
   /// path (rare for tabbed headers/footers) — a documented limitation.
-  Widget _buildTabbedParagraph(DocxParagraph paragraph) {
+  Widget _buildTabbedParagraph(DocxParagraph paragraph,
+      {Color? autoBackground}) {
     final lineHeightScale = _resolveLineHeightScale(paragraph);
     final direction = _detectDirection(paragraph);
 
@@ -451,7 +453,8 @@ class ParagraphBuilder {
     var pendingTabs = 0;
 
     void flush() {
-      final spans = buildInlineSpans(current, lineHeight: lineHeightScale);
+      final spans = buildInlineSpans(current,
+          lineHeight: lineHeightScale, autoBackground: autoBackground);
       segments.add(TextSpan(style: theme.defaultTextStyle, children: spans));
       tabsBefore.add(pendingTabs);
     }
@@ -622,14 +625,13 @@ class ParagraphBuilder {
             (paragraph.spacingAfter ?? 0) * twipsToPixels)
         .clamp(0, double.infinity);
 
-    // `w:space` on a paragraph border (CT_Border, in points) is the gap Word
-    // keeps between the rule and the text. Add it to the matching side as inner
-    // padding; [TextMeasurer._spacingBefore]/[_spacingAfter] add the identical
-    // amount so the measured footprint stays 1:1 with the painted block. Only a
-    // *visible* border contributes (no rule → no gap), and only the vertical
-    // (top/bottom) axis is honoured — left/right `w:space` is a documented
-    // deviation (02-units.md ב.2), but skipping it identically here and in the
-    // measurer keeps measure ≡ render.
+    // Top/bottom border `w:space` (CT_Border, points) — the gap Word keeps
+    // between the rule and the text. Added as inner padding; the measurer adds
+    // the identical amount to [TextMeasurer._spacingBefore]/[_spacingAfter] so
+    // the measured footprint stays 1:1 with the painted block. (Left/right
+    // `w:space` was added above to the left/right padding, mirrored by the
+    // measurer narrowing the layout width.) Only a *visible* border contributes
+    // — a rule-less side (`style == none`) reserves no gap.
     topPadding += _borderSpacePx(paragraph.borderTop);
     bottomPadding +=
         _borderSpacePx(paragraph.borderBottomSide ?? paragraph.borderBetween);
@@ -756,13 +758,18 @@ class ParagraphBuilder {
 
   /// Build TextSpans from inline elements.
   ///
-  /// [firstLineIndentPx] prepends a zero-height spacer to simulate `w:firstLine` indent.
+  /// [firstLineIndentPx] prepends a zero-height spacer to simulate `w:firstLine`
+  /// indent. [autoBackground] is the effective document shading behind these
+  /// inlines (paragraph/cell fill), used to resolve an `auto` run colour; pass
+  /// null when there is no local shading (the colour then follows the theme
+  /// default). Threaded explicitly so no stale background can leak in.
   List<InlineSpan> buildInlineSpans(
     List<DocxInline> inlines, {
     double? lineHeight,
     List<SearchMatch>? matches,
     int startOffset = 0,
     double firstLineIndentPx = 0.0,
+    Color? autoBackground,
   }) {
     final spans = <InlineSpan>[];
 
@@ -784,6 +791,7 @@ class ParagraphBuilder {
           lineHeight: lineHeight,
           matches: matches,
           offset: currentOffset,
+          autoBackground: autoBackground,
         ));
         currentOffset += inline.content.length;
       } else if (inline is DocxLineBreak) {
@@ -853,6 +861,7 @@ class ParagraphBuilder {
           lineHeight: lineHeight,
           matches: matches,
           startOffset: currentOffset,
+          autoBackground: autoBackground,
         ));
         for (final c in inline.cachedResult) {
           if (c is DocxText) currentOffset += c.content.length;
@@ -922,6 +931,7 @@ class ParagraphBuilder {
     double? lineHeight,
     List<SearchMatch>? matches,
     int offset = 0,
+    Color? autoBackground,
   }) {
     // Script-split run segments come from the shared [SpanFactory] so the
     // measurer (Part C/L) builds byte-identical geometry. Link colour, search
@@ -932,10 +942,10 @@ class ParagraphBuilder {
 
     // `auto` run colour (`w:color w:val="auto"`): resolve to black/white against
     // the *local document* shading behind this run — its own `w:shd`, else the
-    // paragraph/cell fill ([_autoColorBackground]). Only a real local fill
-    // triggers this (item 15); with no local shd the colour is left to the
-    // existing theme/dark-mode default (so dark reading mode keeps white70).
-    // Render-only — colour never affects metrics.
+    // paragraph/cell fill ([autoBackground]). Only a real local fill triggers
+    // this (item 15); with no local shd the colour is left to the existing
+    // theme/dark-mode default (so dark reading mode keeps white70). Render-only
+    // — colour never affects metrics.
     Color? autoColor;
     if (SpanFactory.isAutoColor(text.color)) {
       Color? runBg;
@@ -943,7 +953,7 @@ class ParagraphBuilder {
         runBg = _spanFactory.resolveColor(text.shadingFill, text.themeFill,
             text.themeFillTint, text.themeFillShade);
       }
-      final localBg = runBg ?? _autoColorBackground;
+      final localBg = runBg ?? autoBackground;
       if (localBg != null) {
         autoColor = _spanFactory.resolveAutoTextColor(localBg);
       }
@@ -1089,9 +1099,8 @@ class ParagraphBuilder {
 
   /// Build a widget for a paragraph with a drop cap.
   Widget buildDropCap(DocxDropCap dropCap) {
-    // Drop-cap content sits on the page background; reset so no stale paragraph
-    // background leaks into an `auto` colour resolution.
-    _autoColorBackground = null;
+    // Drop-cap content sits on the page background (no local shd threaded), so
+    // an `auto` colour follows the theme default.
     const pointToPx = 1.333;
     final defaultFontSize = theme.defaultTextStyle.fontSize ?? 14.0;
 
