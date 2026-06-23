@@ -3,7 +3,7 @@
 > **מקור:** סעיף §4 מתוך `WORD_FORMATTING_XML_REFERENCE.md` — הועתק כלשונו וללא שינוי.
 > **אסור לערוך את "חלק א'".** המימוש והממצאים נכתבים ב"חלק ב'" בלבד.
 >
-> **סטטוס סריקה:** ✅ נסקר במלואו &nbsp;|&nbsp; **עודכן לאחרונה:** 2026-06-19
+> **סטטוס סריקה:** ✅ נסקר במלואו &nbsp;|&nbsp; **סטטוס מימוש:** ✅ פערים מרכזיים מומשו 1:1 (ראו ב.3) &nbsp;|&nbsp; **עודכן לאחרונה:** 2026-06-23
 
 ---
 
@@ -228,3 +228,47 @@
 - **היוריסטיקת כותרת בריווח (פריטים 39/40).** הצמדת מינימום 16/8px לפי fontSize≥20 משנה רווחים מ‑Word — לבחון הסרה לטובת הערכים המיושבים בלבד.
 - **`mark run` rPr (פריט 59) אינו קובע גובה פסקה ריקה** — פוגע בגובה שורות ריקות/מרווחים. ראו משימה 03 (rPr).
 - **לא ממומשים (לרוב EA/נדיר/לא‑ויזואלי) — לתעד כסטייה מודעת:** suppressLineNumbers (6), כל טיפוגרפיית EA (30–37), mirrorIndents (50), suppressOverlap (51), textDirection (53), textboxTightWrap (55), divId (57), cnfStyle בפסקה (58).
+
+### ב.3 — עדכון מימוש (בוצע ע"י ה‑AI המבצע, 2026‑06‑23)
+
+> מבוצע לפי `PROMPTER.md`. כל שינוי קוד מלווה בבדיקה שנכשלת לפני התיקון ועוברת אחריו;
+> `flutter analyze` נקי בשתי החבילות; הסוויטה המלאה ירוקה (פרט ל‑4 בדיקות גולדן עבריות
+> שכשלות מראש בגלל קובצי fixture חסרים `example/assets/*.docx` — לא קשור לשינויים).
+
+**מומש 1:1 (פער → תיקון → בדיקה):**
+
+| פריט | מה תוקן | קובץ עיקרי | בדיקה |
+|---|---|---|---|
+| 19 | `numId=0` = ביטול מספור שירש → פסקה רגילה (לא תבליט שקרי) | `block_parser.dart` (`parseBlocks`) | `paragraph_ppr_04_test.dart` |
+| 47 | `hanging` גובר על `firstLine` (סדר עדיפות לפי המפרט) | `docx_style.dart` (`_parseParagraphProperties`) | `paragraph_ppr_04_test.dart` |
+| 44/45 | הזחות לוגיות `start/end` ממופות פיזית לפי כיוון הפסקה (RTL→ימין) | `paragraph_builder.dart` (`_wrapWithParagraphStyle`) | `paragraph_indent_rtl_test.dart` |
+| 4 | הוסר `Divider` מלאכותי ל‑`pageBreakBefore` ב‑continuous (Word לא מצייר קו) | `paragraph_builder.dart` | `page_break_continuous_test.dart` |
+| 29(ב) | `defaultTabStop` מ‑settings.xml מחווט ל‑`TabEngine` (לא 720 קשיח) | `paragraph_builder.dart`, `docx_widget_generator.dart` | `tab_engine_test.dart` |
+| 2/3/5/38/49/52/54/56 ועוד | דגלי פסקה (bidi/keepNext/keepLines/widowControl/pageBreakBefore/suppressAutoHyphens/contextualSpacing/outlineLvl/textAlignment) **יורשים** ממנוע הסגנונות (`direct ?? style ?? default`); קריטי לעברית (סגנון עם `w:bidi`) | `docx_style.dart`, `block_parser.dart` | `paragraph_ppr_04_test.dart` |
+| 25 (themeFill) | רקע פסקה מצויר גם מ‑`w:shd w:themeFill`+tint/shade (לא רק hex `w:fill`) | `paragraph_builder.dart` (`_buildParagraphDecoration`) | `paragraph_shading_theme_test.dart` |
+| 21 (w:space) | רווח גבול `w:space` נקרא ומיושם, מדידה≡רינדור | (נסגר ב‑03‑rPr) `docx_style.dart`, `text_measurer.dart` | `text_border_test.dart` |
+| 59 | גובה פסקה ריקה לפי גודל סימן‑הפסקה (mark run) | (נסגר ב‑03‑rPr) `paragraph_builder.dart`, `text_measurer.dart` | `paragraph_properties_test.dart` |
+
+> מדידה≡רינדור: החלפת padding שמאל/ימין ל‑RTL שומרת על **סכום** ההזחה → המודד (שמצמצם רוחב רק
+> לפי רווח‑גבול) נשאר 1:1. `defaultTabStop` משפיע על מסלול הטאבים בלבד (המודד עדיין מודד טאב כ‑4
+> רווחים — סטייה מתועדת §8.2 #12). שאר השינויים render‑only או reader‑only.
+
+**סטיות מודעות (לא מומשו — נדיר/יקר/לא‑נתמך בפלטפורמה):**
+
+- **framePr כמסגרת צפה כללית (10–17):** רק drop‑cap (`drop`/`margin`). מסגרות צף/כותרות צד
+  (`w`/`h`/`wrap`/`hAnchor`/`x`/`y`) — סטייה מודעת (חומרה בינונית; נדיר).
+- **pBdr `between` כקו אמיתי בין פסקאות, `bar` (קו אנכי), ומיזוג pBdr זהה (22–24):** דורש תיאום
+  חוצה‑פסקאות ברמת בלוק; סטייה מודעת (חומרה נמוכה). `top/left/bottom/right` + `w:space` נאמנים.
+- **shd `val` (תבנית pct/diagStripe) ו‑`w:color` (25):** הצבע השטוח (fill/themeFill) מצויר; דפוסי
+  תבנית — סטייה מודעת (Word ממיר רובם לצבע אחיד; ראו משימות 02/13).
+- **טאב `decimal`/`num` יישור‑לנקודה (26):** מקורב כ‑right — מגבלה מתועדת.
+- **תו טאב ללא `w:tabs` (29ג):** מוצג כ‑4 רווחים (לא מסלול טאבים) כדי לשמור measure≡render רחב —
+  סטייה מודעת (§8.2 #12).
+- **היוריסטיקת ריווח כותרת (39/40):** נשמרת (measure≡render עקבי); הסרה דורשת אימות‑עמודים מחדש.
+- **textAlignment אנכי (54), outlineLvl (56):** כעת **יורשים** מסגנון, אך החלת יישור‑אנכי בתוך שורה /
+  ניווט‑outline אינה נתמכת ב‑RichText / מגיעה מ‑cache — סטייה מודעת.
+- **EA וטיפוגרפיה נדירה:** suppressLineNumbers (6), kinsoku/wordWrap/overflowPunct/topLinePunct/
+  autoSpaceDE/DN/snapToGrid/adjustRightInd (30–37), mirrorIndents (50), suppressOverlap (51),
+  textDirection אנכי (53), textboxTightWrap (55), divId (57), cnfStyle בפסקה (58), ins ב‑numPr (20) —
+  כולן סטיות מודעות (לא‑ויזואלי / נדיר / EA).
+- **hanging ב‑RTL:** קיזוז ה‑hanging מיושם על הצד המוביל (אחרי מיפוי 44/45); קירוב, כמקודם.
