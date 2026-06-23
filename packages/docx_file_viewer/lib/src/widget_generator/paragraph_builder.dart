@@ -709,9 +709,17 @@ class ParagraphBuilder {
 
   /// Build box decoration for paragraph with shading and borders.
   BoxDecoration? _buildParagraphDecoration(DocxParagraph paragraph) {
+    // Paragraph shading background. Resolve through [SpanFactory.resolveColor] so
+    // a theme fill (`w:shd w:themeFill` + tint/shade) paints, not only an
+    // explicit hex `w:fill` — matching the colour [_effectiveBackground] resolves
+    // for `auto` text (04-paragraph-ppr.md item 25). Render-only; never measured.
     Color? backgroundColor;
-    if (paragraph.shadingFill != null) {
-      backgroundColor = _spanFactory.parseHexColor(paragraph.shadingFill!);
+    if (paragraph.shadingFill != null || paragraph.themeFill != null) {
+      backgroundColor = _spanFactory.resolveColor(
+          paragraph.shadingFill,
+          paragraph.themeFill,
+          paragraph.themeFillTint,
+          paragraph.themeFillShade);
     }
 
     // Build borders from DocxBorderSide properties
