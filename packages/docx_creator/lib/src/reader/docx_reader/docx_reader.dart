@@ -50,6 +50,12 @@ class DocxReader {
               root.getElement('w:defaultTabStop')?.getAttribute('w:val') ??
                   '') ??
           720,
+      // `w:displayBackgroundShape` gates whether a `w:background` page colour /
+      // shape is shown in print layout (ISO/IEC 29500 §17.15.1.27). Without it
+      // Word keeps the background in the file but does not paint it
+      // (14-settings.md item 14).
+      displayBackgroundShape:
+          readOnOff(root.getElement('w:displayBackgroundShape')),
       footnoteProperties:
           SectionParser.parseNoteProperties(root.getElement('w:footnotePr')),
       endnoteProperties:
@@ -62,12 +68,17 @@ class DocxReader {
 class DocxDocumentSettings {
   final bool evenAndOddHeaders;
   final int defaultTabStop;
+
+  /// `w:displayBackgroundShape` — whether a document `w:background` is painted in
+  /// print layout (14-settings.md item 14).
+  final bool displayBackgroundShape;
   final DocxNoteProperties? footnoteProperties;
   final DocxNoteProperties? endnoteProperties;
 
   const DocxDocumentSettings({
     this.evenAndOddHeaders = false,
     this.defaultTabStop = 720,
+    this.displayBackgroundShape = false,
     this.footnoteProperties,
     this.endnoteProperties,
   });
@@ -188,10 +199,19 @@ class _DocxReaderOrchestrator {
     final body = documentXml.findAllElements('w:body').first;
     final elements = _blockParser.parseBody(body);
 
-    // 6. Parse document background
+    // Document-wide settings (read early because the background gating below
+    // needs `displayBackgroundShape`). Reused for the preserved raw XML too.
+    final settingsXml =
+        context.readContent(context.resolvePartByType('settings', 'settings.xml'));
+    final settings = DocxReader.parseSettings(settingsXml);
+
+    // 6. Parse document background colour. Word only paints a `w:background` in
+    // print layout when `w:displayBackgroundShape` is set; otherwise the colour
+    // is preserved in the file but not shown (14-settings.md item 14). Gating
+    // here avoids over-displaying a background Word would leave white.
     DocxColor? backgroundColor;
     final bgElem = documentXml.findAllElements('w:background').firstOrNull;
-    if (bgElem != null) {
+    if (bgElem != null && settings.displayBackgroundShape) {
       final colorHex = bgElem.getAttribute('w:color');
       if (colorHex != null && colorHex != 'auto') {
         backgroundColor = DocxColor('#$colorHex');
@@ -210,13 +230,8 @@ class _DocxReaderOrchestrator {
         context.readContent(context.relsPathFor(fontTablePath));
     final fonts = _readFonts(fontTableXml, fontTableRelsXml);
 
-    // 9. Gather raw XML strings for preservation
-    final settingsXml =
-        context.readContent(context.resolvePartByType('settings', 'settings.xml'));
-    // Document-wide settings: even/odd headers (drives the "even" header/footer
-    // variant), default tab stop, and global footnote/endnote properties.
-    // CT_OnOff toggles honor an explicit w:val="false", not just presence.
-    final settings = DocxReader.parseSettings(settingsXml);
+    // 9. Gather raw XML strings for preservation. `settingsXml`/`settings` were
+    // read above (the background gating needs them); reuse here.
     final evenAndOddHeaders = settings.evenAndOddHeaders;
     final defaultTabStop = settings.defaultTabStop;
     final globalFootnoteProperties = settings.footnoteProperties;

@@ -50,5 +50,19 @@ void main() {
       final s = DocxReader.parseSettings('<not valid');
       expect(s.defaultTabStop, 720);
     });
+
+    // 14-settings.md item 14: displayBackgroundShape gates page-background paint.
+    test('w:displayBackgroundShape toggle (default off)', () {
+      expect(DocxReader.parseSettings(null).displayBackgroundShape, isFalse);
+      expect(
+          DocxReader.parseSettings(_settings('<w:displayBackgroundShape/>'))
+              .displayBackgroundShape,
+          isTrue);
+      expect(
+          DocxReader.parseSettings(
+                  _settings('<w:displayBackgroundShape w:val="false"/>'))
+              .displayBackgroundShape,
+          isFalse);
+    });
   });
 }
