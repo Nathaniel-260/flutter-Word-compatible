@@ -72,4 +72,66 @@ void main() {
       expect(p.indentFirstLine, -360);
     });
   });
+
+  // 04-paragraph-ppr.md — paragraph on/off flags now inherit through the style
+  // engine (`direct ?? style ?? default`), not direct-pPr only. Critical for
+  // Hebrew: a body style that sets `w:bidi` makes its paragraphs RTL.
+  group('paragraph flags inherit from style', () {
+    XmlElement pprOf(String inner) =>
+        XmlDocument.parse('<w:pPr $_ns>$inner</w:pPr>').rootElement;
+
+    DocxParagraph parseWithStyles(
+        String paraXml, Map<String, DocxStyle> styles) {
+      final ctx = ReaderContext(Archive());
+      ctx.styles.addAll(styles);
+      return BlockParser(ctx)
+          .parseParagraph(XmlDocument.parse(paraXml).rootElement);
+    }
+
+    test('w:bidi from style → isRtl (Hebrew body style)', () {
+      final styles = {
+        'HebrewBody': DocxStyle.fromXml('HebrewBody',
+            type: 'paragraph', pPr: pprOf('<w:bidi/><w:keepNext/>')),
+      };
+      final p = parseWithStyles(
+          '<w:p $_ns><w:pPr><w:pStyle w:val="HebrewBody"/></w:pPr>'
+          '<w:r><w:t>שלום</w:t></w:r></w:p>',
+          styles);
+      expect(p.isRtl, isTrue);
+      expect(p.keepWithNext, isTrue);
+    });
+
+    test('direct pPr overrides the inherited flag (bidi off)', () {
+      final styles = {
+        'HebrewBody': DocxStyle.fromXml('HebrewBody',
+            type: 'paragraph', pPr: pprOf('<w:bidi/>')),
+      };
+      final p = parseWithStyles(
+          '<w:p $_ns><w:pPr><w:pStyle w:val="HebrewBody"/>'
+          '<w:bidi w:val="0"/></w:pPr><w:r><w:t>x</w:t></w:r></w:p>',
+          styles);
+      expect(p.isRtl, isFalse);
+    });
+
+    test('outlineLvl and textAlignment inherit from style', () {
+      final styles = {
+        'Heading9': DocxStyle.fromXml('Heading9',
+            type: 'paragraph',
+            pPr: pprOf(
+                '<w:outlineLvl w:val="3"/><w:textAlignment w:val="center"/>')),
+      };
+      final p = parseWithStyles(
+          '<w:p $_ns><w:pPr><w:pStyle w:val="Heading9"/></w:pPr></w:p>',
+          styles);
+      expect(p.outlineLevel, 3);
+      expect(p.textAlignment, DocxTextAlignment.center);
+    });
+
+    test('no style + no direct flag → defaults (widowControl on)', () {
+      final p = parsePara('<w:pPr/>');
+      expect(p.widowControl, isTrue);
+      expect(p.keepWithNext, isFalse);
+      expect(p.isRtl, isFalse);
+    });
+  });
 }

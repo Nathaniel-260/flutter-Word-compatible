@@ -224,30 +224,23 @@ class BlockParser {
     final children = inlineParser.parseChildren(xml.children,
         paragraphStyleId: pStyle ?? 'Normal');
 
-    // Direct pPr display properties (full style inheritance of these is Part B).
-    final isRtl = readOnOff(pPr?.getElement('w:bidi'));
-    final keepWithNext = readOnOff(pPr?.getElement('w:keepNext'));
-    final keepLines = readOnOff(pPr?.getElement('w:keepLines'));
+    // Paragraph display flags now resolve through the style engine: [finalProps]
+    // = effectiveStyle.merge(direct pPr), so each flag is `direct ?? style ??
+    // default`. A Heading style's `w:keepNext`, or a Hebrew body style's
+    // `w:bidi`, therefore reaches paragraphs that reference it (04-paragraph-ppr
+    // — flags inherit from style; was direct-only before). `w:tabs` stays
+    // direct-only (its `clear` merge semantics are a separate, documented gap).
+    final isRtl = finalProps.bidi ?? false;
+    final keepWithNext = finalProps.keepNext ?? false;
+    final keepLines = finalProps.keepLines ?? false;
     // Word's default for widowControl is on; only an explicit off disables it.
-    final widowControl =
-        readOnOff(pPr?.getElement('w:widowControl'), orElse: true);
-    final suppressHyphens = readOnOff(pPr?.getElement('w:suppressAutoHyphens'));
-    final contextualSpacing = readOnOff(pPr?.getElement('w:contextualSpacing'));
-    final pageBreakBefore = readOnOff(pPr?.getElement('w:pageBreakBefore'));
+    final widowControl = finalProps.widowControl ?? true;
+    final suppressHyphens = finalProps.suppressAutoHyphens ?? false;
+    final contextualSpacing = finalProps.contextualSpacing ?? false;
+    final pageBreakBefore = finalProps.pageBreakBefore ?? false;
     final tabStops = _parseTabStops(pPr);
-
-    int? outlineLevel;
-    final outlineElem = pPr?.getElement('w:outlineLvl');
-    if (outlineElem != null) {
-      outlineLevel = int.tryParse(outlineElem.getAttribute('w:val') ?? '');
-    }
-
-    DocxTextAlignment? textAlignment;
-    final textAlignElem = pPr?.getElement('w:textAlignment');
-    if (textAlignElem != null) {
-      textAlignment = DocxTextAlignmentExtension.fromXml(
-          textAlignElem.getAttribute('w:val'));
-    }
+    final outlineLevel = finalProps.outlineLevel;
+    final textAlignment = finalProps.textAlignment;
 
     return DocxParagraph(
       children: children,

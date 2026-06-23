@@ -48,6 +48,22 @@ class DocxStyle {
   final DocxBorderSide? borderBetween;
   final DocxBorder? borderBottom;
 
+  // Paragraph on/off flags and outline/vertical-alignment, parsed from a style's
+  // `w:pPr` so they inherit down the `basedOn` chain (e.g. a Heading style that
+  // sets `w:keepNext`, or a Hebrew body style that sets `w:bidi`). Tri-state
+  // (null = unspecified at this level) so the style engine can fall back to the
+  // parent and a direct pPr can still override. Resolved onto [DocxParagraph] in
+  // the block parser (04-paragraph-ppr.md — flags now inherit from style).
+  final bool? keepNext;
+  final bool? keepLines;
+  final bool? widowControl;
+  final bool? pageBreakBefore;
+  final bool? suppressAutoHyphens;
+  final bool? contextualSpacing;
+  final bool? bidi;
+  final int? outlineLevel;
+  final DocxTextAlignment? textAlignment;
+
   /// Table-level borders from a table style's `w:tblPr/w:tblBorders` (styles.xml,
   /// e.g. the built-in "Table Grid"). Held as a [DocxTableStyle] so the viewer
   /// can inherit a table's borders from its style when the table has no inline
@@ -113,6 +129,15 @@ class DocxStyle {
     this.borderRight,
     this.borderBetween,
     this.borderBottom,
+    this.keepNext,
+    this.keepLines,
+    this.widowControl,
+    this.pageBreakBefore,
+    this.suppressAutoHyphens,
+    this.contextualSpacing,
+    this.bidi,
+    this.outlineLevel,
+    this.textAlignment,
     this.tableBorders,
     this.fontWeight,
     this.fontStyle,
@@ -183,6 +208,15 @@ class DocxStyle {
       borderRight: pProps.borderRight ?? rProps.borderRight,
       borderBetween: pProps.borderBetween,
       borderBottom: pProps.borderBottom,
+      keepNext: pProps.keepNext,
+      keepLines: pProps.keepLines,
+      widowControl: pProps.widowControl,
+      pageBreakBefore: pProps.pageBreakBefore,
+      suppressAutoHyphens: pProps.suppressAutoHyphens,
+      contextualSpacing: pProps.contextualSpacing,
+      bidi: pProps.bidi,
+      outlineLevel: pProps.outlineLevel,
+      textAlignment: pProps.textAlignment,
       tableBorders: _parseTableBorders(tblPr),
       // R Props (merged)
       fontWeight: rProps.fontWeight,
@@ -239,6 +273,15 @@ class DocxStyle {
       borderRight: other.borderRight ?? borderRight,
       borderBetween: other.borderBetween ?? borderBetween,
       borderBottom: other.borderBottom ?? borderBottom,
+      keepNext: other.keepNext ?? keepNext,
+      keepLines: other.keepLines ?? keepLines,
+      widowControl: other.widowControl ?? widowControl,
+      pageBreakBefore: other.pageBreakBefore ?? pageBreakBefore,
+      suppressAutoHyphens: other.suppressAutoHyphens ?? suppressAutoHyphens,
+      contextualSpacing: other.contextualSpacing ?? contextualSpacing,
+      bidi: other.bidi ?? bidi,
+      outlineLevel: other.outlineLevel ?? outlineLevel,
+      textAlignment: other.textAlignment ?? textAlignment,
       tableBorders: _mergeTableBorders(tableBorders, other.tableBorders),
       // R props
       fontWeight: other.fontWeight ?? fontWeight,
@@ -430,10 +473,43 @@ class DocxStyle {
       borderBetween = _parseBorderSide(pBdr.getElement('w:between'));
     }
 
+    // On/off paragraph flags + outline level + vertical text alignment, read as
+    // tri-state (null when the element is absent at this level) so they inherit
+    // down the style chain and a direct pPr can still override.
+    final keepNext = _onOff(pPr, 'w:keepNext');
+    final keepLines = _onOff(pPr, 'w:keepLines');
+    final widowControl = _onOff(pPr, 'w:widowControl');
+    final pageBreakBefore = _onOff(pPr, 'w:pageBreakBefore');
+    final suppressAutoHyphens = _onOff(pPr, 'w:suppressAutoHyphens');
+    final contextualSpacing = _onOff(pPr, 'w:contextualSpacing');
+    final bidi = _onOff(pPr, 'w:bidi');
+
+    int? outlineLevel;
+    final outlineElem = pPr.getElement('w:outlineLvl');
+    if (outlineElem != null) {
+      outlineLevel = int.tryParse(outlineElem.getAttribute('w:val') ?? '');
+    }
+
+    DocxTextAlignment? textAlignment;
+    final textAlignElem = pPr.getElement('w:textAlignment');
+    if (textAlignElem != null) {
+      textAlignment =
+          DocxTextAlignmentExtension.fromXml(textAlignElem.getAttribute('w:val'));
+    }
+
     return DocxStyle(
       id: 'temp',
       pStyleId: styleId,
       align: align,
+      keepNext: keepNext,
+      keepLines: keepLines,
+      widowControl: widowControl,
+      pageBreakBefore: pageBreakBefore,
+      suppressAutoHyphens: suppressAutoHyphens,
+      contextualSpacing: contextualSpacing,
+      bidi: bidi,
+      outlineLevel: outlineLevel,
+      textAlignment: textAlignment,
       shadingFill: shadingFill,
       themeFill: themeFill,
       themeFillTint: themeFillTint,
