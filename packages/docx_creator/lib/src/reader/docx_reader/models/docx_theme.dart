@@ -307,6 +307,15 @@ class DocxNumberingLevel {
   /// Picture bullet image bytes (resolved from media folder).
   final Uint8List? picBulletImage;
 
+  /// Explicit label formatting from the level's `w:rPr` (08-numbering.md item
+  /// 22): an explicit `w:color w:val` hex, half-point `w:sz`, and bold/italic.
+  /// Drive the marker's `TextStyle` so a coloured/bold number (common in Hebrew
+  /// sacred texts) renders, not just the body style.
+  final String? colorHex;
+  final double? fontSize;
+  final bool? bold;
+  final bool? italic;
+
   const DocxNumberingLevel({
     required this.level,
     required this.numFmt,
@@ -326,6 +335,10 @@ class DocxNumberingLevel {
     this.themeShade,
     this.picBulletId,
     this.picBulletImage,
+    this.colorHex,
+    this.fontSize,
+    this.bold,
+    this.italic,
   });
 
   DocxNumberingLevel copyWith({int? start}) => DocxNumberingLevel(
@@ -347,6 +360,10 @@ class DocxNumberingLevel {
         themeShade: themeShade,
         picBulletId: picBulletId,
         picBulletImage: picBulletImage,
+        colorHex: colorHex,
+        fontSize: fontSize,
+        bold: bold,
+        italic: italic,
       );
 
   /// Returns true if this is a bullet level.

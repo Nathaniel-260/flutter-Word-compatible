@@ -162,6 +162,11 @@ class NumberingParser {
     String? themeTint;
     String? themeShade;
     String? themeFont;
+    // Explicit label formatting (08-numbering.md item 22).
+    String? colorHex;
+    double? labelFontSize;
+    bool? labelBold;
+    bool? labelItalic;
 
     final rPr = lvl.getElement('w:rPr');
     if (rPr != null) {
@@ -176,13 +181,24 @@ class NumberingParser {
             rFonts.getAttribute('w:hAnsiTheme');
       }
 
-      // Parse Color
+      // Parse Color (explicit hex `w:val` + theme reference).
       final colorElem = rPr.getElement('w:color');
       if (colorElem != null) {
+        final val = colorElem.getAttribute('w:val');
+        if (val != null && val != 'auto') colorHex = val;
         themeColor = colorElem.getAttribute('w:themeColor');
         themeTint = colorElem.getAttribute('w:themeTint');
         themeShade = colorElem.getAttribute('w:themeShade');
       }
+
+      // Explicit size (half-points → points) and bold/italic toggles.
+      final szVal = rPr.getElement('w:sz')?.getAttribute('w:val');
+      final halfPts = szVal == null ? null : int.tryParse(szVal);
+      if (halfPts != null) labelFontSize = halfPts / 2.0;
+      final bEl = rPr.getElement('w:b');
+      if (bEl != null) labelBold = readOnOff(bEl);
+      final iEl = rPr.getElement('w:i');
+      if (iEl != null) labelItalic = readOnOff(iEl);
     }
 
     if (numFmt == 'bullet') {
@@ -230,6 +246,10 @@ class NumberingParser {
       themeShade: themeShade,
       picBulletId: picBulletId,
       picBulletImage: picBulletImage,
+      colorHex: colorHex,
+      fontSize: labelFontSize,
+      bold: labelBold,
+      italic: labelItalic,
     );
   }
 

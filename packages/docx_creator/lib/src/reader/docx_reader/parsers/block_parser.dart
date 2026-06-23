@@ -335,6 +335,15 @@ class BlockParser {
             themeShade: levelDef.themeShade,
             themeFont: levelDef.themeFont,
             fontFamily: levelDef.bulletFont,
+            // Explicit label formatting (08-numbering.md item 22): an explicit
+            // colour / size / bold on the level's `w:rPr` styles the marker.
+            color: levelDef.colorHex != null
+                ? DocxColor(levelDef.colorHex!)
+                : DocxColor.black,
+            fontSize: levelDef.fontSize,
+            fontWeight: levelDef.bold == true
+                ? DocxFontWeight.bold
+                : DocxFontWeight.normal,
           );
         }
       }

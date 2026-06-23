@@ -59,5 +59,36 @@ void main() {
         </w:lvl>''');
       expect(lvl.numFmt, 'hebrew1');
     });
+
+    // 08-numbering.md item 22: explicit label rPr (colour/size/bold/italic).
+    test('label rPr colour/size/bold/italic are parsed', () {
+      final lvl = parseLevel('''
+        <w:lvl w:ilvl="0">
+          <w:numFmt w:val="decimal"/>
+          <w:lvlText w:val="%1."/>
+          <w:rPr>
+            <w:b/>
+            <w:i/>
+            <w:color w:val="FF0000"/>
+            <w:sz w:val="28"/>
+          </w:rPr>
+        </w:lvl>''');
+      expect(lvl.colorHex, 'FF0000');
+      expect(lvl.fontSize, 14.0); // 28 half-points
+      expect(lvl.bold, isTrue);
+      expect(lvl.italic, isTrue);
+    });
+
+    test('label rPr is null when absent / auto colour ignored', () {
+      final lvl = parseLevel('''
+        <w:lvl w:ilvl="0">
+          <w:numFmt w:val="decimal"/>
+          <w:lvlText w:val="%1."/>
+          <w:rPr><w:color w:val="auto"/></w:rPr>
+        </w:lvl>''');
+      expect(lvl.colorHex, isNull);
+      expect(lvl.fontSize, isNull);
+      expect(lvl.bold, isNull);
+    });
   });
 }
