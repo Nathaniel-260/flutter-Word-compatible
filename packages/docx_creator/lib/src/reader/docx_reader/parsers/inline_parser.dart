@@ -412,9 +412,21 @@ class InlineParser {
       direct: direct,
     );
 
-    // Extract text
+    // Extract text. A `w:ruby` run (phonetic guide) has no run-level `w:t`; its
+    // base text lives in `w:ruby/w:rubyBase`. Render at least the base text so a
+    // ruby run is not lost to a raw inline (10-inline-special.md item 42). The
+    // small `w:rt` annotation above the base is a documented limitation.
     final textElem = run.getElement('w:t');
-    if (textElem != null) {
+    String? rubyBaseText;
+    if (textElem == null) {
+      final base = run.getElement('w:ruby')?.getElement('w:rubyBase');
+      if (base != null) {
+        final t = base.findAllElements('w:t').map((e) => e.innerText).join();
+        if (t.isNotEmpty) rubyBaseText = t;
+      }
+    }
+    final textContent = textElem?.innerText ?? rubyBaseText;
+    if (textContent != null) {
       // IMPORTANT: Only use DIRECT properties for font-related output
       // This ensures we don't override table style inheritance
       // Font properties should only be emitted if they were explicitly set in source
@@ -432,7 +444,7 @@ class InlineParser {
       // Advanced run properties (A.2), parsed directly from this run's rPr.
       // Full style inheritance of these is Part B's StyleResolver.
       return DocxText(
-        textElem.innerText,
+        textContent,
         fontWeight: finalProps.fontWeight ?? DocxFontWeight.normal,
         fontStyle: finalProps.fontStyle ?? DocxFontStyle.normal,
         decorations: finalProps.decorations,

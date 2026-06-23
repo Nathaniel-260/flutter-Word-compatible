@@ -32,6 +32,16 @@ void main() {
       final soft = parseInlines('<w:r><w:softHyphen/></w:r>');
       expect((soft.single as DocxText).content, '­');
     });
+
+    // 10-inline-special.md item 42: a ruby run keeps at least its base text.
+    test('w:ruby → base text is preserved (not lost to a raw inline)', () {
+      final i = parseInlines('<w:r><w:ruby>'
+          '<w:rt><w:r><w:t>אנ</w:t></w:r></w:rt>'
+          '<w:rubyBase><w:r><w:t>בראשית</w:t></w:r></w:rubyBase>'
+          '</w:ruby></w:r>');
+      expect(i.single, isA<DocxText>());
+      expect((i.single as DocxText).content, 'בראשית');
+    });
   });
 
   group('A.3 w:sym', () {
