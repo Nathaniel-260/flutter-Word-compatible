@@ -256,6 +256,10 @@ class ListBuilder {
       fontWeight: style.fontWeight == DocxFontWeight.bold
           ? FontWeight.bold
           : FontWeight.normal,
+      // Marker italic (`w:rPr/w:i`, 08-numbering.md item 22).
+      fontStyle: style.fontStyle == DocxFontStyle.italic
+          ? FontStyle.italic
+          : FontStyle.normal,
       fontFamily:
           markerFont ?? style.fontFamily ?? theme.defaultTextStyle.fontFamily,
       // Match the body line metrics so the marker shares the first text line's

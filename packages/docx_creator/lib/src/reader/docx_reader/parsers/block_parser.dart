@@ -344,6 +344,9 @@ class BlockParser {
             fontWeight: levelDef.bold == true
                 ? DocxFontWeight.bold
                 : DocxFontWeight.normal,
+            fontStyle: levelDef.italic == true
+                ? DocxFontStyle.italic
+                : DocxFontStyle.normal,
           );
         }
       }

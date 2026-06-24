@@ -290,6 +290,32 @@ void main() {
       expect(markerSize, bodySize);
     });
 
+    testWidgets('marker honours italic + bold from the level rPr (item 22)',
+        (tester) async {
+      // 08-numbering.md E1: the level's `w:rPr/w:i` italic was parsed and stored
+      // but never applied to the marker. The marker must now render italic (as
+      // it already did bold), end-to-end through DocxListStyle.fontStyle.
+      final list = DocxList(
+        isOrdered: true,
+        style: const DocxListStyle(
+          fontStyle: DocxFontStyle.italic,
+          fontWeight: DocxFontWeight.bold,
+        ),
+        items: const [
+          DocxListItem([DocxText('Item')]),
+        ],
+      );
+
+      await tester.pumpWidget(
+          MaterialApp(home: Scaffold(body: makeBuilder().build(list))));
+
+      final marker = tester
+          .widgetList<Text>(find.byType(Text))
+          .firstWhere((t) => (t.data ?? '').isNotEmpty);
+      expect(marker.style?.fontStyle, FontStyle.italic);
+      expect(marker.style?.fontWeight, FontWeight.bold);
+    });
+
     test('firstSpanFontSize inherits a wrapper span size for nested text', () {
       // Parent declares the size; only the leaf child holds the text. The marker
       // sizing must still resolve 22 rather than falling back to the default.

@@ -28,6 +28,9 @@ class DocxListStyle {
 
   /// Text style for list items.
   final DocxFontWeight fontWeight;
+
+  /// Marker italic, from the level's `w:rPr/w:i` (08-numbering.md item 22).
+  final DocxFontStyle fontStyle;
   final DocxColor color;
   final double? fontSize;
 
@@ -49,6 +52,7 @@ class DocxListStyle {
     this.indentPerLevel = 720,
     this.hangingIndent = 360,
     this.fontWeight = DocxFontWeight.normal,
+    this.fontStyle = DocxFontStyle.normal,
     this.color = DocxColor.black,
     this.fontSize,
     this.themeColor,
