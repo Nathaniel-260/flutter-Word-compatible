@@ -44,9 +44,12 @@ class DocxViewTheme {
     // override this via SpanFactory.
     // NOTE: a fixed multiplier can only approximate one font; the document-driven
     // line height (per-font OS/2 typo metrics, what Word uses) is the real fix.
+    // Word renders default ("auto") body text in pure black (#000000) on a white
+    // page; black87 (≈ #222 over white) washed it out and made thin Hebrew/Latin
+    // strokes look grey and soft next to Word. Pure black for Word fidelity.
     this.defaultTextStyle = const TextStyle(
       fontSize: 14,
-      color: Colors.black87,
+      color: Colors.black,
       height: 1.15,
     ),
     this.headingStyles = const {},
@@ -73,7 +76,7 @@ class DocxViewTheme {
       backgroundColor: Colors.white,
       defaultTextStyle: const TextStyle(
         fontSize: 14,
-        color: Colors.black87,
+        color: Colors.black,
         height: 1.15,
       ),
       headingStyles: {
