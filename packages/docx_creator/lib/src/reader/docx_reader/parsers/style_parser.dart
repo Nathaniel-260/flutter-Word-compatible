@@ -251,6 +251,19 @@ class ThemeParser {
       return elem?.getAttribute('typeface') ?? '';
     }
 
+    // `<a:font script="Hebr" typeface="...">` — a per-script override (sibling of
+    // `<a:latin>`/`<a:cs>`) for Hebrew text (13-theme.md E2). Matched on the
+    // local name + `script` attribute (prefix-agnostic).
+    String getScriptFont(String fontElem, String script) {
+      final font = fontScheme.getElement('a:$fontElem');
+      if (font == null) return '';
+      final elem = font.childElements
+          .where((e) =>
+              e.name.local == 'font' && e.getAttribute('script') == script)
+          .firstOrNull;
+      return elem?.getAttribute('typeface') ?? '';
+    }
+
     return DocxThemeFonts(
       majorLatin: getMajorFont('latin').isNotEmpty
           ? getMajorFont('latin')
@@ -261,6 +274,8 @@ class ThemeParser {
           getMinorFont('latin').isNotEmpty ? getMinorFont('latin') : 'Calibri',
       minorEastAsia: getMinorFont('ea'),
       minorComplexScript: getMinorFont('cs'),
+      majorHebrew: getScriptFont('majorFont', 'Hebr'),
+      minorHebrew: getScriptFont('minorFont', 'Hebr'),
     );
   }
 }

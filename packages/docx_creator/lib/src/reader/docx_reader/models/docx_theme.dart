@@ -187,6 +187,16 @@ class DocxThemeFonts {
   final String minorEastAsia;
   final String minorComplexScript;
 
+  /// Hebrew-specific theme font from `<a:font script="Hebr">` inside the
+  /// major/minor font definition (13-theme.md E2). Word lets a theme override
+  /// the generic complex-script font (`<a:cs>`) per script; for Hebrew — this
+  /// package's primary RTL target — that override is what `w:cstheme` should
+  /// resolve to. Empty when the theme has no Hebrew-specific entry (then the
+  /// generic `<a:cs>` font is used). Other scripts (Arabic/CJK) still fall back
+  /// to `<a:cs>` — a documented narrowing of the full per-script model.
+  final String majorHebrew;
+  final String minorHebrew;
+
   const DocxThemeFonts({
     this.majorLatin = 'Calibri Light',
     this.majorEastAsia = '',
@@ -194,6 +204,8 @@ class DocxThemeFonts {
     this.minorLatin = 'Calibri',
     this.minorEastAsia = '',
     this.minorComplexScript = '',
+    this.majorHebrew = '',
+    this.minorHebrew = '',
   });
 
   /// Gets the font for headings.
@@ -211,14 +223,16 @@ class DocxThemeFonts {
       case 'majorEastAsia':
         return majorEastAsia;
       case 'majorBidi':
-        return majorComplexScript;
+        // Hebrew-specific override wins over the generic `<a:cs>` font for this
+        // package's complex (Hebrew) text (13-theme.md E2).
+        return majorHebrew.isNotEmpty ? majorHebrew : majorComplexScript;
       case 'minorHAnsi':
       case 'minorAscii':
         return minorLatin;
       case 'minorEastAsia':
         return minorEastAsia;
       case 'minorBidi':
-        return minorComplexScript;
+        return minorHebrew.isNotEmpty ? minorHebrew : minorComplexScript;
       default:
         return null;
     }
