@@ -141,7 +141,27 @@ class SpanFactory {
     double? fontPt;
     for (final c in paragraph.children) {
       if (c is DocxText) {
-        fontPt = c.fontSizeCs ?? c.fontSize;
+        // The first run's effective size depends on the script of its first
+        // glyph — a complex/Hebrew segment reads `w:szCs`, a Latin one `w:sz`
+        // (matching [resolveRunStyle]). Classifying (instead of always
+        // preferring `szCs`) keeps a Latin-opening paragraph from inheriting a
+        // differing `szCs` value (03-run-rpr.md E7).
+        final content = resolveContent(c);
+        final bool firstComplex;
+        if (content.isEmpty) {
+          // No glyphs to classify: fall back to the run's explicit complex hint.
+          firstComplex = c.fonts?.hint == 'cs' ||
+              c.rtl == true ||
+              c.complexScript == true;
+        } else {
+          final forceComplex = c.fonts?.hint == 'cs' ||
+              c.rtl == true ||
+              c.complexScript == true;
+          firstComplex =
+              classifyScript(content, hintComplex: forceComplex).first.script ==
+                  DocxScript.complex;
+        }
+        fontPt = firstComplex ? (c.fontSizeCs ?? c.fontSize) : c.fontSize;
         break;
       }
     }

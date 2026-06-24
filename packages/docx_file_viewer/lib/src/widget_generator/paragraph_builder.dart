@@ -421,11 +421,10 @@ class ParagraphBuilder {
       columnChildren.add(SizedBox(width: double.infinity, child: blank));
     }
 
-    // Final Assembly
+    // Final Assembly. [columnChildren] is never empty here: the empty-paragraph
+    // branch above always reserves one blank line, so there is ≥1 child.
     Widget finalContent;
-    if (columnChildren.isEmpty) {
-      finalContent = const SizedBox();
-    } else if (columnChildren.length == 1) {
+    if (columnChildren.length == 1) {
       finalContent = columnChildren.first;
     } else {
       finalContent = Column(
@@ -1043,6 +1042,11 @@ class ParagraphBuilder {
                 TextSpan(children: childSpans),
                 softWrap: false,
                 maxLines: 1,
+                // The measurer sizes this box with [TextScaler.noScaling]
+                // (span_factory `textBorderBox`); pin the renderer to the same
+                // scaler so the box stays measure ≡ render even when the host
+                // app sets an OS text-scale factor ≠ 1.0 (03-run-rpr.md E1).
+                textScaler: TextScaler.noScaling,
               ),
             ),
           )
