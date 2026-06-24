@@ -1047,7 +1047,11 @@ class SpanFactory {
   /// is no border or it is `none`/`nil`.
   ({double padH, double borderWidth})? textBorderBox(DocxBorderSide? side) {
     if (side == null || side.style == DocxBorder.none) return null;
-    final borderWidth = (side.size / 8.0).clamp(0.5, 10.0);
+    // `w:sz` is in eighths of a point; convert to logical px at 96 DPI
+    // (points × 96/72) so a 1pt rule paints 1.333px wide, as Word draws it —
+    // not 1px (the former, too-thin value). The renderer's `Border.all` reuses
+    // this exact width (paragraph_builder) so the box stays measure ≡ render.
+    final borderWidth = (side.size / 8.0 * 96.0 / 72.0).clamp(0.5, 10.0);
     final padH = side.space * 96.0 / 72.0; // points → logical px
     return (padH: padH.toDouble(), borderWidth: borderWidth.toDouble());
   }

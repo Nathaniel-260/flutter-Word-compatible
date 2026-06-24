@@ -1034,8 +1034,14 @@ class ParagraphBuilder {
             child: Container(
               padding: EdgeInsets.symmetric(horizontal: box.padH, vertical: 0),
               decoration: BoxDecoration(
+                // Width comes from the shared [SpanFactory.textBorderBox]
+                // (eighths-of-a-point → px at 96 DPI), the same value the
+                // measurer reserves, so the box stays measure ≡ render. Colour
+                // and line style still come from [_buildBorderSide].
                 border: Border.all(
-                    color: side.color, width: side.width, style: side.style),
+                    color: side.color,
+                    width: box.borderWidth,
+                    style: side.style),
                 color: segments.first.style.backgroundColor,
               ),
               child: Text.rich(

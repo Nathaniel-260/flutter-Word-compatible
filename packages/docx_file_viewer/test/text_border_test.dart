@@ -28,7 +28,8 @@ void main() {
     final box = spanFactory.textBorderBox(
         const DocxBorderSide(style: DocxBorder.single, size: 8, space: 6));
     expect(box, isNotNull);
-    expect(box!.borderWidth, closeTo(1.0, 0.001)); // 8 eighth-points = 1pt
+    // 8 eighth-points = 1pt → 1.333px at 96 DPI (points × 96/72), as Word draws.
+    expect(box!.borderWidth, closeTo(1.0 * 96 / 72, 0.001));
     expect(box.padH, closeTo(6 * 96 / 72, 0.001)); // 6pt → 8px
     // Larger space → larger padding.
     final wide = spanFactory.textBorderBox(
@@ -48,6 +49,32 @@ void main() {
     expect(built.segments, hasLength(1));
     expect(built.segments.single.atomic, isTrue);
     expect(built.segments.single.length, 1);
+  });
+
+  testWidgets('bordered run paints the px-correct width (w:sz → ×96/72)',
+      (tester) async {
+    final p = DocxParagraph(children: const [
+      DocxText('Word',
+          textBorder:
+              DocxBorderSide(style: DocxBorder.single, size: 8, space: 6)),
+    ]);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Align(
+          alignment: Alignment.topLeft,
+          child: SizedBox(width: 400, child: builder.build(p)),
+        ),
+      ),
+    ));
+    final box = tester.widgetList<Container>(find.byType(Container)).firstWhere(
+          (c) =>
+              c.decoration is BoxDecoration &&
+              (c.decoration as BoxDecoration).border != null,
+        );
+    final border = (box.decoration as BoxDecoration).border as Border;
+    // A 1pt (w:sz=8) rule paints 1.333px wide at 96 DPI, as Word draws it —
+    // and identical to the measurer's reserved width (measure ≡ render).
+    expect(border.top.width, closeTo(1.0 * 96 / 72, 0.001));
   });
 
   testWidgets('bordered run: measure ≡ render (Hebrew+Latin)', (tester) async {
