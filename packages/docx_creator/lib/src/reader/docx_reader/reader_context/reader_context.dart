@@ -36,6 +36,13 @@ class ReaderContext {
   /// inherit their real default style (07-styles.md item 5).
   String defaultParagraphStyleId = 'Normal';
 
+  /// Whether [defaultParagraphStyleId] has been set from an actual
+  /// `w:default="1"` paragraph style yet. Tracked separately from the id so the
+  /// "first default wins" rule holds even when the first default style is itself
+  /// named `'Normal'` — a name match must not be confused with "unset"
+  /// (07-styles.md E1).
+  bool defaultParagraphStyleSet = false;
+
   /// Raw numbering XML for list type detection
   String? numberingXml;
 

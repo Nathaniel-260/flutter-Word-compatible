@@ -44,4 +44,19 @@ void main() {
     </w:styles>''');
     expect(ctx.defaultParagraphStyleId, 'Normal');
   });
+
+  test('first w:default wins even when the first is named "Normal" (E1)', () {
+    // Malformed doc with two paragraph defaults; the first is "Normal". The
+    // "set" flag makes the first win — a name match must not read as "unset"
+    // and let the later stray default override it.
+    final ctx = ReaderContext(Archive());
+    StyleParser(ctx).parse('''<w:styles $_ns>
+      <w:style w:type="paragraph" w:default="1" w:styleId="Normal">
+        <w:name w:val="Normal"/></w:style>
+      <w:style w:type="paragraph" w:default="1" w:styleId="Other">
+        <w:name w:val="Other"/></w:style>
+    </w:styles>''');
+    expect(ctx.defaultParagraphStyleId, 'Normal');
+    expect(ctx.defaultParagraphStyleSet, isTrue);
+  });
 }
