@@ -230,6 +230,32 @@ void main() {
           '<w:sdt><w:sdtContent>$_cell</w:sdtContent></w:sdt></w:tr>');
       expect(t.rows.single.cells.length, 2);
     });
+
+    // E1: the unwrapping must be prefix-agnostic. Here the sdt subtree binds a
+    // *different* prefix (`x`) to the same wordprocessingml namespace; matching
+    // on the local name (not the literal `w:` qualified name) still unwraps it.
+    const wUri =
+        'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+
+    test('a sdt-wrapped row unwraps under a non-w namespace prefix (E1)', () {
+      final t = parseTable('<w:tr>$_cell</w:tr>'
+          '<x:sdt xmlns:x="$wUri"><x:sdtContent>'
+          '<x:tr>$_cell</x:tr>'
+          '</x:sdtContent></x:sdt>');
+      expect(t.rows.length, 2);
+    });
+
+    test('a block-level sdt inside a cell unwraps under a non-w prefix (E1)',
+        () {
+      final t = parseTable('<w:tr><w:tc>'
+          '<w:tcPr><w:tcW w:w="5000" w:type="dxa"/></w:tcPr>'
+          '<x:sdt xmlns:x="$wUri"><x:sdtContent>'
+          '<w:p><w:r><w:t>inside</w:t></w:r></w:p>'
+          '</x:sdtContent></x:sdt>'
+          '</w:tc></w:tr>');
+      expect(t.rows.single.cells.single.children.whereType<DocxParagraph>(),
+          hasLength(1));
+    });
   });
 
   // 12-revisions.md: final view — a deleted row/cell-content is omitted.

@@ -22,7 +22,12 @@ class TableParser {
       if (name == local) {
         yield c;
       } else if (name == 'sdt') {
-        final content = c.getElement('w:sdtContent');
+        // Find sdtContent by local name (prefix-agnostic, like the iteration
+        // above) so an unusual wordprocessingml prefix still unwraps the
+        // content control instead of dropping the row/cell (11-sdt.md E1).
+        final content = c.childElements
+            .where((e) => e.name.local == 'sdtContent')
+            .firstOrNull;
         if (content != null) yield* _unwrappedChildren(content, local);
       } else if (name == 'customXml') {
         yield* _unwrappedChildren(c, local);
@@ -518,7 +523,11 @@ class TableParser {
         // Handle block-level containers in cells (insertions/moves shown).
         var contentNodes = c.children;
         if (c.name.local == 'sdt') {
-          final content = c.findAllElements('w:sdtContent').firstOrNull;
+          // Prefix-agnostic sdtContent lookup (11-sdt.md E1): match on the
+          // local name so a non-`w` wordprocessingml prefix still unwraps.
+          final content = c.descendantElements
+              .where((e) => e.name.local == 'sdtContent')
+              .firstOrNull;
           if (content != null) contentNodes = content.children;
         }
         for (var child in contentNodes) {
