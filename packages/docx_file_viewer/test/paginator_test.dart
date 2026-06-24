@@ -237,6 +237,25 @@ void main() {
     expect(res.pages[1].isFirstPageOfSection, isTrue);
   });
 
+  test('continuous section break keeps the next section on the same page', () {
+    // 05-section-sectpr.md item 6 ("continuous!"): a continuous section break
+    // must NOT start a new page — section two flows directly under section one
+    // on the still-open page. (Contrast the nextPage test above, which yields
+    // two pages.) The two short paragraphs easily fit one body height.
+    final res = paginator.paginate(DocxBuiltDocument(
+      elements: [
+        para('section one'),
+        const DocxSectionBreakBlock(DocxSectionDef()),
+        para('section two'),
+      ],
+      // The trailing section (section two) begins continuous.
+      section: const DocxSectionDef(breakType: DocxSectionBreak.continuous),
+    ));
+    expect(res.pages.length, 1);
+    // Both sections' text lives on the single page, in order.
+    expect(allText(res), 'section onesection two');
+  });
+
   test('pgNumType start offsets the display number; NUMPAGES = page count', () {
     final paras = List.generate(3, (_) => para('x'));
     final res = paginator.paginate(DocxBuiltDocument(
