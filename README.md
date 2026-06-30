@@ -4,13 +4,13 @@ Welcome to the `flutter-packages` monorepo! This repository contains packages fo
 
 ## Packages
 
-| Package | Version | Description |
-| :--- | :--- | :--- |
-| [htmltopdfwidgets](packages/htmltopdfwidgets) | [![pub package](https://img.shields.io/pub/v/htmltopdfwidgets.svg)](https://pub.dev/packages/htmltopdfwidgets) | The core package for converting HTML and Markdown to PDF widgets. Supports both legacy and new browser-like rendering engines. |
-| [htmltopdf_syncfusion](packages/htmltopdf_syncfusion) | [![pub package](https://img.shields.io/pub/v/htmltopdf_syncfusion.svg)](https://pub.dev/packages/htmltopdf_syncfusion) | A finalized package that uses Syncfusion PDF widgets for rendering. |
-| [docx_creator](packages/docx_creator) | [![pub package](https://img.shields.io/pub/v/docx_creator.svg)](https://pub.dev/packages/docx_creator) | A developer-first Dart package for creating professional DOCX documents with fluent API, Markdown/HTML parsing, and comprehensive formatting. |
-| [docx_file_viewer](packages/docx_file_viewer) | [![pub package](https://img.shields.io/pub/v/docx_file_viewer.svg)](https://pub.dev/packages/docx_file_viewer) | A native Flutter DOCX viewer that renders Word documents using Flutter widgets. |
-| [native_pdf_engine](packages/native_pdf_engine) | [![pub package](https://img.shields.io/pub/v/native_pdf_engine.svg)](https://pub.dev/packages/native_pdf_engine) | A high-performance, FFI-based Flutter package to convert HTML and URLs to PDF using native OS webviews. |
+| Package | Version | Downloads | Description |
+| :--- | :--- | :--- | :--- |
+| [htmltopdfwidgets](packages/htmltopdfwidgets) | [![pub package](https://img.shields.io/pub/v/htmltopdfwidgets.svg)](https://pub.dev/packages/htmltopdfwidgets) | ![downloads](https://img.shields.io/pub/dm/htmltopdfwidgets) | The core package for converting HTML and Markdown to PDF widgets. Supports both legacy and new browser-like rendering engines. |
+| [htmltopdf_syncfusion](packages/htmltopdf_syncfusion) | [![pub package](https://img.shields.io/pub/v/htmltopdf_syncfusion.svg)](https://pub.dev/packages/htmltopdf_syncfusion)  | ![downloads](https://img.shields.io/pub/dm/htmltopdf_syncfusion) | A finalized package that uses Syncfusion PDF widgets for rendering. |
+| [docx_creator](packages/docx_creator) | [![pub package](https://img.shields.io/pub/v/docx_creator.svg)](https://pub.dev/packages/docx_creator)  | ![downloads](https://img.shields.io/pub/dm/docx_creator) | A developer-first Dart package for creating professional DOCX documents with fluent API, Markdown/HTML parsing, and comprehensive formatting. |
+| [docx_file_viewer](packages/docx_file_viewer) | [![pub package](https://img.shields.io/pub/v/docx_file_viewer.svg)](https://pub.dev/packages/docx_file_viewer) | ![downloads](https://img.shields.io/pub/dm/docx_file_viewer) |  A native Flutter DOCX viewer that renders Word documents using Flutter widgets. |
+| [native_pdf_engine](packages/native_pdf_engine) | [![pub package](https://img.shields.io/pub/v/native_pdf_engine.svg)](https://pub.dev/packages/native_pdf_engine)  | ![downloads](https://img.shields.io/pub/dm/native_pdf_engine) | A high-performance, FFI-based Flutter package to convert HTML and URLs to PDF using native OS webviews. |
 
 ## Workspace Management
 
