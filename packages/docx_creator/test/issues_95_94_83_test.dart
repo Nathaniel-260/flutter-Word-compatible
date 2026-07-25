@@ -14,8 +14,7 @@ Future<Map<String, String>> _exportAndRead(DocxBuiltDocument doc) async {
   final bytes = await DocxExporter().exportToBytes(doc);
   final archive = ZipDecoder().decodeBytes(bytes);
   return {
-    for (final f in archive.files)
-      f.name: utf8.decode(f.content as List<int>),
+    for (final f in archive.files) f.name: utf8.decode(f.content as List<int>),
   };
 }
 
@@ -96,9 +95,8 @@ void main() {
     });
 
     test('plain DocxText without href generates no w:hyperlink', () async {
-      final doc = docx()
-          .add(DocxParagraph(children: [DocxText('plain text')]))
-          .build();
+      final doc =
+          docx().add(DocxParagraph(children: [DocxText('plain text')])).build();
 
       final files = await _exportAndRead(doc);
       final documentXml = files['word/document.xml']!;
@@ -130,7 +128,8 @@ void main() {
       expect(numbering, contains('<w:abstractNumId w:val="0"/>'));
     });
 
-    test('custom bullet char creates a new abstractNum with the correct lvlText',
+    test(
+        'custom bullet char creates a new abstractNum with the correct lvlText',
         () async {
       final doc = docx()
           .add(DocxList.bullet(
@@ -229,8 +228,8 @@ void main() {
             items: [
               DocxListItem(
                 [DocxText('item')],
-                overrideStyle:
-                    const DocxListStyle(indentPerLevel: 1080, hangingIndent: 540),
+                overrideStyle: const DocxListStyle(
+                    indentPerLevel: 1080, hangingIndent: 540),
               ),
             ],
           ))
@@ -245,8 +244,7 @@ void main() {
 
     test('default bullet style does not create extra abstractNum entries',
         () async {
-      final doc =
-          docx().bullet(['A', 'B']).numbered(['1', '2']).build();
+      final doc = docx().bullet(['A', 'B']).numbered(['1', '2']).build();
 
       final files = await _exportAndRead(doc);
       final numbering = files['word/numbering.xml']!;
@@ -257,5 +255,4 @@ void main() {
       expect(numbering, isNot(contains('w:abstractNumId="2"')));
     });
   });
-
 }

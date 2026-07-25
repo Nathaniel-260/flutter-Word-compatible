@@ -200,8 +200,7 @@ void main() {
       }
     });
 
-    test(
-        'Issue 98: DocxTableCell.marginLeft/marginRight generate w:tcMar XML',
+    test('Issue 98: DocxTableCell.marginLeft/marginRight generate w:tcMar XML',
         () {
       final cell = DocxTableCell(
         marginLeft: 100,

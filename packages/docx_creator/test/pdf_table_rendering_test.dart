@@ -2,6 +2,7 @@
 // export fidelity: table colSpan/rowSpan/borders/column-widths/pagination,
 // missing headers/footers, vanishing drop caps, and forced page breaks.
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:docx_creator/docx_creator.dart';
@@ -17,8 +18,7 @@ Uint8List _createTestPng() {
 
 void main() {
   group('PDF table rendering', () {
-    test('colSpan shifts the following cell to the right position',
-        () async {
+    test('colSpan shifts the following cell to the right position', () async {
       final doc = docx()
           .add(DocxTable(rows: [
             DocxTableRow(cells: [
@@ -34,8 +34,7 @@ void main() {
           ]))
           .build();
 
-      final bytes =
-          PdfExporter(compressContent: false).exportToBytes(doc);
+      final bytes = PdfExporter(compressContent: false).exportToBytes(doc);
       final content = String.fromCharCodes(bytes);
 
       expect(content, contains('Wide'));
@@ -60,8 +59,7 @@ void main() {
           ]))
           .build();
 
-      final bytes =
-          PdfExporter(compressContent: false).exportToBytes(doc);
+      final bytes = PdfExporter(compressContent: false).exportToBytes(doc);
       final content = String.fromCharCodes(bytes);
 
       expect(content, contains('Tall'));
@@ -81,8 +79,7 @@ void main() {
           ))
           .build();
 
-      final bytes =
-          PdfExporter(compressContent: false).exportToBytes(doc);
+      final bytes = PdfExporter(compressContent: false).exportToBytes(doc);
       final content = String.fromCharCodes(bytes);
 
       // No stroke operator should appear for the (border-less) table.
@@ -98,8 +95,7 @@ void main() {
           ]))
           .build();
 
-      final bytes =
-          PdfExporter(compressContent: false).exportToBytes(doc);
+      final bytes = PdfExporter(compressContent: false).exportToBytes(doc);
       final content = String.fromCharCodes(bytes);
 
       expect(content, contains(' S\n'));
@@ -133,8 +129,7 @@ void main() {
           ]))
           .build();
 
-      final bytes =
-          PdfExporter(compressContent: false).exportToBytes(doc);
+      final bytes = PdfExporter(compressContent: false).exportToBytes(doc);
       final content = String.fromCharCodes(bytes);
 
       // Red stroke color (1 0 0 RG) should appear rather than black.
@@ -184,8 +179,7 @@ void main() {
           ]))
           .build();
 
-      final bytes =
-          PdfExporter(compressContent: false).exportToBytes(doc);
+      final bytes = PdfExporter(compressContent: false).exportToBytes(doc);
       final content = String.fromCharCodes(bytes);
 
       expect(content, contains('Nested'));
@@ -203,8 +197,7 @@ void main() {
           .p('Body content')
           .build();
 
-      final bytes =
-          PdfExporter(compressContent: false).exportToBytes(doc);
+      final bytes = PdfExporter(compressContent: false).exportToBytes(doc);
       final content = String.fromCharCodes(bytes);
 
       expect(content, contains('Company'));
@@ -213,8 +206,7 @@ void main() {
       expect(content, contains('Notice'));
     });
 
-    test('drop cap letter and rest-of-paragraph text are not lost',
-        () async {
+    test('drop cap letter and rest-of-paragraph text are not lost', () async {
       final doc = docx()
           .add(DocxDropCap(
             letter: 'O',
@@ -223,13 +215,75 @@ void main() {
           ))
           .build();
 
-      final bytes =
-          PdfExporter(compressContent: false).exportToBytes(doc);
+      final bytes = PdfExporter(compressContent: false).exportToBytes(doc);
       final content = String.fromCharCodes(bytes);
 
       expect(content, contains('O'));
       expect(content, contains('nce'));
       expect(content, contains('upon'));
+    });
+
+    test(
+        'drop cap rest-of-paragraph wraps narrower beside the letter, '
+        'then returns to full width', () async {
+      // Enough words that the rest-of-paragraph text must wrap past the
+      // drop cap's 2-line span, so we can see both the narrow column
+      // (offset right, beside the letter) and the full-width column
+      // (back at the paragraph's left margin) in the same render.
+      final longText = List.generate(60, (i) => 'word$i').join(' ');
+      final doc = docx()
+          .add(DocxDropCap(
+            letter: 'O',
+            lines: 2,
+            restOfParagraph: [DocxText(longText)],
+          ))
+          .build();
+
+      final bytes = PdfExporter(compressContent: false).exportToBytes(doc);
+      final content = String.fromCharCodes(bytes);
+
+      // PdfExporter defaults to a 72pt left margin, which is exactly the
+      // drop cap's `x` — so a text run drawn at x == 72.0 is back at full
+      // paragraph width, while one drawn further right is still squeezed
+      // into the narrow column beside the letter.
+      final tmXs = RegExp(r'1 0 0 1 (-?[0-9.]+) -?[0-9.]+ Tm')
+          .allMatches(content)
+          .map((m) => double.parse(m.group(1)!))
+          .toList();
+
+      expect(tmXs, isNotEmpty);
+      expect(tmXs.any((x) => x > 100), isTrue,
+          reason: 'expected some text offset beside the drop cap letter');
+      expect(tmXs.any((x) => x == 72.0), isTrue,
+          reason: 'expected some text back at the full margin after the '
+              "drop cap's line span");
+    });
+
+    test(
+        'drop cap with long rest-of-paragraph text renders without losing '
+        'content', () async {
+      // DocxDropCap is placed as a single unbreakable node during
+      // pagination (like DocxImage) rather than split across pages, so this
+      // just guards against the render loop dropping or truncating text —
+      // see the dedicated PdfLayoutEngine.measureNode test in
+      // pdf_pagination_test.dart for the height-estimate accuracy this
+      // node's placement depends on.
+      final longText = List.generate(200, (i) => 'lorem$i').join(' ');
+      final doc = docx()
+          .add(DocxDropCap(
+            letter: 'T',
+            lines: 3,
+            restOfParagraph: [DocxText(longText)],
+          ))
+          .p('A trailing paragraph after the drop cap.')
+          .build();
+
+      final bytes = PdfExporter(compressContent: false).exportToBytes(doc);
+      final content = String.fromCharCodes(bytes);
+
+      expect(content, contains('lorem0'));
+      expect(content, contains('lorem199'));
+      expect(content, contains('trailing'));
     });
 
     test('pageBreakBefore forces content onto a new PDF page', () async {
@@ -261,8 +315,7 @@ void main() {
           ]))
           .build();
 
-      final bytes =
-          PdfExporter(compressContent: false).exportToBytes(doc);
+      final bytes = PdfExporter(compressContent: false).exportToBytes(doc);
       final content = String.fromCharCodes(bytes);
 
       expect(content, contains('/Subtype /Link'));
@@ -284,8 +337,7 @@ void main() {
           ]))
           .build();
 
-      final bytes =
-          PdfExporter(compressContent: false).exportToBytes(doc);
+      final bytes = PdfExporter(compressContent: false).exportToBytes(doc);
       final content = String.fromCharCodes(bytes);
 
       expect(content, contains('/Subtype /Image'));
@@ -308,8 +360,7 @@ void main() {
           ))
           .build();
 
-      final bytes =
-          PdfExporter(compressContent: false).exportToBytes(doc);
+      final bytes = PdfExporter(compressContent: false).exportToBytes(doc);
       final content = String.fromCharCodes(bytes);
 
       expect(content, contains('0.000 1.000 0.000 RG'));
@@ -334,8 +385,7 @@ void main() {
           ]))
           .build();
 
-      final bytes =
-          PdfExporter(compressContent: false).exportToBytes(doc);
+      final bytes = PdfExporter(compressContent: false).exportToBytes(doc);
       final content = String.fromCharCodes(bytes);
 
       expect(content, contains('0.000 0.000 1.000 RG'));
@@ -350,8 +400,7 @@ void main() {
           ]))
           .build();
 
-      final bytes =
-          PdfExporter(compressContent: false).exportToBytes(doc);
+      final bytes = PdfExporter(compressContent: false).exportToBytes(doc);
       final content = String.fromCharCodes(bytes);
 
       expect(content, contains('Status'));
@@ -361,15 +410,13 @@ void main() {
       expect(content, contains(' c\n'));
     });
 
-    test('section backgroundColor paints a full-page fill rectangle',
-        () async {
+    test('section backgroundColor paints a full-page fill rectangle', () async {
       final doc = docx()
           .section(backgroundColor: DocxColor('#3366CC'))
           .p('Content over a colored background')
           .build();
 
-      final bytes =
-          PdfExporter(compressContent: false).exportToBytes(doc);
+      final bytes = PdfExporter(compressContent: false).exportToBytes(doc);
       final content = String.fromCharCodes(bytes);
 
       // 0x33/0xCC -> 0.200/0.800 in the 0-1 fill-color operands.
@@ -377,8 +424,7 @@ void main() {
       expect(content, contains(' re f\n'));
     });
 
-    test('section backgroundImage is embedded and drawn on the page',
-        () async {
+    test('section backgroundImage is embedded and drawn on the page', () async {
       final validPng = Uint8List.fromList(img.encodePng(
         img.Image(width: 4, height: 4)..setPixelRgb(0, 0, 0, 255, 0),
       ));
@@ -393,8 +439,7 @@ void main() {
           .p('Content over a background image')
           .build();
 
-      final bytes =
-          PdfExporter(compressContent: false).exportToBytes(doc);
+      final bytes = PdfExporter(compressContent: false).exportToBytes(doc);
       final content = String.fromCharCodes(bytes);
 
       expect(content, contains('/BgImg'));
@@ -418,8 +463,7 @@ void main() {
           .p('Watermarked page')
           .build();
 
-      final bytes =
-          PdfExporter(compressContent: false).exportToBytes(doc);
+      final bytes = PdfExporter(compressContent: false).exportToBytes(doc);
       final content = String.fromCharCodes(bytes);
 
       expect(content, contains('/BgGS'));
@@ -443,8 +487,7 @@ void main() {
         ],
       );
 
-      final bytes =
-          PdfExporter(compressContent: false).exportToBytes(doc);
+      final bytes = PdfExporter(compressContent: false).exportToBytes(doc);
       final content = String.fromCharCodes(bytes);
 
       expect(content, contains('claim'));
@@ -481,6 +524,83 @@ void main() {
       expect(pageCount, greaterThan(1));
     });
 
+    test(
+        'a footnote referenced from inside a drop cap\'s rest-of-paragraph '
+        'still renders', () async {
+      // _footnoteIdsReferencedBy only scanned top-level DocxParagraph
+      // children, so a DocxFootnoteRef inside a DocxDropCap's
+      // restOfParagraph (which flows through the same word model as an
+      // ordinary paragraph — see PdfExporter._renderDropCap) was invisible
+      // to it: no space was reserved and the footnote body never rendered,
+      // even though the superscript reference marker still drew fine.
+      final doc = DocxBuiltDocument(
+        elements: [
+          DocxDropCap(
+            letter: 'O',
+            lines: 3,
+            restOfParagraph: [
+              DocxText('nce upon a time, as the old story goes.'),
+              const DocxFootnoteRef(footnoteId: 1),
+            ],
+          ),
+        ],
+        footnotes: [
+          DocxFootnote(
+            footnoteId: 1,
+            content: [DocxParagraph.text('A footnote cited from a drop cap.')],
+          ),
+        ],
+      );
+
+      final bytes = PdfExporter(compressContent: false).exportToBytes(doc);
+      final content = String.fromCharCodes(bytes);
+
+      expect(content, contains('cited'));
+    });
+
+    test('endnotes render on a trailing page, prefixed with their ID',
+        () async {
+      final doc = DocxBuiltDocument(
+        elements: [
+          DocxParagraph(children: [
+            DocxText('A claim with a scholarly aside.'),
+            const DocxEndnoteRef(endnoteId: 1),
+          ]),
+        ],
+        endnotes: [
+          DocxEndnote(
+            endnoteId: 1,
+            content: [DocxParagraph.text('See Smith, 2024, for background.')],
+          ),
+        ],
+      );
+
+      final bytes = PdfExporter(compressContent: false).exportToBytes(doc);
+      final content = String.fromCharCodes(bytes);
+
+      // Body page still has the claim, and a trailing page carries the
+      // "Endnotes" heading plus the endnote content prefixed with its ID.
+      expect(content, contains('claim'));
+      expect(content, contains('Endnotes'));
+      expect(content, contains('Smith'));
+      // '/Type /Page\n' (with the trailing newline) matches only real page
+      // objects, not the '/Type /Pages /Kids' root — so this counts actual
+      // pages, unlike a plain '/Type /Page' substring search.
+      final pageCount = '/Type /Page\n'.allMatches(content).length;
+      expect(pageCount, equals(2));
+    });
+
+    test('a document with no endnotes does not gain a trailing page', () async {
+      final doc = DocxBuiltDocument(
+        elements: [DocxParagraph.text('Just one page of body text.')],
+      );
+
+      final bytes = PdfExporter().exportToBytes(doc);
+      final content = String.fromCharCodes(bytes);
+      final pageCount = '/Type /Page\n'.allMatches(content).length;
+      expect(pageCount, equals(1));
+    });
+
     test('TOC cached content renders instead of vanishing', () async {
       final doc = docx()
           .add(DocxTableOfContents(
@@ -491,8 +611,7 @@ void main() {
           ))
           .build();
 
-      final bytes =
-          PdfExporter(compressContent: false).exportToBytes(doc);
+      final bytes = PdfExporter(compressContent: false).exportToBytes(doc);
       final content = String.fromCharCodes(bytes);
 
       expect(content, contains('Introduction'));
@@ -507,8 +626,7 @@ void main() {
       // decode; use a genuinely valid, fully-decodable PNG here so the test
       // actually exercises the decode -> re-encode-as-JPEG path.
       final validPng = Uint8List.fromList(img.encodePng(
-        img.Image(width: 3, height: 3)
-          ..setPixelRgb(1, 1, 255, 0, 0),
+        img.Image(width: 3, height: 3)..setPixelRgb(1, 1, 255, 0, 0),
       ));
 
       final doc = docx()
@@ -558,12 +676,43 @@ void main() {
       final elements = await DocxParser.fromHtml(html);
       final doc = DocxBuiltDocument(elements: elements);
 
-      final bytes =
-          PdfExporter(compressContent: false).exportToBytes(doc);
+      final bytes = PdfExporter(compressContent: false).exportToBytes(doc);
       final content = String.fromCharCodes(bytes);
 
       // A stroked line (m ... l ... S) should be present for the rule.
       expect(content, contains(' S\n'));
+    });
+  });
+
+  group('PdfExporter.convertDocxFileToPdfBytes', () {
+    test('reads a .docx file from disk and returns valid PDF bytes', () async {
+      final tempDir = Directory.systemTemp.createTempSync('docx_to_pdf_test');
+      try {
+        final docxPath = '${tempDir.path}/input.docx';
+        final doc = docx().p('Hello from a real .docx file on disk.').build();
+        await DocxExporter().exportToFile(doc, docxPath);
+
+        final pdfBytes = await PdfExporter.convertDocxFileToPdfBytes(docxPath);
+
+        expect(String.fromCharCodes(pdfBytes.take(5)), '%PDF-');
+        expect(pdfBytes.length, greaterThan(0));
+
+        // Round-trip through the reader directly (same path the converter
+        // takes internally) confirms the text actually survived the read.
+        final rereadDoc = await DocxReader.load(docxPath);
+        final uncompressed =
+            PdfExporter(compressContent: false).exportToBytes(rereadDoc);
+        expect(String.fromCharCodes(uncompressed), contains('Hello'));
+      } finally {
+        tempDir.deleteSync(recursive: true);
+      }
+    });
+
+    test('throws when the file does not exist', () async {
+      expect(
+        () => PdfExporter.convertDocxFileToPdfBytes('/no/such/file.docx'),
+        throwsA(anything),
+      );
     });
   });
 }

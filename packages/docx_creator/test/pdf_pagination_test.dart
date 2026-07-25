@@ -78,5 +78,33 @@ void main() {
       // Last page has p3
       expect(pages.last.last, equals(p3));
     });
+
+    test('DocxDropCap height estimate grows with rest-of-paragraph length', () {
+      // measureNode's DocxDropCap case used to estimate height purely from
+      // the letter's own font size, ignoring how much restOfParagraph text
+      // there was — so a drop cap followed by many lines of text and one
+      // followed by a single word measured as the same height. It's used to
+      // reserve vertical space during pagination, so it needs to track what
+      // PdfExporter._renderDropCap actually draws.
+      final engine = PdfLayoutEngine(pageWidth: 600, pageHeight: 800);
+
+      final shortDropCap = DocxDropCap(
+        letter: 'O',
+        lines: 3,
+        restOfParagraph: [DocxText('Short.')],
+      );
+      final longText =
+          'A long line of text that should wrap several times over. ' * 20;
+      final longDropCap = DocxDropCap(
+        letter: 'O',
+        lines: 3,
+        restOfParagraph: [DocxText(longText)],
+      );
+
+      final shortHeight = engine.measureNode(shortDropCap);
+      final longHeight = engine.measureNode(longDropCap);
+
+      expect(longHeight, greaterThan(shortHeight));
+    });
   });
 }

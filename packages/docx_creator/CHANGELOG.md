@@ -20,12 +20,19 @@
 - **PDF export — image corruption (all images)**: JPEG image XObjects were built as a Dart `String` via `String.fromCharCodes`, which then went through `utf8.encode()` at final PDF serialization — silently corrupting any raw byte >= 0x80 and desyncing the declared `/Length` from what was actually written. Every image embedded via the JPEG/DCTDecode path was corrupted in the output file; fixed by building the object as raw bytes instead. Non-JPEG images (PNG/GIF/BMP/etc.) were also wrapped directly in `/FlateDecode` as if the original *container* file bytes were already-decoded raw pixels, which does not produce valid image data in any real viewer — they're now decoded and re-embedded as JPEG through the (now-correct) DCTDecode path. Declared `/Width`/`/Height` are now the image's real pixel dimensions instead of its on-page point size.
 - **PDF export — footnotes**: `DocxFootnoteRef`/`doc.footnotes` are now rendered at the bottom of the page, above the footer, with pagination reserving the vertical space each page's referenced footnotes need so body content can't overlap them.
 - **PDF export — section background**: `DocxSectionDef.backgroundColor` and `.backgroundImage` (stretch/fit/center/tile fill modes, with opacity via a new `/ExtGState` alpha resource) are now painted per page instead of being silently ignored.
+- **PDF export — image borders**: `DocxImage.border`/`DocxInlineImage.border` are now drawn in PDF (previously written to DOCX only), for both block-level images and inline images inside paragraph runs.
+- **PDF export — inline shapes**: an inline `DocxShape` inside a paragraph run is now rendered instead of being silently dropped (only block-level `DocxShapeBlock` rendered before).
+- **PDF export — endnotes**: `doc.endnotes` are now rendered on a trailing "Endnotes" page (previously never rendered in PDF at all), and `DocxFootnoteRef`/`DocxEndnoteRef` now draw a visible superscript reference marker in the body text at the citation point (previously footnote/endnote content was found by scanning paragraph children directly, with no marker shown where the citation actually was).
+- **PDF export — drop caps now wrap around**: `DocxDropCap`'s rest-of-paragraph text flows through a narrower column beside the large letter for its `lines` span, then returns to full paragraph width, instead of the previous approach of concatenating the letter and all following text into one paragraph at the letter's oversized font. `PdfLayoutEngine.measureNode`'s `DocxDropCap` case now accounts for the rest-of-paragraph text length (previously estimated only from the letter's own font size), so pagination stays in sync with what's actually drawn.
+- **PDF export — footnotes referenced from a drop cap**: a `DocxFootnoteRef` inside a `DocxDropCap.restOfParagraph` is now detected by pagination's footnote scan; previously it only looked at top-level `DocxParagraph` children, so a footnote cited from within a drop cap got no reserved space and its content silently never rendered (the reference marker still drew).
 
 ### Removed
 - Deleted `lib/src/parsers/html_parser_backup.dart`, a 1,261-line unreferenced duplicate of the HTML parser superseded by the split `parsers/html/*` modules.
 
 ### Added
 - `test/ast_field_completeness_test.dart` and `test/pdf_table_rendering_test.dart` covering the fixes above.
+- Further `test/pdf_table_rendering_test.dart` coverage for endnotes (trailing page, no-endnotes no-op), drop cap wrap-around (narrow-then-full-width line positions), and the drop-cap/footnote interaction bug above; `test/pdf_pagination_test.dart` coverage for the `DocxDropCap` height estimate scaling with text length.
+- `PdfExporter.convertDocxFileToPdfBytes(docxFilePath)`: a static convenience wrapper around `DocxReader.load` + `exportToBytes` for converting an existing `.docx` file straight to PDF bytes in one call.
 
 ---
 

@@ -52,8 +52,7 @@ void main() {
       expect(xml, contains('w:themeColor="accent1"'));
     });
 
-    test('omits w:color entirely when neither color nor themeColor is set',
-        () {
+    test('omits w:color entirely when neither color nor themeColor is set', () {
       final builder = XmlBuilder();
       DocxText('Plain').buildXml(builder);
       final xml = builder.buildDocument().toXmlString();
@@ -98,8 +97,7 @@ void main() {
 
   group('DocxSectionDef.breakType', () {
     test('continuous section break writes w:type before w:pgSz', () {
-      const section =
-          DocxSectionDef(breakType: DocxSectionBreak.continuous);
+      const section = DocxSectionDef(breakType: DocxSectionBreak.continuous);
 
       final builder = XmlBuilder();
       section.buildXml(builder);
@@ -234,8 +232,7 @@ void main() {
       final reloaded = await DocxReader.loadFromBytes(bytes);
 
       final paragraph = reloaded.elements.whereType<DocxParagraph>().first;
-      final image =
-          paragraph.children.whereType<DocxInlineImage>().first;
+      final image = paragraph.children.whereType<DocxInlineImage>().first;
       expect(image.border, isNotNull);
       expect(image.border!.style, equals(DocxBorder.dashed));
       expect(image.border!.color.hex.toUpperCase(), equals('FF0000'));

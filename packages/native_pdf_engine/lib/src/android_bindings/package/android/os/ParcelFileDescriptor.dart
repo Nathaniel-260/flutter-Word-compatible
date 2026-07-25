@@ -216,8 +216,7 @@ final class $ParcelFileDescriptor$AutoCloseInputStream$Type$
 /// from: `android.os.ParcelFileDescriptor$AutoCloseOutputStream`
 extension type ParcelFileDescriptor$AutoCloseOutputStream._(
   jni$_.JObject _$this
-)
-    implements jni$_.JObject {
+) implements jni$_.JObject {
   static final _class = jni$_.JClass.forName(
     r'android/os/ParcelFileDescriptor$AutoCloseOutputStream',
   );
@@ -303,8 +302,7 @@ final class $ParcelFileDescriptor$AutoCloseOutputStream$Type$
 /// from: `android.os.ParcelFileDescriptor$FileDescriptorDetachedException`
 extension type ParcelFileDescriptor$FileDescriptorDetachedException._(
   jni$_.JObject _$this
-)
-    implements jni$_.JObject {
+) implements jni$_.JObject {
   static final _class = jni$_.JClass.forName(
     r'android/os/ParcelFileDescriptor$FileDescriptorDetachedException',
   );

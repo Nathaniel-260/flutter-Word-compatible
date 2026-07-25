@@ -252,8 +252,8 @@ class DocxNumberingGenerator {
       buf.writeln('      </w:pPr>');
 
       // rPr: font family (default to Symbol for bullet chars, Arial otherwise)
-      final fontName = style.fontFamily ??
-          (isOrdered ? null : _bulletFont(style.bullet));
+      final fontName =
+          style.fontFamily ?? (isOrdered ? null : _bulletFont(style.bullet));
       buf.writeln('      <w:rPr>');
       if (fontName != null || style.themeFont != null) {
         buf.write('        <w:rFonts');

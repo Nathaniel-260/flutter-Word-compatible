@@ -20350,8 +20350,7 @@ extension ObjCBlock_CGRect_ffiVoid_UIView$CallExtension
 /// UIPopoverPresentationControllerSourceItem
 extension type UIPopoverPresentationControllerSourceItem$1._(
   objc.ObjCProtocol object$
-)
-    implements objc.ObjCProtocol, objc.NSObjectProtocol {
+) implements objc.ObjCProtocol, objc.NSObjectProtocol {
   /// Constructs a [UIPopoverPresentationControllerSourceItem$1] that points to the same underlying object as [other].
   UIPopoverPresentationControllerSourceItem$1.as(objc.ObjCObject other)
     : object$ = other;
@@ -23372,8 +23371,7 @@ late final _sel_setActivityItemsConfiguration_ = objc.registerName(
 /// UIActivityItemsConfigurationProviding
 extension type UIActivityItemsConfigurationProviding._(
   objc.ObjCProtocol object$
-)
-    implements objc.ObjCProtocol, objc.NSObjectProtocol {
+) implements objc.ObjCProtocol, objc.NSObjectProtocol {
   /// Constructs a [UIActivityItemsConfigurationProviding] that points to the same underlying object as [other].
   UIActivityItemsConfigurationProviding.as(objc.ObjCObject other)
     : object$ = other;

@@ -289,16 +289,25 @@ class PdfLayoutEngine {
     return PdfPaginationResult(adjustedPages, footnoteIdsPerPage);
   }
 
-  /// Footnote IDs referenced by top-level paragraphs in [nodes], in
+  /// Footnote IDs referenced by top-level paragraphs (or a drop cap's
+  /// `restOfParagraph`, which flows through the same word model as an
+  /// ordinary paragraph — see `PdfExporter._renderDropCap`) in [nodes], in
   /// first-reference order, without duplicates.
   List<int> _footnoteIdsReferencedBy(List<DocxNode> nodes) {
     final ids = <int>[];
-    for (final node in nodes) {
-      if (node is! DocxParagraph) continue;
-      for (final child in node.children) {
+    void scan(List<DocxInline> children) {
+      for (final child in children) {
         if (child is DocxFootnoteRef && !ids.contains(child.footnoteId)) {
           ids.add(child.footnoteId);
         }
+      }
+    }
+
+    for (final node in nodes) {
+      if (node is DocxParagraph) {
+        scan(node.children);
+      } else if (node is DocxDropCap) {
+        scan(node.restOfParagraph);
       }
     }
     return ids;
@@ -335,8 +344,7 @@ class PdfLayoutEngine {
     } else if (node is DocxImage) {
       return node.height + 10;
     } else if (node is DocxDropCap) {
-      final dropCapFontSize = node.fontSize ?? (baseFontSize * node.lines);
-      return dropCapFontSize * 1.4 + baseFontSize * 0.5;
+      return _measureDropCap(node);
     } else if (node is DocxTableOfContents) {
       return node.cachedContent
           .fold<double>(0, (sum, block) => sum + measureNode(block));
@@ -346,7 +354,8 @@ class PdfLayoutEngine {
 
   /// Measures paragraph height including line wrapping.
   double measureParagraph(DocxParagraph paragraph) {
-    final fontSize = _effectiveFontSize(paragraph, getFontSize(paragraph.styleId));
+    final fontSize =
+        _effectiveFontSize(paragraph, getFontSize(paragraph.styleId));
     final lineHeight = fontSize * 1.4;
     final indent = (paragraph.indentLeft ?? 0) / 20.0;
     final indentRight = (paragraph.indentRight ?? 0) / 20.0;
@@ -375,6 +384,46 @@ class PdfLayoutEngine {
     return lines * lineHeight + fontSize * 0.5 + extra;
   }
 
+  /// Measures a drop cap's height: the letter's own `dropCap.lines`-line
+  /// block, plus however many extra full-width lines `restOfParagraph`
+  /// spills past it. Mirrors `PdfExporter._renderDropCap`'s wrap-around flow
+  /// (narrow lines beside the letter, full width after) so pagination can't
+  /// drift from what actually gets drawn.
+  double _measureDropCap(DocxDropCap node) {
+    final dropCapFontSize = node.fontSize ?? (baseFontSize * node.lines);
+    final dropCapWidth =
+        fontManager.measureText(node.letter, dropCapFontSize, isBold: true);
+    final hGap = node.hSpace > 0 ? node.hSpace / 20.0 : baseFontSize * 0.3;
+    final narrowWidth = (contentWidth - dropCapWidth - hGap)
+        .clamp(0.0, contentWidth)
+        .toDouble();
+    final dropCapLineHeight = baseFontSize * 1.4;
+    final dropCapBlockHeight = node.lines * dropCapLineHeight;
+
+    final textBuffer = StringBuffer();
+    for (final child in node.restOfParagraph) {
+      if (child is DocxText) {
+        textBuffer.write(child.content);
+      } else if (child is DocxLineBreak) {
+        textBuffer.write('\n');
+      } else if (child is DocxTab) {
+        textBuffer.write('    ');
+      }
+    }
+    final text = textBuffer.toString();
+    if (text.isEmpty) {
+      return dropCapBlockHeight + baseFontSize * 0.5;
+    }
+
+    final wrappedLines = _wrapTextVariableWidth(
+        text, baseFontSize, (i) => i < node.lines ? narrowWidth : contentWidth);
+    final textHeight = wrappedLines <= node.lines
+        ? dropCapBlockHeight
+        : dropCapBlockHeight + (wrappedLines - node.lines) * dropCapLineHeight;
+
+    return textHeight + baseFontSize * 0.5;
+  }
+
   /// Largest per-run [DocxText.fontSize] in the paragraph, falling back to
   /// [baseSize]. Keeps pagination height in sync with what
   /// `PdfExporter._renderParagraph` actually draws per word.
@@ -396,8 +445,7 @@ class PdfLayoutEngine {
     final paddingV =
         ((paragraph.paddingTop ?? 0) + (paragraph.paddingBottom ?? 0)) / 20.0;
     final spacingV =
-        ((paragraph.spacingBefore ?? 0) + (paragraph.spacingAfter ?? 0)) /
-            20.0;
+        ((paragraph.spacingBefore ?? 0) + (paragraph.spacingAfter ?? 0)) / 20.0;
     return paddingV + spacingV;
   }
 
@@ -413,9 +461,7 @@ class PdfLayoutEngine {
       final n = gridColumns.length;
       return List<double>.filled(n, contentWidth / n);
     }
-    return gridColumns
-        .map((w) => w / totalGridTwips * contentWidth)
-        .toList();
+    return gridColumns.map((w) => w / totalGridTwips * contentWidth).toList();
   }
 
   /// Measures a row's height given each column's width in points, accounting
@@ -426,7 +472,9 @@ class PdfLayoutEngine {
     var colIndex = 0;
     for (final cell in row.cells) {
       var spanWidth = 0.0;
-      for (var j = 0; j < cell.colSpan && colIndex + j < colWidths.length; j++) {
+      for (var j = 0;
+          j < cell.colSpan && colIndex + j < colWidths.length;
+          j++) {
         spanWidth += colWidths[colIndex + j];
       }
       if (spanWidth <= 0) spanWidth = contentWidth;
@@ -760,6 +808,44 @@ class PdfLayoutEngine {
 
       for (final word in words) {
         final wordWidth = fontManager.measureText(word, fontSize);
+
+        if (currentLineWidth + wordWidth > availableWidth &&
+            currentLineWidth > 0) {
+          lines++;
+          currentLineWidth = wordWidth + spaceWidth;
+        } else {
+          currentLineWidth += wordWidth + spaceWidth;
+        }
+      }
+      totalLines += lines;
+    }
+
+    return totalLines > 0 ? totalLines : 1;
+  }
+
+  /// Same greedy word-wrap estimate as [_wrapText], but the available width
+  /// can differ per output line (`widthForLine(lineIndex)`) — used by
+  /// [_measureDropCap] since the lines beside the drop cap letter are
+  /// narrower than the ones below it.
+  int _wrapTextVariableWidth(String text, double fontSize,
+      double Function(int lineIndex) widthForLine) {
+    final paragraphs = text.split('\n');
+    int totalLines = 0;
+
+    for (final para in paragraphs) {
+      if (para.isEmpty) {
+        totalLines++;
+        continue;
+      }
+
+      final words = para.split(' ');
+      var currentLineWidth = 0.0;
+      var lines = 1;
+      final spaceWidth = fontManager.measureText(' ', fontSize);
+
+      for (final word in words) {
+        final wordWidth = fontManager.measureText(word, fontSize);
+        final availableWidth = widthForLine(totalLines + lines - 1);
 
         if (currentLineWidth + wordWidth > availableWidth &&
             currentLineWidth > 0) {

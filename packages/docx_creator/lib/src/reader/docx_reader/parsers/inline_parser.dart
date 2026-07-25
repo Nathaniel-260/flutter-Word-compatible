@@ -226,9 +226,10 @@ class InlineParser {
                 if (val != null) color = DocxColor(val);
               }
               var style = DocxBorder.single;
-              final prstDash =
-                  ln.findAllElements('a:prstDash').firstOrNull?.getAttribute(
-                      'val');
+              final prstDash = ln
+                  .findAllElements('a:prstDash')
+                  .firstOrNull
+                  ?.getAttribute('val');
               if (prstDash == 'dash') style = DocxBorder.dashed;
               if (prstDash == 'dot') style = DocxBorder.dotted;
               border = DocxBorderSide(style: style, color: color, size: size);
