@@ -255,15 +255,33 @@ class DocxNumberingGenerator {
       final fontName = style.fontFamily ??
           (isOrdered ? null : _bulletFont(style.bullet));
       buf.writeln('      <w:rPr>');
-      if (fontName != null) {
-        buf.writeln(
-            '        <w:rFonts w:ascii="${_escapeXml(fontName)}" w:hAnsi="${_escapeXml(fontName)}" w:hint="default"/>');
+      if (fontName != null || style.themeFont != null) {
+        buf.write('        <w:rFonts');
+        if (fontName != null) {
+          buf.write(
+              ' w:ascii="${_escapeXml(fontName)}" w:hAnsi="${_escapeXml(fontName)}"');
+        }
+        if (style.themeFont != null) {
+          buf.write(
+              ' w:asciiTheme="${style.themeFont}" w:hAnsiTheme="${style.themeFont}"');
+        }
+        buf.writeln(' w:hint="default"/>');
       }
       if (style.fontWeight == DocxFontWeight.bold) {
         buf.writeln('        <w:b/>');
       }
-      if (style.color != DocxColor.black) {
-        buf.writeln('        <w:color w:val="${style.color.hex}"/>');
+      if (style.color != DocxColor.black || style.themeColor != null) {
+        buf.write('        <w:color w:val="${style.color.hex}"');
+        if (style.themeColor != null) {
+          buf.write(' w:themeColor="${style.themeColor}"');
+        }
+        if (style.themeTint != null) {
+          buf.write(' w:themeTint="${style.themeTint}"');
+        }
+        if (style.themeShade != null) {
+          buf.write(' w:themeShade="${style.themeShade}"');
+        }
+        buf.writeln('/>');
       }
       if (style.fontSize != null) {
         final halfPt = (style.fontSize! * 2).toInt();

@@ -47,6 +47,18 @@ class TableParser {
         }
       }
 
+      // Parse table-wide cell margins (uses the left margin as the padding
+      // value; mirrors the writer in DocxTableStyle.buildXml, which applies
+      // cellPadding uniformly to all four sides).
+      final tblCellMar = tblPr.getElement('w:tblCellMar');
+      if (tblCellMar != null) {
+        final left = tblCellMar.getElement('w:left');
+        final padding = int.tryParse(left?.getAttribute('w:w') ?? '');
+        if (padding != null) {
+          style = style.copyWith(cellPadding: padding);
+        }
+      }
+
       final tblW = tblPr.getElement('w:tblW');
       if (tblW != null) {
         final w = int.tryParse(tblW.getAttribute('w:w') ?? '');
@@ -258,6 +270,8 @@ class TableParser {
               effectiveStyle.verticalAlign ??
               DocxVerticalAlign.top,
           cnfStyle: c.cnfStyle,
+          marginLeft: c.marginLeft,
+          marginRight: c.marginRight,
         ));
         colIndex += c.gridSpan;
       }
@@ -303,6 +317,8 @@ class TableParser {
     DocxBorderSide? borderRight;
     DocxVerticalAlign? verticalAlign;
     String? cnfStyle;
+    int? marginLeft;
+    int? marginRight;
 
     if (tcPr != null) {
       final gs = tcPr.getElement('w:gridSpan');
@@ -359,6 +375,18 @@ class TableParser {
       if (cs != null) {
         cnfStyle = cs.getAttribute('w:val');
       }
+
+      final tcMar = tcPr.getElement('w:tcMar');
+      if (tcMar != null) {
+        final left = tcMar.getElement('w:left');
+        if (left != null) {
+          marginLeft = int.tryParse(left.getAttribute('w:w') ?? '');
+        }
+        final right = tcMar.getElement('w:right');
+        if (right != null) {
+          marginRight = int.tryParse(right.getAttribute('w:w') ?? '');
+        }
+      }
     }
 
     // Parse cell children (paragraphs, nested tables)
@@ -401,6 +429,8 @@ class TableParser {
       borderRight: borderRight,
       verticalAlign: verticalAlign,
       cnfStyle: cnfStyle,
+      marginLeft: marginLeft,
+      marginRight: marginRight,
     );
   }
 
@@ -675,6 +705,8 @@ class _TempCell {
   final DocxVerticalAlign? verticalAlign;
   final int finalRowSpan;
   final String? cnfStyle;
+  final int? marginLeft;
+  final int? marginRight;
 
   _TempCell({
     required this.children,
@@ -692,6 +724,8 @@ class _TempCell {
     this.verticalAlign,
     this.finalRowSpan = 1,
     this.cnfStyle,
+    this.marginLeft,
+    this.marginRight,
   });
 
   _TempCell copyWith({int? finalRowSpan}) {
@@ -709,6 +743,8 @@ class _TempCell {
       borderLeft: borderLeft,
       borderRight: borderRight,
       verticalAlign: verticalAlign,
+      marginLeft: marginLeft,
+      marginRight: marginRight,
       finalRowSpan: finalRowSpan ?? this.finalRowSpan,
       cnfStyle: cnfStyle,
     );

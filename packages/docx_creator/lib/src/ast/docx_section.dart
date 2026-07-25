@@ -208,6 +208,14 @@ class DocxSectionDef extends DocxSection {
       'w:sectPr',
       nest: () {
         final isLandscape = orientation == DocxPageOrientation.landscape;
+        // nextPage is the OOXML default when w:type is omitted, so only
+        // emit it explicitly for the other break types. Per the CT_SectPrContents
+        // schema, w:type must precede w:pgSz/w:pgMar.
+        if (breakType != DocxSectionBreak.nextPage) {
+          builder.element('w:type', nest: () {
+            builder.attribute('w:val', breakType.name);
+          });
+        }
         builder.element(
           'w:pgSz',
           nest: () {

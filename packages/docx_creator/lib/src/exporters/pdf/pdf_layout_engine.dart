@@ -14,6 +14,11 @@ class PdfLayoutEngine {
   final double baseFontSize;
   final PdfFontManager fontManager;
 
+  /// Footnotes referenced from the document, by ID. When provided,
+  /// [paginateWithFootnotes] reserves bottom-of-page space for whichever
+  /// footnotes end up referenced on each page.
+  final Map<int, DocxFootnote> footnotesById;
+
   PdfLayoutEngine({
     required this.pageWidth,
     required this.pageHeight,
@@ -23,7 +28,9 @@ class PdfLayoutEngine {
     this.marginRight = 72,
     this.baseFontSize = 12,
     PdfFontManager? fontManager,
-  }) : fontManager = fontManager ?? PdfFontManager();
+    Map<int, DocxFootnote>? footnotesById,
+  })  : fontManager = fontManager ?? PdfFontManager(),
+        footnotesById = footnotesById ?? const {};
 
   /// Content area dimensions
   double get contentWidth => pageWidth - marginLeft - marginRight;
@@ -48,6 +55,15 @@ class PdfLayoutEngine {
         }
         remainingHeight = contentHeight;
         continue;
+      }
+
+      // Honor an explicit "start this paragraph on a new page" request.
+      if (node is DocxParagraph &&
+          node.pageBreakBefore &&
+          currentPage.isNotEmpty) {
+        pages.add(currentPage);
+        currentPage = [];
+        remainingHeight = contentHeight;
       }
 
       final height = measureNode(node);
@@ -156,8 +172,48 @@ class PdfLayoutEngine {
               }
             }
           }
+        } else if (node is DocxTable) {
+          // Split the table by row so long tables continue onto following
+          // pages instead of being drawn past the bottom margin.
+          if (currentPage.isNotEmpty && remainingHeight < baseFontSize * 2) {
+            pages.add(currentPage);
+            currentPage = [];
+            remainingHeight = contentHeight;
+          }
+
+          var remainder = node;
+          while (remainder.rows.isNotEmpty) {
+            final split = _splitTable(remainder, remainingHeight);
+            final fitted = split.first;
+            final rest = split.last;
+
+            if (fitted.rows.isEmpty) {
+              if (currentPage.isEmpty) {
+                // Doesn't fit even on an empty page (e.g. one huge row);
+                // place it anyway rather than looping forever.
+                currentPage.add(remainder);
+                remainingHeight -= measureTable(remainder);
+                remainder = remainder.copyWith(rows: const []);
+                break;
+              }
+              pages.add(currentPage);
+              currentPage = [];
+              remainingHeight = contentHeight;
+              continue;
+            }
+
+            currentPage.add(fitted);
+            remainingHeight -= measureTable(fitted);
+            remainder = rest;
+
+            if (remainder.rows.isNotEmpty) {
+              pages.add(currentPage);
+              currentPage = [];
+              remainingHeight = contentHeight;
+            }
+          }
         } else {
-          // Not a paragraph (e.g. table/image)
+          // Not a paragraph or table (e.g. image)
           if (currentPage.isNotEmpty) {
             pages.add(currentPage);
             currentPage = [];
@@ -183,6 +239,91 @@ class PdfLayoutEngine {
     return pages;
   }
 
+  /// Runs [paginate], then rebalances pages so bottom-of-page space is
+  /// reserved for any footnotes referenced by paragraphs that landed on
+  /// them. Built as a post-process over [paginate]'s output (rather than
+  /// threaded through its per-node placement logic) so the already-tested
+  /// core pagination algorithm is untouched; whole nodes that would push a
+  /// page over budget once its footnotes are accounted for are carried to
+  /// the next page instead.
+  PdfPaginationResult paginateWithFootnotes(List<DocxNode> nodes) {
+    final pages = paginate(nodes);
+    if (footnotesById.isEmpty) {
+      return PdfPaginationResult(
+          pages, List.generate(pages.length, (_) => const <int>[]));
+    }
+
+    final adjustedPages = <List<DocxNode>>[];
+    final footnoteIdsPerPage = <List<int>>[];
+    var carryOver = <DocxNode>[];
+
+    void packPage(List<DocxNode> initial) {
+      var candidate = [...carryOver, ...initial];
+      carryOver = [];
+
+      while (true) {
+        final ids = _footnoteIdsReferencedBy(candidate);
+        final footnoteHeight = measureFootnotesHeight(ids);
+        final bodyHeight =
+            candidate.fold<double>(0, (sum, n) => sum + measureNode(n));
+
+        if (bodyHeight + footnoteHeight <= contentHeight ||
+            candidate.length <= 1) {
+          adjustedPages.add(candidate);
+          footnoteIdsPerPage.add(ids);
+          return;
+        }
+        // Doesn't fit once its footnotes are reserved — bump the last node
+        // to the next page and retry.
+        carryOver.insert(0, candidate.removeLast());
+      }
+    }
+
+    for (final page in pages) {
+      packPage(page);
+    }
+    while (carryOver.isNotEmpty) {
+      packPage(const []);
+    }
+
+    return PdfPaginationResult(adjustedPages, footnoteIdsPerPage);
+  }
+
+  /// Footnote IDs referenced by top-level paragraphs in [nodes], in
+  /// first-reference order, without duplicates.
+  List<int> _footnoteIdsReferencedBy(List<DocxNode> nodes) {
+    final ids = <int>[];
+    for (final node in nodes) {
+      if (node is! DocxParagraph) continue;
+      for (final child in node.children) {
+        if (child is DocxFootnoteRef && !ids.contains(child.footnoteId)) {
+          ids.add(child.footnoteId);
+        }
+      }
+    }
+    return ids;
+  }
+
+  /// Height needed to render the given footnote IDs' content at the bottom
+  /// of a page, at the page's content width. Shared by pagination (to
+  /// reserve the space) and rendering (to draw it), so the two can't drift
+  /// apart.
+  double measureFootnotesHeight(List<int> footnoteIds) {
+    if (footnoteIds.isEmpty) return 0;
+    // Separator line + top spacing above the first footnote.
+    var height = 10.0;
+    for (final id in footnoteIds) {
+      final footnote = footnotesById[id];
+      if (footnote == null) continue;
+      for (final block in footnote.content) {
+        if (block is DocxParagraph) {
+          height += measureParagraphInWidth(block, contentWidth - 20);
+        }
+      }
+    }
+    return height;
+  }
+
   /// Measures the height of a node.
   double measureNode(DocxNode node) {
     if (node is DocxParagraph) {
@@ -193,19 +334,27 @@ class PdfLayoutEngine {
       return measureList(node);
     } else if (node is DocxImage) {
       return node.height + 10;
+    } else if (node is DocxDropCap) {
+      final dropCapFontSize = node.fontSize ?? (baseFontSize * node.lines);
+      return dropCapFontSize * 1.4 + baseFontSize * 0.5;
+    } else if (node is DocxTableOfContents) {
+      return node.cachedContent
+          .fold<double>(0, (sum, block) => sum + measureNode(block));
     }
     return baseFontSize * 1.5;
   }
 
   /// Measures paragraph height including line wrapping.
   double measureParagraph(DocxParagraph paragraph) {
-    final fontSize = getFontSize(paragraph.styleId);
+    final fontSize = _effectiveFontSize(paragraph, getFontSize(paragraph.styleId));
     final lineHeight = fontSize * 1.4;
     final indent = (paragraph.indentLeft ?? 0) / 20.0;
-    final availableWidth = contentWidth - indent;
+    final indentRight = (paragraph.indentRight ?? 0) / 20.0;
+    final availableWidth = contentWidth - indent - indentRight;
+    final extra = _paragraphExtraHeight(paragraph);
 
     if (paragraph.children.isEmpty) {
-      return lineHeight + fontSize * 0.5;
+      return lineHeight + fontSize * 0.5 + extra;
     }
 
     // Collect text
@@ -223,26 +372,116 @@ class PdfLayoutEngine {
     final text = textBuffer.toString();
     final lines = _wrapText(text, availableWidth, fontSize);
 
-    return lines * lineHeight + fontSize * 0.5;
+    return lines * lineHeight + fontSize * 0.5 + extra;
+  }
+
+  /// Largest per-run [DocxText.fontSize] in the paragraph, falling back to
+  /// [baseSize]. Keeps pagination height in sync with what
+  /// `PdfExporter._renderParagraph` actually draws per word.
+  double _effectiveFontSize(DocxParagraph paragraph, double baseSize) {
+    var maxSize = baseSize;
+    for (final child in paragraph.children) {
+      if (child is DocxText &&
+          child.fontSize != null &&
+          child.fontSize! > maxSize) {
+        maxSize = child.fontSize!;
+      }
+    }
+    return maxSize;
+  }
+
+  /// Extra vertical space (padding + spacing, in points) a paragraph reserves
+  /// beyond its wrapped text lines.
+  double _paragraphExtraHeight(DocxParagraph paragraph) {
+    final paddingV =
+        ((paragraph.paddingTop ?? 0) + (paragraph.paddingBottom ?? 0)) / 20.0;
+    final spacingV =
+        ((paragraph.spacingBefore ?? 0) + (paragraph.spacingAfter ?? 0)) /
+            20.0;
+    return paddingV + spacingV;
+  }
+
+  /// Resolves each column's rendered width in points from
+  /// [DocxTable.resolvedGridColumns] (twips), proportionally scaled to fit
+  /// [contentWidth]. Shared by measurement, splitting, and rendering so all
+  /// three always agree on where column boundaries fall.
+  List<double> tableColumnWidths(DocxTable table) {
+    final gridColumns = table.resolvedGridColumns;
+    if (gridColumns.isEmpty) return const [];
+    final totalGridTwips = gridColumns.fold<int>(0, (a, b) => a + b);
+    if (totalGridTwips <= 0) {
+      final n = gridColumns.length;
+      return List<double>.filled(n, contentWidth / n);
+    }
+    return gridColumns
+        .map((w) => w / totalGridTwips * contentWidth)
+        .toList();
+  }
+
+  /// Measures a row's height given each column's width in points, accounting
+  /// for colSpan (a cell's available width is the sum of the columns it
+  /// spans).
+  double measureRowHeight(DocxTableRow row, List<double> colWidths) {
+    var maxRowHeight = 20.0;
+    var colIndex = 0;
+    for (final cell in row.cells) {
+      var spanWidth = 0.0;
+      for (var j = 0; j < cell.colSpan && colIndex + j < colWidths.length; j++) {
+        spanWidth += colWidths[colIndex + j];
+      }
+      if (spanWidth <= 0) spanWidth = contentWidth;
+      final cellHeight = measureCell(cell, spanWidth - 4);
+      if (cellHeight > maxRowHeight) maxRowHeight = cellHeight;
+      colIndex += cell.colSpan;
+    }
+    return maxRowHeight;
   }
 
   /// Measures table height.
   double measureTable(DocxTable table) {
     if (table.rows.isEmpty) return 0;
 
-    final cols = table.rows.first.cells.length;
-    final colWidth = contentWidth / cols;
-
+    final colWidths = tableColumnWidths(table);
     double totalHeight = 0;
     for (final row in table.rows) {
-      double maxRowHeight = 0;
-      for (final cell in row.cells) {
-        final cellHeight = measureCell(cell, colWidth - 4);
-        if (cellHeight > maxRowHeight) maxRowHeight = cellHeight;
-      }
-      totalHeight += maxRowHeight < 20 ? 20 : maxRowHeight;
+      totalHeight += measureRowHeight(row, colWidths);
     }
     return totalHeight + 10;
+  }
+
+  /// Splits a table into a part that fits [availableHeight] and the
+  /// remaining rows, mirroring [_splitParagraph] for tables. The remainder
+  /// never repeats [DocxTable.hasHeader] (the header row itself stays with
+  /// whichever chunk contains it).
+  List<DocxTable> _splitTable(DocxTable table, double availableHeight) {
+    if (table.rows.isEmpty) return [table, table.copyWith(rows: const [])];
+
+    final colWidths = tableColumnWidths(table);
+    final fittedRows = <DocxTableRow>[];
+    var usedHeight = 10.0; // trailing spacing measureTable() also reserves
+    var i = 0;
+
+    for (; i < table.rows.length; i++) {
+      final rowHeight = measureRowHeight(table.rows[i], colWidths);
+      if (fittedRows.isNotEmpty && usedHeight + rowHeight > availableHeight) {
+        break;
+      }
+      fittedRows.add(table.rows[i]);
+      usedHeight += rowHeight;
+    }
+
+    if (fittedRows.isEmpty) {
+      // Not even a single row fits; force one through so pagination always
+      // makes progress instead of looping forever on a too-tall row.
+      fittedRows.add(table.rows.first);
+      i = 1;
+    }
+
+    final remainderRows = table.rows.sublist(i);
+    return [
+      table.copyWith(rows: fittedRows),
+      table.copyWith(rows: remainderRows, hasHeader: false),
+    ];
   }
 
   /// Measures cell height.
@@ -351,7 +590,8 @@ class PdfLayoutEngine {
   /// Returns a list of two DocxParagraphs. The second one is null if everything fits.
   List<DocxParagraph> _splitParagraph(
       DocxParagraph paragraph, double availableHeight) {
-    final fontSize = getFontSize(paragraph.styleId);
+    final fontSize =
+        _effectiveFontSize(paragraph, getFontSize(paragraph.styleId));
     final lineHeight = fontSize * 1.4;
     final indent = (paragraph.indentLeft ?? 0) / 20.0;
     final availableWidth = contentWidth - indent;
@@ -534,4 +774,14 @@ class PdfLayoutEngine {
 
     return totalLines > 0 ? totalLines : 1;
   }
+}
+
+/// Result of [PdfLayoutEngine.paginateWithFootnotes]: the paginated body
+/// content, plus which footnote IDs (in first-reference order) should be
+/// rendered at the bottom of each corresponding page.
+class PdfPaginationResult {
+  final List<List<DocxNode>> pages;
+  final List<List<int>> footnoteIdsPerPage;
+
+  const PdfPaginationResult(this.pages, this.footnoteIdsPerPage);
 }

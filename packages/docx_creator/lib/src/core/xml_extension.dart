@@ -1,5 +1,49 @@
 import 'package:xml/xml.dart';
 
+/// Writes a `w:shd` (shading/background) element if a fill or theme fill is set.
+///
+/// Shared by [DocxText], [DocxParagraph] and [DocxTableCell] so background
+/// shading is serialized identically everywhere it appears, instead of each
+/// class re-implementing (and potentially forgetting part of) the same XML.
+void writeShading(
+  XmlBuilder builder, {
+  String? fill,
+  String? themeFill,
+  String? themeFillTint,
+  String? themeFillShade,
+}) {
+  if (fill == null && themeFill == null) return;
+  builder.element('w:shd', nest: () {
+    builder.attribute('w:val', 'clear');
+    builder.attribute('w:color', 'auto');
+    builder.attribute('w:fill', fill?.replaceAll('#', '') ?? 'auto');
+    if (themeFill != null) builder.attribute('w:themeFill', themeFill);
+    if (themeFillTint != null) {
+      builder.attribute('w:themeFillTint', themeFillTint);
+    }
+    if (themeFillShade != null) {
+      builder.attribute('w:themeFillShade', themeFillShade);
+    }
+  });
+}
+
+/// Writes a `w:color` (text color) element if a color or theme color is set.
+void writeTextColor(
+  XmlBuilder builder, {
+  String? colorHex,
+  String? themeColor,
+  String? themeTint,
+  String? themeShade,
+}) {
+  if (colorHex == null && themeColor == null) return;
+  builder.element('w:color', nest: () {
+    builder.attribute('w:val', colorHex ?? 'auto');
+    if (themeColor != null) builder.attribute('w:themeColor', themeColor);
+    if (themeTint != null) builder.attribute('w:themeTint', themeTint);
+    if (themeShade != null) builder.attribute('w:themeShade', themeShade);
+  });
+}
+
 /// Stores unknown XML attributes and child elements for round-trip preservation.
 ///
 /// This "Shadow Model" ensures that when reading a DOCX file, any XML

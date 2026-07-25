@@ -94,6 +94,12 @@ class PdfContentBuilder {
     _buffer.writeln('$width w');
   }
 
+  /// Applies a graphics-state resource (e.g. for fill/stroke alpha
+  /// transparency) created via `PdfDocumentWriter.addExtGState`.
+  void setAlpha(String extGStateName) {
+    _buffer.writeln('$extGStateName gs');
+  }
+
   /// Moves current point to (x, y).
   void moveTo(double x, double y) {
     _buffer.writeln('$x $y m');

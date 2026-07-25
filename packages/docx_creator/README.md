@@ -30,6 +30,54 @@ A **developer-first DOCX generation library** for Dart. Create, parse, read, and
 
 ---
 
+## 📋 What's Actually Supported: DOCX vs. PDF
+
+`docx_creator` builds one internal document model (the `DocxNode` AST) and can export it to either **DOCX** (via `DocxExporter`, full OpenXML) or **PDF** (via `PdfExporter`, a from-scratch pure-Dart writer — no native/system dependencies). They don't have identical capabilities: DOCX export is the primary, feature-complete target; PDF export covers the vast majority of the same model but has a short list of known gaps, listed explicitly below rather than glossed over.
+
+### Side-by-side
+
+| Feature | DOCX | PDF |
+| --- | :---: | :---: |
+| Headings, paragraphs, all text runs (bold/italic/underline/strike/double-strike/caps/small-caps/outline/shadow/emboss/imprint) | ✅ | ✅ |
+| Custom font size, character spacing, superscript/subscript | ✅ | ✅ |
+| Text color & highlight/shading (hex) | ✅ | ✅ |
+| Theme color/tint/shade (text and shading) | ✅ | ⚠️ resolved to its literal hex where set; PDF has no OOXML theme palette to resolve `accent1` etc. against |
+| Custom/embedded fonts (TTF) | ✅ (OOXML-obfuscated) | ✅ (embedded with correct glyph widths & ToUnicode; used in paragraphs, table cells, and lists) |
+| Paragraph alignment (left/center/right/justify) | ✅ | ✅ |
+| Paragraph spacing, left/right indent, padding | ✅ | ✅ |
+| Paragraph borders (incl. `<hr>`, blockquote rules) | ✅ | ✅ (actually drawn, not just spaced) |
+| `pageBreakBefore` | ✅ | ✅ |
+| Bullet/numbered lists, 9 levels, nested, custom bullets/formats, image bullets | ✅ | ✅ top-level; nested lists **inside table cells** render as plain text (formatting simplified) |
+| Tables: merged cells (colSpan/rowSpan) | ✅ | ✅ (correct grid placement, no overlap) |
+| Tables: per-cell/table borders, incl. "no border" styles | ✅ | ✅ |
+| Tables: real column widths | ✅ | ✅ |
+| Tables: cell shading, margins, conditional formatting | ✅ | ✅ shading; margins/cnfStyle not visually distinct in PDF |
+| Tables: nested tables/lists inside cells | ✅ | ✅ |
+| Tables spanning multiple pages | N/A (Word reflows natively) | ✅ splits by row automatically |
+| Images: inline & floating, wrapping, alignment | ✅ | ✅ (floating-specific wrap/z-order collapses to normal inline flow in PDF) |
+| Image formats | PNG/JPEG/GIF/BMP as provided | ✅ PNG/GIF/BMP/etc. decoded & re-embedded as JPEG; JPEG passthrough |
+| Image borders | ✅ | ❌ not drawn |
+| Drawing shapes (70+ presets), block-level | ✅ | ✅ |
+| Drawing shapes, inline (inside a paragraph run) | ✅ | ❌ not rendered |
+| Hyperlinks | ✅ | ✅ real clickable `/Annot` links |
+| Headers & footers | ✅ | ✅ |
+| Section background color/image (stretch/fit/center/tile, opacity) | ✅ | ✅ |
+| Multiple sections (independent page size/orientation/margins) | ✅ | ✅ |
+| Section break type (continuous/nextPage/evenPage/oddPage) | ✅ | N/A (PDF has no section-break concept) |
+| Drop caps | ✅ (true Word text-wrap) | ⚠️ letter + following text preserved, rendered as a large-font run rather than true wrap-around |
+| Footnotes | ✅ | ✅ rendered at the bottom of the page; space is auto-reserved so body text can't overlap it. Font size matches body text (no automatic downscale) |
+| Endnotes | ✅ | ❌ not rendered |
+| Table of Contents | ✅ (live field, recalculated by Word) | ⚠️ cached TOC content renders as static text; page numbers aren't recomputed against PDF pagination |
+| Checkboxes (☐ ☑ ☒) | ✅ | ✅ |
+| Multi-page pagination | N/A | ✅ automatic; paragraphs and tables both split cleanly across pages with no overlap |
+| Raw/unmodeled OOXML passthrough ("Shadow Model") | ✅ | N/A (DOCX-specific fidelity feature) |
+
+**Reading it both ways works too**: `DocxReader` round-trips everything in the DOCX column above — load a `.docx`, every property listed as ✅ comes back onto the AST correctly, not just write-only.
+
+If a gap above (endnotes, inline shapes, image borders, or footnote font size in PDF) matters for your use case, please open an issue — they're tracked, just not implemented yet.
+
+---
+
 ## Help Maintenance
 
 I've been maintaining quite many repos these days and burning out slowly. If you could help me cheer up, buying me a cup of coffee will make my life really happy and get much energy out of it.
@@ -175,22 +223,35 @@ await PdfExporter().exportToFile(mdDoc, 'from_markdown.pdf');
 
 ### Supported Features
 
-| Feature                 | Support |
-| ----------------------- | ------- |
-| Headings (H1-H6)        | ✅      |
-| Bold/Italic             | ✅      |
-| Underline/Strikethrough | ✅      |
-| Custom Font Sizes       | ✅      |
-| Superscript/Subscript   | ✅      |
-| Text Colors             | ✅      |
-| Background Colors       | ✅      |
-| Text Alignment          | ✅      |
-| Bullet Lists            | ✅      |
-| Numbered Lists          | ✅      |
-| Tables                  | ✅      |
-| Images (PNG)            | ✅      |
-| Page Sizes (A4, Letter) | ✅      |
-| Multi-page              | ✅      |
+| Feature                                          | Support |
+| ------------------------------------------------- | ------- |
+| Headings (H1-H6)                                   | ✅      |
+| Bold/Italic/Underline/Strikethrough                | ✅      |
+| Custom font sizes, superscript/subscript           | ✅      |
+| Text colors, highlight/background shading          | ✅      |
+| Custom embedded fonts (TTF), incl. in tables/lists | ✅      |
+| Text alignment (left/center/right/justify)         | ✅      |
+| Paragraph spacing/indent/padding/borders           | ✅      |
+| Forced page breaks (`pageBreakBefore`)             | ✅      |
+| Bullet & numbered lists (nested)                   | ✅      |
+| Tables: merged cells (colSpan/rowSpan)              | ✅      |
+| Tables: real column widths & per-cell/table borders | ✅      |
+| Tables: nested lists/tables in cells               | ✅      |
+| Tables spanning multiple pages                     | ✅ auto-splits by row |
+| Images (PNG/JPEG/GIF/BMP), alignment               | ✅      |
+| Inline images inside paragraph text                | ✅      |
+| Hyperlinks (clickable)                              | ✅      |
+| Headers & footers                                   | ✅      |
+| Section background (color/image, opacity)          | ✅      |
+| Drop caps                                            | ⚠️ content preserved, simplified (no text wrap-around) |
+| Footnotes                                            | ✅ auto-reserves page space |
+| Endnotes                                             | ❌      |
+| Inline shapes (shape inside a paragraph run)       | ❌      |
+| Image borders                                        | ❌      |
+| Page sizes (A4, Letter)                              | ✅      |
+| Multi-page pagination                                | ✅ automatic, no overlap |
+
+See the **"What's Actually Supported: DOCX vs. PDF"** section near the top of this README for the full side-by-side with DOCX.
 
 ---
 

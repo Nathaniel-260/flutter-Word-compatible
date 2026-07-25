@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
+import 'package:image/image.dart' as img;
 
 /// Low-level PDF 1.4/A document writer with compression support.
 ///
@@ -36,6 +37,7 @@ class PdfDocumentWriter {
     required double height,
     Map<String, int>? xObjectIds,
     Map<String, int>? fonts,
+    Map<String, int>? extGStateIds,
     bool compress = true,
   }) {
     _ensureInitialized();
@@ -84,6 +86,15 @@ class PdfDocumentWriter {
       resourcesBuffer.writeln('>>');
     }
 
+    // ExtGStates (e.g. alpha transparency for background image opacity)
+    if (extGStateIds != null && extGStateIds.isNotEmpty) {
+      resourcesBuffer.writeln('/ExtGState <<');
+      extGStateIds.forEach((name, id) {
+        resourcesBuffer.writeln('$name $id 0 R');
+      });
+      resourcesBuffer.writeln('>>');
+    }
+
     resourcesBuffer.write('>>');
 
     // Create page object
@@ -99,6 +110,17 @@ class PdfDocumentWriter {
 
     _pageObjectIds.add(pageId);
     return pageId;
+  }
+
+  /// Adds a graphics-state resource with the given fill/stroke alpha
+  /// (0.0-1.0), for translucent drawing (e.g. background image watermark
+  /// opacity). Returns the object ID for use in a page's `/ExtGState`
+  /// resources, referenced from content streams via `<name> gs`.
+  int addExtGState(double alpha) {
+    final clamped = alpha.clamp(0.0, 1.0);
+    return createObject(
+      '<< /Type /ExtGState /ca $clamped /CA $clamped >>',
+    );
   }
 
   /// Adds a link annotation to the current page.
@@ -148,23 +170,30 @@ class PdfDocumentWriter {
     final isJpeg = bytes.length > 2 && bytes[0] == 0xFF && bytes[1] == 0xD8;
 
     if (isJpeg || filter == 'DCTDecode') {
-      // JPEG - embed directly with DCTDecode
-      return createObject(
-        '<<\n'
-        '/Type /XObject\n'
-        '/Subtype /Image\n'
-        '/Width $width\n'
-        '/Height $height\n'
-        '/ColorSpace /$colorSpace\n'
-        '/BitsPerComponent $bitsPerComponent\n'
-        '/Filter /DCTDecode\n'
-        '/Length ${bytes.length}\n'
-        '>>\n'
-        'stream\n'
-        '${String.fromCharCodes(bytes)}\n'
-        'endstream',
-      );
-    } else if (filter == 'FlateDecode' || bytes.length > 1000) {
+      // /Width and /Height must be the JPEG's actual pixel dimensions, not
+      // whatever point-size the caller happens to be drawing it at — decode
+      // the header to get the real values when possible.
+      final info = _tryDecode(bytes);
+      final pxWidth = info?.width ?? width;
+      final pxHeight = info?.height ?? height;
+      return _createDctDecodeObject(
+          bytes, pxWidth, pxHeight, colorSpace, bitsPerComponent);
+    }
+
+    // Non-JPEG input (PNG/GIF/BMP/etc.) is a *container* format — chunks,
+    // headers, and its own internal compression — not a raw pixel buffer.
+    // Wrapping the original file bytes directly in /FlateDecode (the old
+    // fallback below) does not produce valid decoded pixel data and renders
+    // as garbage/nothing in real viewers. Decode it and re-embed as JPEG so
+    // it goes through the (correct) DCTDecode path above instead.
+    final decoded = _tryDecode(bytes);
+    if (decoded != null) {
+      final jpegBytes = img.encodeJpg(decoded, quality: 92);
+      return _createDctDecodeObject(Uint8List.fromList(jpegBytes),
+          decoded.width, decoded.height, colorSpace, bitsPerComponent);
+    }
+
+    if (filter == 'FlateDecode' || bytes.length > 1000) {
       // Compress raw image data with FlateDecode
       try {
         final compressed = ZLibEncoder().encode(bytes);
@@ -210,6 +239,41 @@ class PdfDocumentWriter {
     );
   }
 
+  /// Attempts to decode arbitrary image bytes (JPEG/PNG/GIF/BMP/etc.),
+  /// returning null on any failure instead of throwing.
+  img.Image? _tryDecode(Uint8List bytes) {
+    try {
+      return img.decodeImage(bytes);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Creates a `/Filter /DCTDecode` (JPEG) image XObject. Builds the object
+  /// as raw bytes (`List<int>`) rather than a Dart `String` — `save()`
+  /// writes `String` objects through `utf8.encode()`, which would corrupt
+  /// any raw byte >= 0x80 in the JPEG stream and desync the declared
+  /// `/Length` from what's actually written.
+  int _createDctDecodeObject(Uint8List jpegBytes, int width, int height,
+      String colorSpace, int bitsPerComponent) {
+    final dict = '<<\n'
+        '/Type /XObject\n'
+        '/Subtype /Image\n'
+        '/Width $width\n'
+        '/Height $height\n'
+        '/ColorSpace /$colorSpace\n'
+        '/BitsPerComponent $bitsPerComponent\n'
+        '/Filter /DCTDecode\n'
+        '/Length ${jpegBytes.length}\n'
+        '>>\n'
+        'stream\n';
+    final builder = BytesBuilder();
+    builder.add(utf8.encode(dict));
+    builder.add(jpegBytes);
+    builder.add(utf8.encode('\nendstream'));
+    return createObject(builder.toBytes());
+  }
+
   /// Finalizes the PDF and returns the bytes.
   Uint8List save() {
     final buffer = BytesBuilder();
@@ -250,7 +314,18 @@ class PdfDocumentWriter {
       offsets[obj.id] = offset;
       write('${obj.id} 0 obj\n');
       if (obj.content is String) {
-        write('${obj.content as String}\nendobj\n');
+        var content = obj.content as String;
+        // Page objects gain their /Annots entry here rather than at
+        // addPage() time, since link annotations (added via
+        // addLinkAnnotation) are only known once the page's content has
+        // already been rendered and its object created.
+        final annots = _pageAnnotations[obj.id];
+        if (annots != null && annots.isNotEmpty) {
+          final refs = annots.map((id) => '$id 0 R').join(' ');
+          content =
+              '${content.substring(0, content.length - 2)}/Annots [$refs]\n>>';
+        }
+        write('$content\nendobj\n');
       } else if (obj.content is List<int>) {
         final data = obj.content as List<int>;
         buffer.add(data);

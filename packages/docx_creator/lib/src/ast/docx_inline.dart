@@ -1,6 +1,7 @@
 import 'package:xml/xml.dart';
 
 import '../core/enums.dart';
+import '../core/xml_extension.dart';
 import '../reader/docx_reader/models/docx_font.dart';
 import 'docx_hyperlink_registry.dart';
 import 'docx_node.dart';
@@ -664,14 +665,13 @@ class DocxText extends DocxInline {
               if (isImprint) builder.element('w:imprint');
 
               // 12. color
-              if (effectiveColorHex != null) {
-                builder.element(
-                  'w:color',
-                  nest: () {
-                    builder.attribute('w:val', effectiveColorHex!);
-                  },
-                );
-              }
+              writeTextColor(
+                builder,
+                colorHex: effectiveColorHex,
+                themeColor: themeColor,
+                themeTint: themeTint,
+                themeShade: themeShade,
+              );
 
               // 13. spacing
               if (characterSpacing != null) {
@@ -742,27 +742,13 @@ class DocxText extends DocxInline {
               }
 
               // 18. shd (Shading)
-              if (shadingFill != null || themeFill != null) {
-                builder.element(
-                  'w:shd',
-                  nest: () {
-                    builder.attribute('w:val', 'clear');
-                    builder.attribute('w:color', 'auto');
-                    if (shadingFill != null) {
-                      builder.attribute('w:fill', shadingFill!);
-                    }
-                    if (themeFill != null) {
-                      builder.attribute('w:themeFill', themeFill!);
-                    }
-                    if (themeFillTint != null) {
-                      builder.attribute('w:themeFillTint', themeFillTint!);
-                    }
-                    if (themeFillShade != null) {
-                      builder.attribute('w:themeFillShade', themeFillShade!);
-                    }
-                  },
-                );
-              }
+              writeShading(
+                builder,
+                fill: shadingFill,
+                themeFill: themeFill,
+                themeFillTint: themeFillTint,
+                themeFillShade: themeFillShade,
+              );
 
               // 19. vertAlign
               if (isSuperscript || isSubscript) {
@@ -816,6 +802,7 @@ class DocxText extends DocxInline {
       isSuperscript ||
       isSubscript ||
       effectiveColorHex != null ||
+      themeColor != null ||
       fontSize != null ||
       fontFamily != null ||
       fonts != null ||

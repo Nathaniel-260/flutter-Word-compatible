@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import '../../../docx_creator.dart';
 import '../../utils/file_saver.dart';
+import '../../utils/image_resolver.dart';
 import 'pdf_content_builder.dart';
 import 'pdf_document_writer.dart';
 import 'pdf_font_manager.dart';
@@ -36,6 +37,7 @@ class PdfExporter {
   PdfDocumentWriter? _writer;
   final _pageImages = <String, int>{};
   var _imageCount = 0;
+  final _pageLinks = <_PendingLink>[];
   late final PdfFontManager _fontManager;
 
   /// Creates a PDF exporter with configurable defaults.
@@ -68,14 +70,24 @@ class PdfExporter {
     _writer = PdfDocumentWriter();
     final sections = _splitSections(doc);
 
+    // Write fonts (including embedded TTF bytes) exactly once per document
+    // instead of once per section, otherwise every section re-serializes
+    // and re-embeds the full raw font bytes, bloating multi-section output.
+    final fontIds = _fontManager.writeFonts(_writer!);
+
+    final footnotesById = <int, DocxFootnote>{
+      for (final f in doc.footnotes ?? const <DocxFootnote>[]) f.footnoteId: f,
+    };
+
     for (final section in sections) {
-      _processSection(section);
+      _processSection(section, fontIds, footnotesById);
     }
 
     return _writer!.save();
   }
 
-  void _processSection(_SectionData section) {
+  void _processSection(_SectionData section, Map<String, int> fontIds,
+      Map<int, DocxFootnote> footnotesById) {
     final layout = PdfLayoutEngine(
       pageWidth: section.width,
       pageHeight: section.height,
@@ -85,32 +97,75 @@ class PdfExporter {
       marginRight: section.marginRight,
       baseFontSize: fontSize.toDouble(),
       fontManager: _fontManager,
+      footnotesById: footnotesById,
     );
 
-    final pages = layout.paginate(section.nodes);
+    final paginationResult = layout.paginateWithFootnotes(section.nodes);
+    final pages = paginationResult.pages;
 
-    // Write fonts and get their IDs
-    final fontIds = _fontManager.writeFonts(_writer!);
+    // Background image bytes (and its opacity ExtGState, if translucent)
+    // are registered once per section rather than once per page, same
+    // rationale as the font dedup above.
+    int? bgImageId;
+    int? bgExtGStateId;
+    final bgImage = section.backgroundImage;
+    if (bgImage != null) {
+      final intrinsic = ImageResolver.intrinsicSizePt(bgImage.bytes);
+      bgImageId = _writer!.addImage(
+        bytes: bgImage.bytes,
+        width: (intrinsic?.$1 ?? section.width).round(),
+        height: (intrinsic?.$2 ?? section.height).round(),
+      );
+      if (bgImage.opacity < 1.0) {
+        bgExtGStateId = _writer!.addExtGState(bgImage.opacity);
+      }
+    }
 
-    for (final pageNodes in pages) {
+    for (var pageIndex = 0; pageIndex < pages.length; pageIndex++) {
+      final pageNodes = pages[pageIndex];
+
+      const bgImageName = '/BgImg';
+      const bgGStateName = '/BgGS';
+      if (bgImageId != null) _pageImages[bgImageName] = bgImageId;
+
       final content = _renderPage(
         pageNodes,
         layout,
         header: section.header,
         footer: section.footer,
+        footnoteIds: paginationResult.footnoteIdsPerPage[pageIndex],
+        backgroundColor: section.backgroundColor,
+        backgroundImage: bgImage,
+        backgroundImageXObjectName: bgImageId != null ? bgImageName : null,
+        backgroundExtGStateName: bgExtGStateId != null ? bgGStateName : null,
       );
 
-      _writer!.addPage(
+      final pageId = _writer!.addPage(
         contentStream: content,
         width: section.width,
         height: section.height,
         xObjectIds: Map.from(_pageImages),
         fonts: fontIds, // Pass dynamic fonts
+        extGStateIds:
+            bgExtGStateId != null ? {bgGStateName: bgExtGStateId} : null,
         compress: compressContent,
       );
 
+      // Attach clickable link annotations now that the page object exists.
+      for (final link in _pageLinks) {
+        _writer!.addLinkAnnotation(
+          x: link.x,
+          y: link.y,
+          width: link.width,
+          height: link.height,
+          uri: link.uri,
+          pageId: pageId,
+        );
+      }
+
       _pageImages.clear();
       _imageCount = 0;
+      _pageLinks.clear();
     }
   }
 
@@ -119,19 +174,40 @@ class PdfExporter {
     PdfLayoutEngine layout, {
     DocxNode? header,
     DocxNode? footer,
+    List<int> footnoteIds = const [],
+    DocxColor? backgroundColor,
+    DocxBackgroundImage? backgroundImage,
+    String? backgroundImageXObjectName,
+    String? backgroundExtGStateName,
   }) {
     final builder = PdfContentBuilder(fontManager: _fontManager);
     var cursorY = layout.contentTop;
 
-    // Render header
-    if (header != null) {
-      _renderNode(
-          header, builder, layout.marginLeft, layout.pageHeight - 36, layout);
+    _renderSectionBackground(
+      builder,
+      layout,
+      backgroundColor,
+      backgroundImage,
+      backgroundImageXObjectName,
+      backgroundExtGStateName,
+    );
+
+    // Render header. DocxHeader/DocxFooter are wrappers around a block list
+    // (not DocxParagraph themselves), so their children are rendered one by
+    // one with an advancing cursor, same as body content.
+    if (header is DocxHeader) {
+      var headerY = layout.pageHeight - 36;
+      for (final block in header.children) {
+        headerY = _renderNode(block, builder, layout.marginLeft, headerY, layout);
+      }
     }
 
     // Render footer
-    if (footer != null) {
-      _renderNode(footer, builder, layout.marginLeft, 36, layout);
+    if (footer is DocxFooter) {
+      var footerY = 36.0;
+      for (final block in footer.children) {
+        footerY = _renderNode(block, builder, layout.marginLeft, footerY, layout);
+      }
     }
 
     // Render body content
@@ -139,7 +215,101 @@ class PdfExporter {
       cursorY = _renderNode(node, builder, layout.marginLeft, cursorY, layout);
     }
 
+    _renderFootnoteArea(footnoteIds, builder, layout);
+
     return builder.content;
+  }
+
+  /// Paints the section's background color and/or background image for one
+  /// page, before any header/footer/body content is drawn on top of it.
+  void _renderSectionBackground(
+    PdfContentBuilder builder,
+    PdfLayoutEngine layout,
+    DocxColor? backgroundColor,
+    DocxBackgroundImage? backgroundImage,
+    String? imageXObjectName,
+    String? extGStateName,
+  ) {
+    if (backgroundColor != null) {
+      builder.saveState();
+      builder.setFillColorHex(backgroundColor.hex);
+      builder.fillRect(0, 0, layout.pageWidth, layout.pageHeight);
+      builder.restoreState();
+    }
+
+    if (backgroundImage == null || imageXObjectName == null) return;
+
+    final intrinsic = ImageResolver.intrinsicSizePt(backgroundImage.bytes);
+    final iw = intrinsic?.$1 ?? layout.pageWidth;
+    final ih = intrinsic?.$2 ?? layout.pageHeight;
+
+    builder.saveState();
+    if (extGStateName != null) builder.setAlpha(extGStateName);
+
+    switch (backgroundImage.fillMode) {
+      case DocxBackgroundFillMode.stretch:
+        builder.drawImage(
+            imageXObjectName, 0, 0, layout.pageWidth, layout.pageHeight);
+      case DocxBackgroundFillMode.fit:
+        final scale = (layout.pageWidth / iw < layout.pageHeight / ih)
+            ? layout.pageWidth / iw
+            : layout.pageHeight / ih;
+        final w = iw * scale;
+        final h = ih * scale;
+        builder.drawImage(imageXObjectName, (layout.pageWidth - w) / 2,
+            (layout.pageHeight - h) / 2, w, h);
+      case DocxBackgroundFillMode.center:
+        builder.drawImage(imageXObjectName, (layout.pageWidth - iw) / 2,
+            (layout.pageHeight - ih) / 2, iw, ih);
+      case DocxBackgroundFillMode.tile:
+        for (var ty = 0.0; ty < layout.pageHeight; ty += ih) {
+          for (var tx = 0.0; tx < layout.pageWidth; tx += iw) {
+            builder.drawImage(imageXObjectName, tx, ty, iw, ih);
+          }
+        }
+    }
+
+    builder.restoreState();
+  }
+
+  /// Renders the footnotes referenced on this page at the bottom of the
+  /// content area (above the footer), separated from the body by a short
+  /// rule line. [PdfLayoutEngine.paginateWithFootnotes] already reserved
+  /// this vertical space, using the same [PdfLayoutEngine.measureFootnotesHeight]
+  /// this method relies on to position itself, so the two can't drift apart.
+  void _renderFootnoteArea(
+    List<int> footnoteIds,
+    PdfContentBuilder builder,
+    PdfLayoutEngine layout,
+  ) {
+    if (footnoteIds.isEmpty) return;
+
+    final areaHeight = layout.measureFootnotesHeight(footnoteIds);
+    final areaTop = layout.contentBottom + areaHeight;
+
+    builder.saveState();
+    builder.setStrokeColor(0, 0, 0);
+    builder.drawLine(
+        layout.marginLeft, areaTop, layout.marginLeft + 108, areaTop,
+        lineWidth: 0.5);
+    builder.restoreState();
+
+    var y = areaTop - 10;
+    for (final footnoteId in footnoteIds) {
+      final footnote = layout.footnotesById[footnoteId];
+      if (footnote == null) continue;
+
+      var isFirstBlock = true;
+      for (final block in footnote.content) {
+        if (block is! DocxParagraph) continue;
+        final content = isFirstBlock
+            ? [DocxText('$footnoteId. ', fontSize: 9), ...block.children]
+            : block.children;
+        isFirstBlock = false;
+        final synthetic = block.copyWith(children: content);
+        y = _renderParagraph(synthetic, builder, layout.marginLeft, y, layout);
+      }
+    }
   }
 
   double _renderNode(
@@ -159,8 +329,40 @@ class PdfExporter {
       return _renderImage(node, builder, x, y, layout);
     } else if (node is DocxShapeBlock) {
       return _renderShapeBlock(node, builder, x, y, layout);
+    } else if (node is DocxDropCap) {
+      return _renderDropCap(node, builder, x, y, layout);
+    } else if (node is DocxTableOfContents) {
+      var tocY = y;
+      for (final block in node.cachedContent) {
+        tocY = _renderNode(block, builder, x, tocY, layout);
+      }
+      return tocY;
     }
     return y;
+  }
+
+  /// Renders a drop cap as a paragraph combining the large initial letter
+  /// with the rest of the paragraph text. The PDF layout engine has no
+  /// concept of text wrap-around a floated letter, so this preserves the
+  /// content (letter + text) rather than the exact Word visual layout.
+  double _renderDropCap(
+    DocxDropCap dropCap,
+    PdfContentBuilder builder,
+    double x,
+    double y,
+    PdfLayoutEngine layout,
+  ) {
+    final baseFontSize = layout.getFontSize(null);
+    final dropCapFontSize = dropCap.fontSize ?? (baseFontSize * dropCap.lines);
+    final synthetic = DocxParagraph(children: [
+      DocxText(
+        dropCap.letter,
+        fontSize: dropCapFontSize,
+        fontFamily: dropCap.fontFamily,
+      ),
+      ...dropCap.restOfParagraph,
+    ]);
+    return _renderParagraph(synthetic, builder, x, y, layout);
   }
 
   double _renderShapeBlock(
@@ -379,13 +581,18 @@ class PdfExporter {
     final fontSize = layout.getFontSize(paragraph.styleId);
     final lineHeight = fontSize * 1.4;
     final indent = (paragraph.indentLeft ?? 0) / 20.0;
+    final indentRight = (paragraph.indentRight ?? 0) / 20.0;
 
     final paddingLeft = (paragraph.paddingLeft ?? 0) / 20.0;
     final paddingRight = (paragraph.paddingRight ?? 0) / 20.0;
     final paddingTop = (paragraph.paddingTop ?? 0) / 20.0;
     final paddingBottom = (paragraph.paddingBottom ?? 0) / 20.0;
 
-    final maxWidth = layout.contentWidth - indent - paddingLeft - paddingRight;
+    final maxWidth = layout.contentWidth -
+        indent -
+        indentRight -
+        paddingLeft -
+        paddingRight;
 
     // Collect words with their formatting
     final words = <_Word>[];
@@ -460,6 +667,7 @@ class PdfExporter {
                 isSubscript: child.isSubscript,
                 isCheckbox: isCheckbox,
                 checkboxType: checkboxType,
+                href: child.href,
               ));
             }
           }
@@ -473,6 +681,27 @@ class PdfExporter {
         words.add(_Word.lineBreak());
       } else if (child is DocxTab) {
         words.add(_Word.tab(fontSize * 3));
+      } else if (child is DocxInlineImage) {
+        final imageWord = _registerInlineImage(child);
+        if (imageWord != null) words.add(imageWord);
+      } else if (child is DocxShape) {
+        words.add(_Word.shape(child, child.width));
+      } else if (child is DocxFootnoteRef || child is DocxEndnoteRef) {
+        // The reference itself is just a small superscript number in the
+        // body text; the actual note content is rendered separately (at the
+        // bottom of the page for footnotes, or on a trailing page for
+        // endnotes — see _renderFootnoteArea / the endnotes pass in
+        // exportToBytes).
+        final markerId = child is DocxFootnoteRef
+            ? child.footnoteId
+            : (child as DocxEndnoteRef).endnoteId;
+        final marker = '$markerId';
+        final markerFontRef = _fontManager.selectFont();
+        final markerWidth = builder.measureText(
+            marker, fontSize.toDouble() * 0.6,
+            fontRef: markerFontRef, fontManager: _fontManager);
+        words.add(_Word(marker, markerFontRef, '000000', markerWidth,
+            isSuperscript: true));
       }
     }
 
@@ -517,6 +746,33 @@ class PdfExporter {
       builder.fillRect(startX + indent, bgBottom,
           maxWidth + paddingLeft + paddingRight, totalParagraphHeight);
       builder.restoreState();
+    }
+
+    // Draw paragraph borders (e.g. <hr>/blockquote/code-block rules), which
+    // were previously only used to derive spacing and never actually drawn.
+    if (paragraph.borderTop != null ||
+        paragraph.borderBottomSide != null ||
+        paragraph.borderLeft != null ||
+        paragraph.borderRight != null) {
+      final boxLeft = startX + indent;
+      final boxRight = startX + indent + maxWidth + paddingLeft + paddingRight;
+      final boxTop = startY;
+      final boxBottom = startY - totalParagraphHeight;
+
+      void drawSide(DocxBorderSide? side, double x1, double y1, double x2, double y2) {
+        if (side == null || side.style == DocxBorder.none) return;
+        builder.saveState();
+        builder.setStrokeColorHex(
+            side.color == DocxColor.auto ? '000000' : side.color.hex);
+        builder.drawLine(x1, y1, x2, y2, lineWidth: side.size / 8.0);
+        builder.restoreState();
+      }
+
+      drawSide(paragraph.borderTop, boxLeft, boxTop, boxRight, boxTop);
+      drawSide(
+          paragraph.borderBottomSide, boxLeft, boxBottom, boxRight, boxBottom);
+      drawSide(paragraph.borderLeft, boxLeft, boxTop, boxLeft, boxBottom);
+      drawSide(paragraph.borderRight, boxRight, boxTop, boxRight, boxBottom);
     }
 
     // Render lines (adjust Y for padding)
@@ -588,6 +844,22 @@ class PdfExporter {
 
         if (word.isTab) {
           textX += word.width;
+        } else if (word.isImage) {
+          final imgY = y - word.imageHeight * 0.8;
+          builder.drawImage(
+              word.imageXObjectName!, textX, imgY, word.width, word.imageHeight);
+          _drawImageBorder(
+              builder, word.imageBorder, textX, imgY, word.width, word.imageHeight);
+          textX += word.width;
+          if (k < line.length - 1) {
+            textX += spaceWidth + wordSpacing;
+          }
+        } else if (word.isShape) {
+          _drawShape(builder, word.shape!, textX, y - word.shape!.height * 0.8);
+          textX += word.width;
+          if (k < line.length - 1) {
+            textX += spaceWidth + wordSpacing;
+          }
         } else if (word.isCheckbox) {
           // Draw checkbox manually
           builder.saveState();
@@ -650,6 +922,16 @@ class PdfExporter {
               width: word.width,
               color: word.color,
               isStrike: true,
+            ));
+          }
+
+          if (word.href != null) {
+            _pageLinks.add(_PendingLink(
+              x: textX,
+              y: yPos - effFontSize * 0.2,
+              width: word.width,
+              height: effFontSize * 1.2,
+              uri: word.href!,
             ));
           }
 
@@ -752,68 +1034,271 @@ class PdfExporter {
     return lines;
   }
 
+  /// Renders a table with real column widths (from
+  /// [DocxTable.resolvedGridColumns]), colSpan/rowSpan-aware cell placement,
+  /// per-cell/table border and style resolution, and nested list/table
+  /// content in cells. [availableWidth] lets nested tables (rendered inside
+  /// a cell) use the cell's width instead of the full page content width;
+  /// pagination itself is handled ahead of time by
+  /// `PdfLayoutEngine.paginate`, which splits tables by row so they never
+  /// overflow the bottom margin.
   double _renderTable(
     DocxTable table,
     PdfContentBuilder builder,
     double startX,
     double startY,
-    PdfLayoutEngine layout,
-  ) {
+    PdfLayoutEngine layout, {
+    double? availableWidth,
+  }) {
     if (table.rows.isEmpty) return startY;
 
-    final cols = table.rows.first.cells.length;
-    final colWidth = layout.contentWidth / cols;
+    final colWidths = availableWidth != null
+        ? _proportionalColumnWidths(table, availableWidth)
+        : layout.tableColumnWidths(table);
+    if (colWidths.isEmpty) return startY;
+
+    final colX = List<double>.filled(colWidths.length + 1, startX);
+    for (var i = 0; i < colWidths.length; i++) {
+      colX[i + 1] = colX[i] + colWidths[i];
+    }
+
     var y = startY;
+    // Columns still occupied by a rowSpan cell that started on an earlier
+    // row: column index -> rows remaining (including the current one).
+    final activeSpans = <int, int>{};
 
     for (final row in table.rows) {
-      // Measure row height
-      var maxRowHeight = 20.0;
+      final rowHeight = layout.measureRowHeight(row, colWidths);
+
+      // Map this row's cells onto grid columns, skipping columns currently
+      // occupied by a taller cell spanning down from a previous row. This
+      // assumes rows omit cells for spanned columns (the convention the
+      // DOCX writer itself follows: it never emits a `w:vMerge="continue"`
+      // placeholder cell for continuation rows).
+      final placements = <_CellPlacement>[];
+      var colIndex = 0;
       for (final cell in row.cells) {
-        final h = layout.measureCell(cell, colWidth - 4);
-        if (h > maxRowHeight) maxRowHeight = h;
+        while (colIndex < colWidths.length &&
+            (activeSpans[colIndex] ?? 0) > 0) {
+          colIndex++;
+        }
+        if (colIndex >= colWidths.length) break;
+
+        var spanWidth = 0.0;
+        for (var j = 0;
+            j < cell.colSpan && colIndex + j < colWidths.length;
+            j++) {
+          spanWidth += colWidths[colIndex + j];
+        }
+        placements
+            .add(_CellPlacement(cell, colIndex, colX[colIndex], spanWidth));
+        if (cell.rowSpan > 1) {
+          activeSpans[colIndex] = cell.rowSpan - 1;
+        }
+        colIndex += cell.colSpan;
       }
 
-      // Draw cell backgrounds
-      for (var i = 0; i < row.cells.length; i++) {
-        final cell = row.cells[i];
-        final cellX = startX + i * colWidth;
-
-        if (cell.shadingFill != null && cell.shadingFill != 'auto') {
+      // Backgrounds
+      for (final p in placements) {
+        final fill = p.cell.shadingFill;
+        if (fill != null && fill != 'auto') {
           builder.saveState();
-          builder.setFillColorHex(cell.shadingFill!);
-          builder.fillRect(cellX, y - maxRowHeight, colWidth, maxRowHeight);
+          builder.setFillColorHex(fill.replaceAll('#', ''));
+          builder.fillRect(p.x, y - rowHeight, p.width, rowHeight);
           builder.restoreState();
         }
       }
 
-      // Draw borders
-      builder.saveState();
-      builder.setStrokeColor(0, 0, 0);
-      for (var i = 0; i < row.cells.length; i++) {
-        final cellX = startX + i * colWidth;
-        builder.strokeRect(cellX, y - maxRowHeight, colWidth, maxRowHeight);
+      // Borders: cell-level override wins, else the table's uniform style
+      // (honoring DocxTableStyle.plain / DocxBorder.none as "no border").
+      for (final p in placements) {
+        _drawCellBorders(builder, table, p, y, rowHeight);
       }
-      builder.restoreState();
 
-      // Render cell content
-      for (var i = 0; i < row.cells.length; i++) {
-        final cell = row.cells[i];
-        final cellX = startX + i * colWidth + 2;
+      // Content: paragraphs, plus nested lists/tables that were previously
+      // silently dropped.
+      for (final p in placements) {
+        final cellX = p.x + 2;
         var cellY = y - fontSize - 4;
-
-        for (final block in cell.children) {
+        for (final block in p.cell.children) {
           if (block is DocxParagraph) {
             _renderCellParagraph(
-                block, builder, cellX, cellY, colWidth - 4, layout);
-            cellY -= layout.measureParagraphInWidth(block, colWidth - 4);
+                block, builder, cellX, cellY, p.width - 4, layout);
+            cellY -= layout.measureParagraphInWidth(block, p.width - 4);
+          } else if (block is DocxList) {
+            cellY = _renderListInWidth(
+                block, builder, cellX, cellY, p.width - 4, layout);
+          } else if (block is DocxTable) {
+            cellY = _renderTable(block, builder, cellX, cellY, layout,
+                availableWidth: p.width - 4);
           }
         }
       }
 
-      y -= maxRowHeight;
+      // Age spans that were already active going into this row; ones that
+      // just started here already have `rowSpan - 1` remaining rows AFTER
+      // this one, so they're left untouched.
+      for (final key in activeSpans.keys.toList()) {
+        if (placements.any((p) => p.colIndex == key)) continue;
+        final remaining = activeSpans[key]! - 1;
+        if (remaining <= 0) {
+          activeSpans.remove(key);
+        } else {
+          activeSpans[key] = remaining;
+        }
+      }
+
+      y -= rowHeight;
     }
 
     return y - 10;
+  }
+
+  /// Same as [PdfLayoutEngine.tableColumnWidths] but scaled to an explicit
+  /// width instead of the page's content width, for tables nested in cells.
+  List<double> _proportionalColumnWidths(DocxTable table, double availableWidth) {
+    final gridColumns = table.resolvedGridColumns;
+    if (gridColumns.isEmpty) return const [];
+    final totalGridTwips = gridColumns.fold<int>(0, (a, b) => a + b);
+    if (totalGridTwips <= 0) {
+      final n = gridColumns.length;
+      return List<double>.filled(n, availableWidth / n);
+    }
+    return gridColumns
+        .map((w) => w / totalGridTwips * availableWidth)
+        .toList();
+  }
+
+  /// Resolves a cell border side to a drawable color/width, or null if that
+  /// side should not be drawn at all (e.g. `DocxTableStyle.plain`).
+  _ResolvedBorder? _resolveCellBorder(DocxTable table, DocxBorderSide? cellSide) {
+    if (cellSide != null) {
+      if (cellSide.style == DocxBorder.none) return null;
+      final hex =
+          cellSide.color == DocxColor.auto ? '000000' : cellSide.color.hex;
+      return _ResolvedBorder(hex, cellSide.size / 8.0);
+    }
+    if (table.style.border == DocxBorder.none) return null;
+    final hex = table.style.borderColor == 'auto'
+        ? '000000'
+        : table.style.borderColor.replaceAll('#', '');
+    return _ResolvedBorder(hex, table.style.borderWidth / 8.0);
+  }
+
+  void _drawCellBorders(PdfContentBuilder builder, DocxTable table,
+      _CellPlacement p, double y, double rowHeight) {
+    final top = _resolveCellBorder(table, p.cell.borderTop);
+    final bottom = _resolveCellBorder(table, p.cell.borderBottom);
+    final left = _resolveCellBorder(table, p.cell.borderLeft);
+    final right = _resolveCellBorder(table, p.cell.borderRight);
+    if (top == null && bottom == null && left == null && right == null) {
+      return;
+    }
+
+    final boxTop = y;
+    final boxBottom = y - rowHeight;
+    final boxLeft = p.x;
+    final boxRight = p.x + p.width;
+
+    builder.saveState();
+    if (top != null) {
+      builder.setStrokeColorHex(top.colorHex);
+      builder.drawLine(boxLeft, boxTop, boxRight, boxTop,
+          lineWidth: top.widthPt);
+    }
+    if (bottom != null) {
+      builder.setStrokeColorHex(bottom.colorHex);
+      builder.drawLine(boxLeft, boxBottom, boxRight, boxBottom,
+          lineWidth: bottom.widthPt);
+    }
+    if (left != null) {
+      builder.setStrokeColorHex(left.colorHex);
+      builder.drawLine(boxLeft, boxTop, boxLeft, boxBottom,
+          lineWidth: left.widthPt);
+    }
+    if (right != null) {
+      builder.setStrokeColorHex(right.colorHex);
+      builder.drawLine(boxRight, boxTop, boxRight, boxBottom,
+          lineWidth: right.widthPt);
+    }
+    builder.restoreState();
+  }
+
+  /// Minimal text-only renderer for a [DocxList] nested inside a table cell,
+  /// wrapped to [width] instead of the page's content width. Previously
+  /// nested lists in cells reserved layout space (via
+  /// `PdfLayoutEngine.measureCell`) but drew nothing at all.
+  double _renderListInWidth(
+    DocxList list,
+    PdfContentBuilder builder,
+    double startX,
+    double startY,
+    double width,
+    PdfLayoutEngine layout,
+  ) {
+    var y = startY;
+    var index = list.startIndex;
+    final lineHeight = fontSize * 1.4;
+    const bulletIndent = 12.0;
+    const textIndent = 14.0;
+    final spaceWidth = fontSize * 0.278;
+
+    for (final item in list.items) {
+      final levelIndent = item.level * bulletIndent;
+      final markerX = startX + levelIndent;
+      final contentX = markerX + textIndent;
+      final availableWidth = width - levelIndent - textIndent;
+
+      final marker = list.isOrdered ? '${index++}.' : '•';
+      builder.beginText();
+      builder.setTextMatrix(markerX, y);
+      builder.setFont(PdfFontManager.fontRegular, fontSize.toDouble());
+      builder.setFillColorHex('000000');
+      builder.showText(marker);
+      builder.endText();
+
+      final text = item.children
+          .whereType<DocxText>()
+          .map((t) => t.content)
+          .join();
+      final words = PdfContentBuilder.decodeHtmlEntities(text)
+          .split(' ')
+          .where((w) => w.isNotEmpty)
+          .toList();
+
+      final lines = <List<String>>[];
+      var currentLine = <String>[];
+      var currentWidth = 0.0;
+      for (final word in words) {
+        final w = builder.measureText(word, fontSize.toDouble());
+        if (currentWidth + w + spaceWidth > availableWidth &&
+            currentLine.isNotEmpty) {
+          lines.add(currentLine);
+          currentLine = [word];
+          currentWidth = w;
+        } else {
+          if (currentLine.isNotEmpty) currentWidth += spaceWidth;
+          currentLine.add(word);
+          currentWidth += w;
+        }
+      }
+      if (currentLine.isNotEmpty) lines.add(currentLine);
+      if (lines.isEmpty) lines.add(const []);
+
+      for (final line in lines) {
+        if (line.isNotEmpty) {
+          builder.beginText();
+          builder.setTextMatrix(contentX, y);
+          builder.setFont(PdfFontManager.fontRegular, fontSize.toDouble());
+          builder.setFillColorHex('000000');
+          builder.showText(line.join(' '));
+          builder.endText();
+        }
+        y -= lineHeight;
+      }
+    }
+
+    return y;
   }
 
   double _renderCellParagraph(
@@ -831,6 +1316,7 @@ class PdfExporter {
         final fontRef = _fontManager.selectFont(
           isBold: child.isBold,
           isItalic: child.isItalic,
+          fontFamily: child.fontFamily,
         );
         final color = child.effectiveColorHex ?? '000000';
 
@@ -871,7 +1357,9 @@ class PdfExporter {
               final w = isCheckbox
                   ? effFontSize
                   : builder.measureText(word, effFontSize,
-                      isBold: child.isBold);
+                      isBold: child.isBold,
+                      fontRef: fontRef,
+                      fontManager: _fontManager);
 
               words.add(_Word(
                 word,
@@ -1023,9 +1511,10 @@ class PdfExporter {
       final words = <_Word>[];
       for (final child in item.children) {
         if (child is DocxText) {
-          final fontRef = PdfFontManager().selectFont(
+          final fontRef = _fontManager.selectFont(
             isBold: child.isBold,
             isItalic: child.isItalic,
+            fontFamily: child.fontFamily,
           );
           final color = child.effectiveColorHex ?? '000000';
 
@@ -1069,7 +1558,9 @@ class PdfExporter {
                 final w = isCheckbox
                     ? effFontSize
                     : builder.measureText(word, effFontSize,
-                        isBold: child.isBold);
+                        isBold: child.isBold,
+                        fontRef: fontRef,
+                        fontManager: _fontManager);
 
                 words.add(_Word(
                   word,
@@ -1212,14 +1703,58 @@ class PdfExporter {
     final renderHeight = image.height;
     final renderWidth = image.width; // Or scale if needed
 
+    // Calculate X position based on alignment (mirrors _renderShapeBlock).
+    var drawX = x;
+    if (image.align == DocxAlign.center) {
+      drawX = x + (layout.contentWidth - renderWidth) / 2;
+    } else if (image.align == DocxAlign.right) {
+      drawX = x + layout.contentWidth - renderWidth;
+    }
+
     // Draw image
     // Note: PDF coordinates are bottom-up, so y is bottom-left of image
     // But our y is top-down flow. We want top-left of image at y.
     // So draw at y - height
     builder.drawImage(
-        imageName, x, y - renderHeight, renderWidth, renderHeight);
+        imageName, drawX, y - renderHeight, renderWidth, renderHeight);
+    _drawImageBorder(
+        builder, image.border, drawX, y - renderHeight, renderWidth, renderHeight);
 
     return y - renderHeight - 10;
+  }
+
+  /// Draws a uniform rectangular border (all four sides the same style)
+  /// around an already-drawn image, matching what `DocxImage`/
+  /// `DocxInlineImage.border` produces in DOCX. No-op when [border] is null
+  /// or `DocxBorder.none`.
+  void _drawImageBorder(PdfContentBuilder builder, DocxBorderSide? border,
+      double x, double y, double width, double height) {
+    if (border == null || border.style == DocxBorder.none) return;
+    builder.saveState();
+    builder.setStrokeColorHex(
+        border.color == DocxColor.auto ? '000000' : border.color.hex);
+    builder.strokeRect(x, y, width, height, lineWidth: border.size / 8.0);
+    builder.restoreState();
+  }
+
+  /// Registers a [DocxInlineImage] (an inline paragraph run, not a
+  /// block-level [DocxImage]) as a page XObject and returns a placeholder
+  /// "word" for it so it flows into the surrounding text like any other
+  /// word instead of being silently skipped.
+  _Word? _registerInlineImage(DocxInlineImage image) {
+    final writer = _writer;
+    if (writer == null) return null;
+
+    final imageId = writer.addImage(
+      bytes: image.bytes,
+      width: image.width.toInt(),
+      height: image.height.toInt(),
+    );
+    final imageName = '/Im${++_imageCount}';
+    _pageImages[imageName] = imageId;
+
+    return _Word.image(imageName, image.width, image.height,
+        imageBorder: image.border);
   }
 
   List<_SectionData> _splitSections(DocxBuiltDocument doc) {
@@ -1267,6 +1802,8 @@ class _SectionData {
   final List<DocxNode> nodes;
   final DocxNode? header;
   final DocxNode? footer;
+  final DocxColor? backgroundColor;
+  final DocxBackgroundImage? backgroundImage;
 
   _SectionData({
     required this.width,
@@ -1278,6 +1815,8 @@ class _SectionData {
     required this.nodes,
     this.header,
     this.footer,
+    this.backgroundColor,
+    this.backgroundImage,
   });
 
   factory _SectionData.fromDef(DocxSectionDef def, List<DocxNode> nodes) {
@@ -1291,8 +1830,29 @@ class _SectionData {
       nodes: nodes,
       header: def.header,
       footer: def.footer,
+      backgroundColor: def.backgroundColor,
+      backgroundImage: def.backgroundImage,
     );
   }
+}
+
+/// A table cell resolved to its grid position and pixel geometry for one
+/// rendering pass of `PdfExporter._renderTable`.
+class _CellPlacement {
+  final DocxTableCell cell;
+  final int colIndex;
+  final double x;
+  final double width;
+
+  const _CellPlacement(this.cell, this.colIndex, this.x, this.width);
+}
+
+/// A drawable border side: color plus stroke width in points.
+class _ResolvedBorder {
+  final String colorHex;
+  final double widthPt;
+
+  const _ResolvedBorder(this.colorHex, this.widthPt);
 }
 
 class _Word {
@@ -1319,6 +1879,19 @@ class _Word {
   final bool isCheckbox;
   final int? checkboxType; // 0=unchecked, 1=checked, 2=crossed
 
+  // Hyperlink target, if this word came from a DocxText with an href.
+  final String? href;
+
+  // Inline image, if this "word" is actually a DocxInlineImage.
+  final bool isImage;
+  final String? imageXObjectName;
+  final double imageHeight;
+  final DocxBorderSide? imageBorder;
+
+  // Inline shape, if this "word" is actually a DocxShape.
+  final bool isShape;
+  final DocxShape? shape;
+
   _Word(
     this.text,
     this.fontRef,
@@ -1332,8 +1905,15 @@ class _Word {
     this.isSubscript = false,
     this.isCheckbox = false,
     this.checkboxType,
+    this.href,
   })  : isTab = false,
-        isBreak = false;
+        isBreak = false,
+        isImage = false,
+        imageXObjectName = null,
+        imageHeight = 0,
+        imageBorder = null,
+        isShape = false,
+        shape = null;
 
   _Word.tab(this.width)
       : text = '',
@@ -1348,7 +1928,14 @@ class _Word {
         isSuperscript = false,
         isSubscript = false,
         isCheckbox = false,
-        checkboxType = null;
+        checkboxType = null,
+        href = null,
+        isImage = false,
+        imageXObjectName = null,
+        imageHeight = 0,
+        imageBorder = null,
+        isShape = false,
+        shape = null;
 
   _Word.lineBreak()
       : text = '',
@@ -1364,7 +1951,74 @@ class _Word {
         isSuperscript = false,
         isSubscript = false,
         isCheckbox = false,
-        checkboxType = null;
+        checkboxType = null,
+        href = null,
+        isImage = false,
+        imageXObjectName = null,
+        imageHeight = 0,
+        imageBorder = null,
+        isShape = false,
+        shape = null;
+
+  _Word.image(this.imageXObjectName, this.width, this.imageHeight,
+      {this.imageBorder})
+      : text = '',
+        fontRef = '',
+        color = '',
+        isTab = false,
+        isBreak = false,
+        isUnderline = false,
+        isStrike = false,
+        backgroundColor = null,
+        fontSize = null,
+        isSuperscript = false,
+        isSubscript = false,
+        isCheckbox = false,
+        checkboxType = null,
+        href = null,
+        isImage = true,
+        isShape = false,
+        shape = null;
+
+  _Word.shape(this.shape, this.width)
+      : text = '',
+        fontRef = '',
+        color = '',
+        isTab = false,
+        isBreak = false,
+        isUnderline = false,
+        isStrike = false,
+        backgroundColor = null,
+        fontSize = null,
+        isSuperscript = false,
+        isSubscript = false,
+        isCheckbox = false,
+        checkboxType = null,
+        href = null,
+        isImage = false,
+        imageXObjectName = null,
+        imageHeight = 0,
+        imageBorder = null,
+        isShape = true;
+}
+
+/// A pending clickable-link rectangle to attach to the current PDF page once
+/// its object ID is known (annotations are added after the page's content
+/// stream is finalized).
+class _PendingLink {
+  final double x;
+  final double y;
+  final double width;
+  final double height;
+  final String uri;
+
+  const _PendingLink({
+    required this.x,
+    required this.y,
+    required this.width,
+    required this.height,
+    required this.uri,
+  });
 }
 
 /// Helper class to track text decoration positions for underline/strikethrough

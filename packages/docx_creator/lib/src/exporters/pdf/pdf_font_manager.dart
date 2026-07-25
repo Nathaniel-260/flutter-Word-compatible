@@ -420,6 +420,18 @@ class PdfFontManager {
     return sb.toString();
   }
 
+  /// Renders a char-code-32..126-indexed `/Widths` array (in 1000-unit
+  /// glyph space) from one of the [_charWidths] / [_charWidthsBold] tables.
+  String _widthsArrayString(Map<int, double> widths) {
+    final buf = StringBuffer('[');
+    for (var code = 32; code <= 126; code++) {
+      final w = ((widths[code] ?? avgCharWidth) * 1000).round();
+      buf.write(code == 32 ? '$w' : ' $w');
+    }
+    buf.write(']');
+    return buf.toString();
+  }
+
   /// Writes all font objects to the PDF document.
   ///
   /// Returns a map of font references to their object IDs.
@@ -429,29 +441,27 @@ class PdfFontManager {
     // 1. Write standard fonts (backward compatibility if needed, but we use them mostly as fallback)
     // We actually re-create them here to be clean.
 
-    // Helper to write standard font
-    int writeStandardFont(String baseFont, String ref) {
-      const helveticaWidths =
-          '[278 278 355 556 556 889 667 191 333 333 389 584 278 333 278 278 '
-          '556 556 556 556 556 556 556 556 556 556 278 278 584 584 584 556 '
-          '1015 667 667 722 722 667 611 778 722 278 500 667 556 833 722 778 '
-          '667 778 722 667 611 722 667 944 667 667 611 278 278 278 469 556 '
-          '333 556 556 500 556 556 278 556 556 222 222 500 222 833 556 556 '
-          '556 556 333 500 278 556 500 722 500 500 500 334 260 334 584 278]';
-
+    // Helper to write standard font. [widthsTable] picks the correct AFM
+    // widths for the variant being declared (regular vs. bold have
+    // meaningfully different advance widths); Courier is monospace so it
+    // omits /Widths entirely and relies on the standard 14 font metrics.
+    int writeStandardFont(
+        String baseFont, String ref, Map<int, double>? widthsTable) {
+      final widthsClause = widthsTable == null
+          ? ''
+          : '/FirstChar 32 /LastChar 126 /Widths ${_widthsArrayString(widthsTable)}';
       final dict = '<< /Type /Font /Subtype /Type1 /BaseFont /$baseFont '
-          '/Encoding /WinAnsiEncoding '
-          '${baseFont.contains("Courier") ? "" : "/FirstChar 32 /LastChar 126 /Widths $helveticaWidths"} >>';
+          '/Encoding /WinAnsiEncoding $widthsClause >>';
 
       final id = writer.createObject(dict);
       fontIds[ref] = id;
       return id;
     }
 
-    writeStandardFont('Helvetica', fontRegular);
-    writeStandardFont('Helvetica-Bold', fontBold);
-    writeStandardFont('Helvetica-Oblique', fontItalic);
-    writeStandardFont('Courier', fontMono);
+    writeStandardFont('Helvetica', fontRegular, _charWidths);
+    writeStandardFont('Helvetica-Bold', fontBold, _charWidthsBold);
+    writeStandardFont('Helvetica-Oblique', fontItalic, _charWidths);
+    writeStandardFont('Courier', fontMono, null);
 
     // 2. Write embedded fonts
     for (final font in _embeddedFonts) {
@@ -479,48 +489,10 @@ class PdfFontManager {
       const cidSystemInfo =
           '<< /Registry (Adobe) /Ordering (Identity) /Supplement 0 >>';
 
-      // D. CIDFont Type 2
-      // We need Widths (W array).
-      // For Identity-H, widths are indexed by GID.
-      // We can output a simplified range or all used ones. For now, simplistic.
-      // NOTE: For optimized PDF, we should only output widths for used glyphs or ranges.
-      // But TtfParser gives us robust metrics. Let's dump the first few or essential.
-      // Actually Identity-H maps GIDs to widths.
-      // The "W" array format: [ startGID [ w1 w2 ... ] ... ]
-      // We'll just define default width 1000? No, standard is 1000.
-      // Let's rely on DW (default width) 1000.
-      // Correct approach: Output widths for all glyphs? That's huge.
-      // Checking TtfParser, we have _glyphWidths map.
-      // We can construct a compacted W array.
-
-      final wArray = StringBuffer('[');
-      // Naive: 0 [w0 w1 ... wN]
-      wArray.write(' 0 [');
-      // For simplicity/performance limitation here, we only output first 256 or so?
-      // No, CJK needs more.
-      // Let's output widths for GID 0 to numGlyphs.
-      // This might be large string.
-      // A better optimization would be to find ranges.
-      // For this step, I'll output up to 2000 glyphs or map logic?
-      // Let's try to be smart: if many are same (e.g. 1000), skip?
-      // For now, let's just output logic to handle lookup.
-      // Or just a standard set.
-      // TtfParser doesn't expose all widths easily as a list.
-      // Let's assume standard 1000 for now to unblock, or fix TtfParser to give W array string.
-      // I'll update TtfParser later if needed. For now, simple array.
-
-      // FIX: access private _glyphWidths via a getter if needed or iterating?
-      // TtfParser exposes `numGlyphs`.
-      // We can iterate 0..numGlyphs-1 and getCharWidth(gid)? No getCharWidth takes unicode.
-      // TtfParser needs getGlyphWidth(gid).
-
-      // Temporarily, we will assume fixed width for CJK or just use 1000.
-      // But this will look bad for variable width fonts.
-      // Let's skip detailed W array for this iteration to avoid logic complexity explosion
-      // and revisit if spacing is off.
-      wArray.write(' 1000');
-      wArray.write(' ]'); // Close array
-      wArray.write(']');
+      // D. CIDFont Type 2. /W gives per-glyph advance widths indexed by GID
+      // (Identity-H maps content-stream codes directly to GIDs); without it,
+      // every glyph falls back to /DW and text renders with wrong spacing.
+      final wArray = font.metrics.generateWidthsArray();
 
       final cidFontId =
           writer.createObject('<< /Type /Font /Subtype /CIDFontType2\n'
@@ -528,7 +500,7 @@ class PdfFontManager {
               '/CIDSystemInfo $cidSystemInfo\n'
               '/FontDescriptor $descriptorId 0 R\n'
               '/DW 1000\n'
-              // '/W $wArray\n' // Omitted for now
+              '/W $wArray\n'
               '>>');
 
       // E. ToUnicode CMap

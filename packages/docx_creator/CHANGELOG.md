@@ -1,3 +1,34 @@
+## Unreleased
+
+### Fixed
+- **`DocxTableCell.marginLeft`/`marginRight` now generate `w:tcMar`** (#98): previously stored on the AST but never written to the cell's XML.
+- **Theme color/fill round-tripping**: `DocxText.themeColor/themeTint/themeShade` are now written to `w:color`; `DocxParagraph.themeFill/themeFillTint/themeFillShade` are now written to `w:shd` (both were silently dropped on export). Extracted a shared `writeShading`/`writeTextColor` helper (`core/xml_extension.dart`) used by `DocxText`, `DocxParagraph`, and `DocxTableCell` so this class of bug can't reoccur independently in each class.
+- **`DocxSectionDef.breakType`** (continuous/evenPage/oddPage) is now written as `w:type` on section breaks; previously every break behaved as `nextPage` regardless of the setting.
+- **`DocxTableCell.copyWith`/`DocxTableStyle.copyWith`** no longer silently drop `themeFill*`, `cnfStyle`, `cellPadding`, and `borderWidth` when copying.
+- **`DocxListStyle` theme color/font** are now applied when generating custom bullet/number `numbering.xml` definitions.
+- **DOCX reader round-trip gaps**: `w:tcMar`, image `a:ln` borders, standalone-paragraph `w:cnfStyle`, and table-wide `w:tblCellMar` are now parsed back into the AST (previously write-only).
+- **PDF export — headers/footers**: `DocxHeader`/`DocxFooter` content was never rendered at all; now renders.
+- **PDF export — tables**: complete rewrite of table rendering. `colSpan`/`rowSpan` are now honored (previously ignored, causing misaligned/overlapping cells); real column widths are used instead of an even split; per-cell/table borders and `DocxTableStyle.plain` (no border) are respected instead of always drawing black gridlines; nested lists/tables inside cells now render instead of leaving a blank gap; tables taller than one page now split across pages instead of drawing past the bottom margin.
+- **PDF export — pagination**: `DocxParagraph.pageBreakBefore` is now honored; paragraph height calculation now accounts for per-run custom font sizes and `spacingBefore`/`spacingAfter`/padding, fixing text overlap at page boundaries.
+- **PDF export — paragraphs**: `indentRight` is now applied; paragraph borders (e.g. `<hr>`, blockquote rules) are now actually drawn instead of only affecting spacing.
+- **PDF export — images**: `DocxImage.align` (center/right) is now honored instead of always rendering flush-left; inline `DocxInlineImage`s inside paragraph runs are no longer silently dropped.
+- **PDF export — hyperlinks**: `DocxText.href` now produces a real clickable `/Annot /Link` instead of just styled text.
+- **PDF export — drop caps**: `DocxDropCap` letter and following text no longer vanish.
+- **PDF export — table of contents**: `DocxTableOfContents.cachedContent` now renders instead of vanishing.
+- **PDF export — embedded fonts**: the CIDFontType2 `/W` glyph-width array is now emitted (was previously omitted, so every glyph fell back to a single default width and text spacing was garbled); the `ToUnicode` CMap now correctly maps glyph ID → Unicode instead of Unicode → Unicode, fixing copy/paste and text search; `Helvetica-Bold` now declares its own (wider) `/Widths` array instead of reusing the regular Helvetica table; custom registered fonts now apply inside table cells and list items, not just body paragraphs.
+- **PDF export — file size**: fonts (including embedded TTF bytes) are now written once per document instead of once per section.
+- **PDF export — image corruption (all images)**: JPEG image XObjects were built as a Dart `String` via `String.fromCharCodes`, which then went through `utf8.encode()` at final PDF serialization — silently corrupting any raw byte >= 0x80 and desyncing the declared `/Length` from what was actually written. Every image embedded via the JPEG/DCTDecode path was corrupted in the output file; fixed by building the object as raw bytes instead. Non-JPEG images (PNG/GIF/BMP/etc.) were also wrapped directly in `/FlateDecode` as if the original *container* file bytes were already-decoded raw pixels, which does not produce valid image data in any real viewer — they're now decoded and re-embedded as JPEG through the (now-correct) DCTDecode path. Declared `/Width`/`/Height` are now the image's real pixel dimensions instead of its on-page point size.
+- **PDF export — footnotes**: `DocxFootnoteRef`/`doc.footnotes` are now rendered at the bottom of the page, above the footer, with pagination reserving the vertical space each page's referenced footnotes need so body content can't overlap them.
+- **PDF export — section background**: `DocxSectionDef.backgroundColor` and `.backgroundImage` (stretch/fit/center/tile fill modes, with opacity via a new `/ExtGState` alpha resource) are now painted per page instead of being silently ignored.
+
+### Removed
+- Deleted `lib/src/parsers/html_parser_backup.dart`, a 1,261-line unreferenced duplicate of the HTML parser superseded by the split `parsers/html/*` modules.
+
+### Added
+- `test/ast_field_completeness_test.dart` and `test/pdf_table_rendering_test.dart` covering the fixes above.
+
+---
+
 ## 1.2.7
 
 ### Fixed

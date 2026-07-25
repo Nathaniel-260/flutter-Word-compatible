@@ -199,5 +199,58 @@ void main() {
         expect(e, isA<DocxExportException>());
       }
     });
+
+    test(
+        'Issue 98: DocxTableCell.marginLeft/marginRight generate w:tcMar XML',
+        () {
+      final cell = DocxTableCell(
+        marginLeft: 100,
+        marginRight: 200,
+        children: [DocxParagraph.text('Cell')],
+      );
+
+      final builder = XmlBuilder();
+      cell.buildXml(builder);
+      final xml = builder.buildDocument().toXmlString();
+
+      expect(xml, contains('<w:tcMar>'));
+      expect(xml, contains('<w:left w:w="100" w:type="dxa"/>'));
+      expect(xml, contains('<w:right w:w="200" w:type="dxa"/>'));
+    });
+
+    test('Issue 98: DocxTableCell omits w:tcMar when no margins are set', () {
+      final cell = DocxTableCell(children: [DocxParagraph.text('Cell')]);
+
+      final builder = XmlBuilder();
+      cell.buildXml(builder);
+      final xml = builder.buildDocument().toXmlString();
+
+      expect(xml, isNot(contains('w:tcMar')));
+    });
+
+    test(
+        'Issue 98: DocxTableCell.marginLeft round-trips through full DOCX export',
+        () async {
+      final doc = docx()
+          .add(DocxTable(rows: [
+            DocxTableRow(cells: [
+              DocxTableCell(
+                marginLeft: 100,
+                children: [DocxParagraph.text('Cell')],
+              ),
+            ]),
+          ]))
+          .build();
+
+      final exporter = DocxExporter();
+      final bytes = await exporter.exportToBytes(doc);
+
+      final archive = ZipDecoder().decodeBytes(bytes);
+      final documentFile = archive.findFile('word/document.xml');
+      final xmlString = String.fromCharCodes(documentFile!.content);
+
+      expect(xmlString, contains('<w:tcMar>'));
+      expect(xmlString, contains('<w:left w:w="100" w:type="dxa"/>'));
+    });
   });
 }

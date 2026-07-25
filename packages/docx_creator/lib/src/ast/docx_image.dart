@@ -508,6 +508,7 @@ class DocxImage extends DocxBlock {
   double get width => _inlineImage.width;
   double get height => _inlineImage.height;
   String? get altText => _inlineImage.altText;
+  DocxBorderSide? get border => _inlineImage.border;
 
   DocxInlineImage get asInline => _inlineImage;
 

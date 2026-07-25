@@ -1,6 +1,7 @@
 import 'package:xml/xml.dart';
 
 import '../core/enums.dart';
+import '../core/xml_extension.dart';
 import 'docx_block.dart';
 import 'docx_inline.dart';
 import 'docx_node.dart';
@@ -70,9 +71,11 @@ class DocxTableStyle {
   DocxTableStyle copyWith({
     DocxBorder? border,
     String? borderColor,
+    int? borderWidth,
     String? headerFill,
     String? evenRowFill,
     String? oddRowFill,
+    int? cellPadding,
     DocxBorderSide? borderTop,
     DocxBorderSide? borderBottom,
     DocxBorderSide? borderLeft,
@@ -84,9 +87,11 @@ class DocxTableStyle {
     return DocxTableStyle(
       border: border ?? this.border,
       borderColor: borderColor ?? this.borderColor,
+      borderWidth: borderWidth ?? this.borderWidth,
       headerFill: headerFill ?? this.headerFill,
       evenRowFill: evenRowFill ?? this.evenRowFill,
       oddRowFill: oddRowFill ?? this.oddRowFill,
+      cellPadding: cellPadding ?? this.cellPadding,
       borderTop: borderTop ?? this.borderTop,
       borderBottom: borderBottom ?? this.borderBottom,
       borderLeft: borderLeft ?? this.borderLeft,
@@ -782,6 +787,9 @@ class DocxTableCell extends DocxNode {
     int? rowSpan,
     DocxVerticalAlign? verticalAlign,
     String? shadingFill,
+    String? themeFill,
+    String? themeFillTint,
+    String? themeFillShade,
     int? width,
     DocxBorderSide? borderTop,
     DocxBorderSide? borderBottom,
@@ -789,6 +797,7 @@ class DocxTableCell extends DocxNode {
     DocxBorderSide? borderRight,
     int? marginLeft,
     int? marginRight,
+    String? cnfStyle,
   }) {
     return DocxTableCell(
       children: children ?? this.children,
@@ -796,6 +805,9 @@ class DocxTableCell extends DocxNode {
       rowSpan: rowSpan ?? this.rowSpan,
       verticalAlign: verticalAlign ?? this.verticalAlign,
       shadingFill: shadingFill ?? this.shadingFill,
+      themeFill: themeFill ?? this.themeFill,
+      themeFillTint: themeFillTint ?? this.themeFillTint,
+      themeFillShade: themeFillShade ?? this.themeFillShade,
       width: width ?? this.width,
       borderTop: borderTop ?? this.borderTop,
       borderBottom: borderBottom ?? this.borderBottom,
@@ -803,6 +815,7 @@ class DocxTableCell extends DocxNode {
       borderRight: borderRight ?? this.borderRight,
       marginLeft: marginLeft ?? this.marginLeft,
       marginRight: marginRight ?? this.marginRight,
+      cnfStyle: cnfStyle ?? this.cnfStyle,
       id: id,
     );
   }
@@ -897,25 +910,28 @@ class DocxTableCell extends DocxNode {
                 }
               });
             }
-            if (shadingFill != null || themeFill != null) {
-              builder.element(
-                'w:shd',
-                nest: () {
-                  builder.attribute('w:val', 'clear');
-                  builder.attribute('w:color', 'auto');
-                  builder.attribute(
-                      'w:fill', shadingFill?.replaceAll('#', '') ?? 'auto');
-                  if (themeFill != null) {
-                    builder.attribute('w:themeFill', themeFill!);
-                  }
-                  if (themeFillTint != null) {
-                    builder.attribute('w:themeFillTint', themeFillTint!);
-                  }
-                  if (themeFillShade != null) {
-                    builder.attribute('w:themeFillShade', themeFillShade!);
-                  }
-                },
-              );
+            writeShading(
+              builder,
+              fill: shadingFill,
+              themeFill: themeFill,
+              themeFillTint: themeFillTint,
+              themeFillShade: themeFillShade,
+            );
+            if (marginLeft != null || marginRight != null) {
+              builder.element('w:tcMar', nest: () {
+                if (marginLeft != null) {
+                  builder.element('w:left', nest: () {
+                    builder.attribute('w:w', marginLeft.toString());
+                    builder.attribute('w:type', 'dxa');
+                  });
+                }
+                if (marginRight != null) {
+                  builder.element('w:right', nest: () {
+                    builder.attribute('w:w', marginRight.toString());
+                    builder.attribute('w:type', 'dxa');
+                  });
+                }
+              });
             }
             builder.element(
               'w:vAlign',

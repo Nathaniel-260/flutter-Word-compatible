@@ -2,6 +2,7 @@ import 'package:xml/xml.dart';
 
 import '../core/defaults.dart';
 import '../core/enums.dart';
+import '../core/xml_extension.dart';
 import 'docx_inline.dart';
 import 'docx_node.dart';
 
@@ -447,13 +448,13 @@ class DocxParagraph extends DocxBlock {
               }
 
               // 5. shd (Shading)
-              if (shadingFill != null) {
-                builder.element('w:shd', nest: () {
-                  builder.attribute('w:val', 'clear');
-                  builder.attribute('w:color', 'auto');
-                  builder.attribute('w:fill', shadingFill!);
-                });
-              }
+              writeShading(
+                builder,
+                fill: shadingFill,
+                themeFill: themeFill,
+                themeFillTint: themeFillTint,
+                themeFillShade: themeFillShade,
+              );
 
               // 6. spacing
               if (spacingAfter != null ||

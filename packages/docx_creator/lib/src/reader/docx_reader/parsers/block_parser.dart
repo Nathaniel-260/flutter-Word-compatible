@@ -154,6 +154,7 @@ class BlockParser {
   /// Parse a paragraph element.
   DocxParagraph parseParagraph(XmlElement xml) {
     String? pStyle;
+    String? cnfStyle;
 
     // Parse paragraph properties
     final pPr = xml.getElement('w:pPr');
@@ -161,6 +162,10 @@ class BlockParser {
       final pStyleElem = pPr.getElement('w:pStyle');
       if (pStyleElem != null) {
         pStyle = pStyleElem.getAttribute('w:val');
+      }
+      final cs = pPr.getElement('w:cnfStyle');
+      if (cs != null) {
+        cnfStyle = cs.getAttribute('w:val');
       }
     }
 
@@ -201,6 +206,7 @@ class BlockParser {
       borderLeft: finalProps.borderLeft,
       borderRight: finalProps.borderRight,
       borderBetween: finalProps.borderBetween,
+      cnfStyle: cnfStyle,
     );
   }
 

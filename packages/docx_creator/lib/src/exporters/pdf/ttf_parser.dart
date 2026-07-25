@@ -65,6 +65,22 @@ class TtfParser {
     return widths;
   }
 
+  /// Generates the CIDFontType2 `/W` array (glyph-id indexed widths, scaled
+  /// to 1000 units per em). Without this, viewers fall back to `/DW` (a
+  /// single default width) for every glyph, which garbles inter-letter
+  /// spacing for any non-monospace embedded font.
+  String generateWidthsArray() {
+    if (numGlyphs == 0) return '[]';
+    final scale = 1000.0 / unitsPerEm;
+    final sb = StringBuffer('[ 0 [');
+    for (var gid = 0; gid < numGlyphs; gid++) {
+      final raw = _glyphWidths[gid] ?? _glyphWidths[0] ?? 500;
+      sb.write(' ${(raw * scale).round()}');
+    }
+    sb.write(' ] ]');
+    return sb.toString();
+  }
+
   /// Gets font bounding box scaled to 1000 units.
   List<int> getScaledBbox() {
     final scale = 1000.0 / unitsPerEm;
@@ -311,8 +327,15 @@ class TtfParser {
     sb.writeln('<0000> <FFFF>');
     sb.writeln('endcodespacerange');
 
-    // Generate char mappings in batches of 100
-    final entries = _unicodeToGlyph.entries.toList()
+    // The codes used in the content stream (Identity-H encoding, see
+    // PdfFontManager.escapeTextHex) are glyph IDs, not Unicode values, so the
+    // CMap must map glyphId -> Unicode (the inverse of _unicodeToGlyph) for
+    // copy/paste and text search to recover the original characters.
+    final glyphToUnicode = <int, int>{};
+    for (final entry in _unicodeToGlyph.entries) {
+      glyphToUnicode.putIfAbsent(entry.value, () => entry.key);
+    }
+    final entries = glyphToUnicode.entries.toList()
       ..sort((a, b) => a.key.compareTo(b.key));
 
     var i = 0;
@@ -321,8 +344,9 @@ class TtfParser {
       sb.writeln('$batchSize beginbfchar');
       for (var j = 0; j < batchSize; j++) {
         final e = entries[i + j];
-        final hex = e.key.toRadixString(16).padLeft(4, '0').toUpperCase();
-        sb.writeln('<$hex> <$hex>');
+        final gidHex = e.key.toRadixString(16).padLeft(4, '0').toUpperCase();
+        final uniHex = e.value.toRadixString(16).padLeft(4, '0').toUpperCase();
+        sb.writeln('<$gidHex> <$uniHex>');
       }
       sb.writeln('endbfchar');
       i += batchSize;

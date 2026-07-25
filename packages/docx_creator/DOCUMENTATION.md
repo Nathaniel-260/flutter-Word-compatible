@@ -930,8 +930,8 @@ The PDF exporter uses accurate Helvetica font metrics:
 |---------|--------------|-------------|
 | Output Format | .docx (Word) | .pdf |
 | Editable | ✅ | ❌ |
-| Embedded Fonts | ✅ | ❌ (Helvetica only) |
-| Shapes | ✅ | ❌ |
+| Embedded Fonts | ✅ | ✅ (+ built-in Helvetica) |
+| Shapes | ✅ | ✅ |
 | Custom Styles | ✅ | ❌ |
 | Page Layout | ✅ | ✅ |
 | Tables | ✅ | ✅ |

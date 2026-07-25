@@ -60,8 +60,11 @@ void main() {
       expect(pdfContent, contains('Cell'));
       expect(pdfContent, contains('A'));
       expect(pdfContent, contains('B'));
-      // Basic check for drawing operations
-      expect(pdfContent, contains(' re')); // Rectangle
+      // Table borders are drawn as per-side strokes (so DocxBorder.none and
+      // per-side overrides can omit individual sides), so check for line +
+      // stroke operators rather than a filled/stroked rectangle.
+      expect(pdfContent, contains(' m')); // moveTo (line start)
+      expect(pdfContent, contains(' l')); // lineTo (line segment)
       expect(pdfContent, contains(' S')); // Stroke
     });
 

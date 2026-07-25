@@ -211,6 +211,29 @@ class InlineParser {
               ext = target.split('.').last.toLowerCase();
             }
 
+            // Read image border/outline (pic:spPr > a:ln), mirrors the
+            // writer in DocxImage.buildXml.
+            DocxBorderSide? border;
+            final ln = drawing.findAllElements('a:ln').firstOrNull;
+            if (ln != null) {
+              final emuWidth = int.tryParse(ln.getAttribute('w') ?? '');
+              final size =
+                  emuWidth != null ? (emuWidth * 8 / 12700).round() : 4;
+              var color = DocxColor.auto;
+              final srgbClr = ln.findAllElements('a:srgbClr').firstOrNull;
+              if (srgbClr != null) {
+                final val = srgbClr.getAttribute('val');
+                if (val != null) color = DocxColor(val);
+              }
+              var style = DocxBorder.single;
+              final prstDash =
+                  ln.findAllElements('a:prstDash').firstOrNull?.getAttribute(
+                      'val');
+              if (prstDash == 'dash') style = DocxBorder.dashed;
+              if (prstDash == 'dot') style = DocxBorder.dotted;
+              border = DocxBorderSide(style: style, color: color, size: size);
+            }
+
             // Parse floating image properties if anchored
             if (isAnchor) {
               final anchor = drawing.findAllElements('wp:anchor').first;
@@ -381,6 +404,7 @@ class InlineParser {
                 vAlign: vAlign,
                 hPositionFrom: hFrom,
                 vPositionFrom: vFrom,
+                border: border,
                 // True-Fidelity attributes
                 distT: distT,
                 distB: distB,
@@ -407,6 +431,7 @@ class InlineParser {
               width: width,
               height: height,
               positionMode: DocxDrawingPosition.inline,
+              border: border,
             );
           }
         }
