@@ -1,4 +1,4 @@
-## Unreleased
+## 1.2.8
 
 ### Fixed
 - **`DocxTableCell.marginLeft`/`marginRight` now generate `w:tcMar`** (#98): previously stored on the AST but never written to the cell's XML.
