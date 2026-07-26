@@ -1431,7 +1431,10 @@ class PdfExporter {
     PdfLayoutEngine layout,
   ) {
     var y = startY;
-    var index = list.startIndex;
+    // Keyed by nesting level so a sub-item restarts at 1 instead of
+    // continuing its parent's count (e.g. "1., 2." then a nested item
+    // showing "3." instead of restarting its own "1.").
+    final orderedCounters = <int, int>{};
     final lineHeight = fontSize * 1.4;
     const bulletIndent = 12.0;
     const textIndent = 14.0;
@@ -1443,7 +1446,16 @@ class PdfExporter {
       final contentX = markerX + textIndent;
       final availableWidth = width - levelIndent - textIndent;
 
-      final marker = list.isOrdered ? '${index++}.' : '•';
+      orderedCounters.removeWhere((level, _) => level > item.level);
+      String marker;
+      if (list.isOrdered) {
+        final start = item.level == 0 ? list.startIndex : 1;
+        final next = (orderedCounters[item.level] ?? (start - 1)) + 1;
+        orderedCounters[item.level] = next;
+        marker = '$next.';
+      } else {
+        marker = '•';
+      }
       builder.beginText();
       builder.setTextMatrix(markerX, y);
       builder.setFont(PdfFontManager.fontRegular, fontSize.toDouble());

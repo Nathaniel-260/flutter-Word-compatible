@@ -27,10 +27,14 @@ class EmbeddedFont {
   }
 
   /// Measures text width in points.
+  ///
+  /// Iterates Unicode code points ([String.runes]), not UTF-16 code units -
+  /// a character outside the Basic Multilingual Plane (most emoji, some
+  /// rare CJK) is one rune but two UTF-16 code units, and iterating code
+  /// units would measure it as two separate (invalid) glyphs.
   double measureText(String text, double fontSize) {
     var width = 0.0;
-    for (var i = 0; i < text.length; i++) {
-      final code = text.codeUnitAt(i);
+    for (final code in text.runes) {
       final charWidth = getCharWidth(code);
       width += charWidth * fontSize / 1000.0;
     }
@@ -354,8 +358,7 @@ class PdfFontManager {
     final widths = isBold ? _charWidthsBold : _charWidths;
 
     var width = 0.0;
-    for (var i = 0; i < text.length; i++) {
-      final code = text.codeUnitAt(i);
+    for (final code in text.runes) {
       // Use character-specific width or fallback to average
       final charWidth = widths[code] ?? avgCharWidth;
       width += charWidth * fontSize;
@@ -365,23 +368,29 @@ class PdfFontManager {
 
   /// Escapes text for PDF string literals using WinAnsi encoding.
   ///
-  /// Handles special characters and converts Unicode where possible.
+  /// Handles special characters and converts Unicode where possible. A
+  /// standard PDF font (this method's only caller path - embedded fonts use
+  /// [escapeTextHex] instead) has no glyphs outside WinAnsi at all, so a
+  /// character with no mapping is substituted with '?' rather than
+  /// silently vanishing from the output - callers who need the character
+  /// to actually render should embed a font covering it via `addFont`.
+  ///
+  /// Iterates Unicode code points ([String.runes]), not UTF-16 code units,
+  /// so a character outside the Basic Multilingual Plane is treated as one
+  /// (unsupported, substituted) character rather than two stray ones.
   String escapeText(String text) {
     final buffer = StringBuffer();
 
-    for (var i = 0; i < text.length; i++) {
-      final char = text[i];
-      final code = char.codeUnitAt(0);
-
+    for (final code in text.runes) {
       // Handle special PDF characters
-      switch (char) {
-        case '\\':
+      switch (code) {
+        case 0x5C: // backslash
           buffer.write('\\\\');
           break;
-        case '(':
+        case 0x28: // (
           buffer.write('\\(');
           break;
-        case ')':
+        case 0x29: // )
           buffer.write('\\)');
           break;
         default:
@@ -391,12 +400,13 @@ class PdfFontManager {
             buffer.write('\\${winAnsi.toRadixString(8).padLeft(3, '0')}');
           } else if (code >= 32 && code <= 126) {
             // Standard ASCII printable
-            buffer.write(char);
+            buffer.writeCharCode(code);
           } else if (code >= 128 && code <= 255) {
             // Extended ASCII (WinAnsi range)
             buffer.write('\\${code.toRadixString(8).padLeft(3, '0')}');
           } else {
-            // Skip unsupported characters silently
+            // No WinAnsi representation for this character.
+            buffer.write('?');
           }
       }
     }
@@ -407,13 +417,14 @@ class PdfFontManager {
   /// Escapes text as hex string for embedded fonts (Hex encoded glyph IDs).
   ///
   /// For embedded fonts (Identity-H), we must map Unicode to Glyph IDs.
+  /// Iterates Unicode code points ([String.runes]) so characters outside
+  /// the Basic Multilingual Plane map to a single glyph lookup, not two.
   String escapeTextHex(String text, String fontRef) {
     final font = getEmbeddedFont(fontRef);
     if (font == null) return '';
 
     final sb = StringBuffer();
-    for (var i = 0; i < text.length; i++) {
-      final code = text.codeUnitAt(i);
+    for (final code in text.runes) {
       final gid = font.metrics.getGlyphId(code);
       sb.write(gid.toRadixString(16).padLeft(4, '0').toUpperCase());
     }
