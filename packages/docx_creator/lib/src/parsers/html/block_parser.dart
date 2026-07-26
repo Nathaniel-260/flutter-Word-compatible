@@ -188,6 +188,9 @@ class HtmlBlockParser {
         final table = await _tableParser.parseTable(element);
         return [table];
 
+      case 'dl':
+        return _parseDefinitionList(element, blockContext);
+
       case 'img':
         final img = await _imageParser.parseBlockImage(element);
         return img != null ? [img] : [];
@@ -235,6 +238,37 @@ class HtmlBlockParser {
           )
         ];
     }
+  }
+
+  /// Parses a definition list (`<dl>`) into one paragraph per `<dt>`/`<dd>`
+  /// (bold term, indented definition), since docx_creator has no dedicated
+  /// definition-list AST node. Previously `<dt>`/`<dd>` fell through to
+  /// plain inline pass-through with no separator, garbling
+  /// "<dt>Term</dt><dd>Definition</dd>" into a single "TermDefinition" run.
+  Future<List<DocxNode>> _parseDefinitionList(
+      dom.Element element, HtmlStyleContext context) async {
+    final paragraphs = <DocxNode>[];
+    for (var child in element.children) {
+      final tag = child.localName?.toLowerCase();
+      if (tag != 'dt' && tag != 'dd') continue;
+
+      final inlines =
+          await _inlineParser.parseInlines(child.nodes, context: context);
+      if (inlines.isEmpty) continue;
+
+      if (tag == 'dt') {
+        paragraphs.add(DocxParagraph(
+          children: inlines
+              .map((i) => i is DocxText
+                  ? i.copyWith(fontWeight: DocxFontWeight.bold)
+                  : i)
+              .toList(),
+        ));
+      } else {
+        paragraphs.add(DocxParagraph(children: inlines, indentLeft: 360));
+      }
+    }
+    return paragraphs;
   }
 
   DocxParagraph _parseCodeBlock(dom.Element element, DocxAlign align) {
@@ -332,6 +366,7 @@ class HtmlBlockParser {
       'table',
       'ul',
       'ol',
+      'dl',
       'blockquote',
       'pre',
       'hr',

@@ -28,6 +28,20 @@ class HtmlListParser {
     final currentLevel = (styleContext != null && styleContext.listLevel >= 0)
         ? styleContext.listLevel
         : level;
+    final startIndex =
+        int.tryParse(element.attributes['start'] ?? '') ?? 1;
+
+    // A nested sublist's own bullet/numbered style so it can be applied as
+    // a per-item override once flattened below (DocxListItem has no way to
+    // carry a nested DocxList directly - list items only hold inline
+    // content - so the nested list's items are flattened into this one,
+    // stamped with an override so at least their indentation/bullet glyph
+    // still reflects their own type. See docx_creator/CLAUDE.md-style note:
+    // full per-item numbering-format switching within a single numId would
+    // require the abstract numbering definition to vary by level, which
+    // this exporter doesn't currently support.
+    DocxListStyle nestedOverrideStyle(bool nestedOrdered) =>
+        nestedOrdered ? DocxListStyle.decimal : DocxListStyle.disc;
 
     for (var child in element.children) {
       if (child.localName == 'li') {
@@ -39,7 +53,12 @@ class HtmlListParser {
             if (result is DocxParagraph) {
               items.add(DocxListItem(result.children, level: currentLevel));
             } else if (result is DocxList) {
-              items.addAll(result.items);
+              for (var nestedItem in result.items) {
+                items.add(nestedItem.copyWith(
+                  overrideStyle: nestedItem.overrideStyle ??
+                      nestedOverrideStyle(result.isOrdered),
+                ));
+              }
             }
           }
           continue;
@@ -75,13 +94,19 @@ class HtmlListParser {
           items.add(DocxListItem(inlines, level: currentLevel));
         }
 
-        // Flatten nested items into this list
+        // Flatten nested items into this list, stamped with an override
+        // reflecting the nested list's own type (see note above).
         for (var nested in nestedLists) {
-          items.addAll(nested.items);
+          for (var nestedItem in nested.items) {
+            items.add(nestedItem.copyWith(
+              overrideStyle: nestedItem.overrideStyle ??
+                  nestedOverrideStyle(nested.isOrdered),
+            ));
+          }
         }
       }
     }
 
-    return DocxList(items: items, isOrdered: ordered);
+    return DocxList(items: items, isOrdered: ordered, startIndex: startIndex);
   }
 }
