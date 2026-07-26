@@ -185,7 +185,7 @@ await DocxExporter().exportToFile(doc, 'from_markdown.docx');
 12. [PDF Export](#pdf-export)
 13. [Sections &amp; Page Layout](#sections--page-layout)
 14. [Font Embedding](#font-embedding)
-14. [API Reference](#api-reference)
+15. [API Reference](#api-reference)
 
 ---
 

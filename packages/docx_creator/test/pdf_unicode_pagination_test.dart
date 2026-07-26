@@ -100,6 +100,29 @@ void main() {
       expect(combined, contains('quick'));
       expect(combined, contains('jumps'));
     });
+
+    test('splits a long word at its actual rendered size, not the body '
+        'default, when it is a heading', () {
+      final longWord = 'a' * 150;
+
+      int tjCountFor(DocxNode element) {
+        final bytes = PdfExporter(compressContent: false)
+            .exportToBytes(DocxBuiltDocument(elements: [element]));
+        final content = latin1.decode(bytes, allowInvalid: true);
+        return RegExp(r'\([^()]*\)\s*Tj').allMatches(content).length;
+      }
+
+      final normalChunks = tjCountFor(DocxParagraph.text(longWord));
+      final headingChunks = tjCountFor(DocxParagraph.heading1(longWord));
+
+      // A heading renders at a larger font size, so the same text needs
+      // strictly more (smaller) chunks to each still fit the line width.
+      // If chunk splitting used the wrong (body) font size for headings,
+      // this count would come out identical to the normal-text case, and
+      // the oversized heading chunks would still overflow the margin when
+      // actually drawn at the heading's real, larger size.
+      expect(headingChunks, greaterThan(normalChunks));
+    });
   });
 
   group('PdfExporter end-to-end Unicode fallback', () {

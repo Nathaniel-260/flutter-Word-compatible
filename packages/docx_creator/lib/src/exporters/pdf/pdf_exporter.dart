@@ -419,8 +419,15 @@ class PdfExporter {
     final words =
         _collectWords(dropCap.restOfParagraph, builder, baseFontSize, false);
     final spaceWidth = baseFontSize * 0.278;
+    // Split against the narrower of the two widths so a long word can never
+    // overflow either the column beside the drop cap letter or the
+    // full-width lines below it.
+    final splitWidth = narrowWidth > 0 ? narrowWidth : maxWidth;
+    final splitWords =
+        _splitOverlongWords(words, splitWidth, baseFontSize, builder);
     final lines = _flowWordsVariableWidth(
-        words, spaceWidth, (i) => i < dropCap.lines ? narrowWidth : maxWidth);
+        splitWords, spaceWidth,
+        (i) => i < dropCap.lines ? narrowWidth : maxWidth);
 
     final lineHeights = <double>[];
     for (final line in lines) {
@@ -710,7 +717,7 @@ class PdfExporter {
     // Collect words with their formatting
     final isHeading = paragraph.styleId?.startsWith('Heading') ?? false;
     var words = _collectWords(paragraph.children, builder, fontSize, isHeading);
-    words = _splitOverlongWords(words, maxWidth, builder);
+    words = _splitOverlongWords(words, maxWidth, fontSize, builder);
 
     // Flow words into lines - use proper Helvetica space width (0.278)
     final spaceWidth = fontSize * 0.278;
@@ -1266,8 +1273,13 @@ class PdfExporter {
   /// URL with no natural break point no longer draws past the right margin
   /// unbroken. Words that already fit, and non-text words (tabs, images,
   /// shapes, checkboxes), pass through unchanged.
-  List<_Word> _splitOverlongWords(
-      List<_Word> words, double maxWidth, PdfContentBuilder builder) {
+  ///
+  /// [defaultFontSize] must be the caller's own resolved paragraph font size
+  /// (e.g. a heading's larger size), not [fontSize] (the exporter's flat
+  /// base size) - it's only used as a fallback for words with no per-run
+  /// [_Word.fontSize] override, exactly like [_collectWords] does.
+  List<_Word> _splitOverlongWords(List<_Word> words, double maxWidth,
+      double defaultFontSize, PdfContentBuilder builder) {
     if (maxWidth <= 0) return words;
 
     final result = <_Word>[];
@@ -1284,28 +1296,28 @@ class PdfExporter {
         continue;
       }
 
-      final effFontSize = (word.fontSize ?? fontSize).toDouble();
+      var effFontSize = (word.fontSize ?? defaultFontSize).toDouble();
+      if (word.isSuperscript || word.isSubscript) effFontSize *= 0.6;
       final isBold = word.fontRef == PdfFontManager.fontBold;
       final runes = word.text.runes.toList();
+
+      // Measure each rune's width once and accumulate a running sum while
+      // extending a chunk, instead of re-measuring the whole growing
+      // substring per character (which is quadratic in the word's length).
+      final runeWidths = List<double>.generate(
+        runes.length,
+        (i) => builder.measureText(String.fromCharCode(runes[i]), effFontSize,
+            isBold: isBold, fontRef: word.fontRef, fontManager: _fontManager),
+      );
+
       var start = 0;
       var isFirstChunk = true;
-
       while (start < runes.length) {
         var end = start + 1;
-        var chunkWidth = builder.measureText(
-            String.fromCharCodes(runes, start, end), effFontSize,
-            isBold: isBold, fontRef: word.fontRef, fontManager: _fontManager);
-        // Greedily extend the chunk one character at a time while it still
-        // fits within maxWidth.
-        while (end < runes.length) {
-          final candidateWidth = builder.measureText(
-              String.fromCharCodes(runes, start, end + 1), effFontSize,
-              isBold: isBold,
-              fontRef: word.fontRef,
-              fontManager: _fontManager);
-          if (candidateWidth > maxWidth) break;
+        var chunkWidth = runeWidths[start];
+        while (end < runes.length && chunkWidth + runeWidths[end] <= maxWidth) {
+          chunkWidth += runeWidths[end];
           end++;
-          chunkWidth = candidateWidth;
         }
 
         result.add(_Word(
@@ -1700,7 +1712,8 @@ class PdfExporter {
 
     // 2. Flow words into lines based on cell width - use proper Helvetica space width (0.278)
     final spaceWidth = fontSize * 0.278;
-    final splitWords = _splitOverlongWords(words, width, builder);
+    final splitWords =
+        _splitOverlongWords(words, width, fontSize.toDouble(), builder);
     final lines = _flowWords(splitWords, width, spaceWidth);
     final lineHeight = fontSize * 1.4;
 
@@ -1902,7 +1915,8 @@ class PdfExporter {
 
       if (words.isNotEmpty) {
         final spaceWidth = fontSize * 0.278;
-        final splitWords = _splitOverlongWords(words, availableWidth, builder);
+        final splitWords = _splitOverlongWords(
+            words, availableWidth, fontSize.toDouble(), builder);
         final lines = _flowWords(splitWords, availableWidth, spaceWidth);
 
         // Render list item lines
