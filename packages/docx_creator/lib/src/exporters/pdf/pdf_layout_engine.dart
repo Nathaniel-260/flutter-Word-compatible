@@ -811,6 +811,17 @@ class PdfLayoutEngine {
       for (final word in words) {
         final wordWidth = fontManager.measureText(word, fontSize);
 
+        // A word wider than the whole line will be split across multiple
+        // lines by the renderer (see PdfExporter._splitOverlongWords) -
+        // without this, pagination would reserve too little height and
+        // body content could overlap the page boundary.
+        if (wordWidth > availableWidth && availableWidth > 0) {
+          if (currentLineWidth > 0) lines++;
+          lines += (wordWidth / availableWidth).ceil() - 1;
+          currentLineWidth = spaceWidth;
+          continue;
+        }
+
         if (currentLineWidth + wordWidth > availableWidth &&
             currentLineWidth > 0) {
           lines++;
@@ -848,6 +859,13 @@ class PdfLayoutEngine {
       for (final word in words) {
         final wordWidth = fontManager.measureText(word, fontSize);
         final availableWidth = widthForLine(totalLines + lines - 1);
+
+        if (wordWidth > availableWidth && availableWidth > 0) {
+          if (currentLineWidth > 0) lines++;
+          lines += (wordWidth / availableWidth).ceil() - 1;
+          currentLineWidth = spaceWidth;
+          continue;
+        }
 
         if (currentLineWidth + wordWidth > availableWidth &&
             currentLineWidth > 0) {

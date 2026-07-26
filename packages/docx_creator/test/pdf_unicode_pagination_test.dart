@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:docx_creator/docx_creator.dart';
 import 'package:docx_creator/src/exporters/pdf/pdf_font_manager.dart';
 import 'package:docx_creator/src/exporters/pdf/pdf_layout_engine.dart';
@@ -55,6 +57,48 @@ void main() {
       // Cyrillic 'П' (U+041F) must resolve to a real glyph, not .notdef (0).
       final glyphId = font.metrics.getGlyphId(0x041F);
       expect(glyphId, isNot(0));
+    });
+  });
+
+  group('PDF long word / URL wrapping', () {
+    test('splits a single word wider than the page into multiple Tj show-text '
+        'operations instead of drawing it unbroken past the margin', () {
+      final longWord = 'https://example.com/${'a' * 200}';
+      final doc = DocxBuiltDocument(elements: [
+        DocxParagraph.text(longWord),
+      ]);
+
+      final bytes = PdfExporter(compressContent: false)
+          .exportToBytes(doc);
+      final content = latin1.decode(bytes, allowInvalid: true);
+
+      // Uncompressed content stream: each rendered text chunk is its own
+      // "(...) Tj" operator. An unsplit word would appear as one Tj
+      // containing the whole 200+ char string; a correctly split word
+      // appears as several shorter Tj operators, none containing the
+      // full original text run.
+      final tjMatches = RegExp(r'\(((?:[^()\\]|\\.)*)\)\s*Tj').allMatches(content);
+      final chunks = tjMatches.map((m) => m.group(1)!).toList();
+
+      expect(chunks, isNotEmpty);
+      expect(chunks.any((c) => c.contains(longWord)), isFalse,
+          reason: 'the long word should have been split into smaller pieces');
+      expect(chunks.length, greaterThan(1));
+    });
+
+    test('a short paragraph with normal words is unaffected (no spurious '
+        'splitting)', () {
+      final doc = DocxBuiltDocument(elements: [
+        DocxParagraph.text('The quick brown fox jumps over the lazy dog.'),
+      ]);
+
+      final bytes = PdfExporter(compressContent: false).exportToBytes(doc);
+      final content = latin1.decode(bytes, allowInvalid: true);
+
+      final tjMatches = RegExp(r'\(((?:[^()\\]|\\.)*)\)\s*Tj').allMatches(content);
+      final combined = tjMatches.map((m) => m.group(1)!).join(' ');
+      expect(combined, contains('quick'));
+      expect(combined, contains('jumps'));
     });
   });
 
