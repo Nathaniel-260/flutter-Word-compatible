@@ -138,6 +138,9 @@ class HtmlBlockParser {
             borderBottomSide: blockStyles.borderBottom,
             borderLeft: blockStyles.borderLeft,
             borderRight: blockStyles.borderRight,
+            indentLeft: blockStyles.indentLeft,
+            indentRight: blockStyles.indentRight,
+            indentFirstLine: blockStyles.indentFirstLine,
           )
         ];
 
@@ -183,6 +186,10 @@ class HtmlBlockParser {
               borderBottomSide: blockStyles.borderBottom,
               borderLeft: blockStyles.borderLeft,
               borderRight: blockStyles.borderRight,
+              indentLeft: blockStyles.indentLeft ?? built.indentLeft,
+              indentRight: blockStyles.indentRight ?? built.indentRight,
+              indentFirstLine:
+                  blockStyles.indentFirstLine ?? built.indentFirstLine,
             )
           ];
         }
@@ -195,6 +202,9 @@ class HtmlBlockParser {
             children: children,
             shadingFill: blockStyles.shadingFill,
             align: blockStyles.align,
+            indentLeft: blockStyles.indentLeft,
+            indentRight: blockStyles.indentRight,
+            indentFirstLine: blockStyles.indentFirstLine,
           )
         ];
     }
@@ -224,7 +234,8 @@ class HtmlBlockParser {
     DocxAlign align = DocxAlign.left;
 
     final bgMatch = RegExp(
-            r"background-color:\s*['\x22]?(#[A-Fa-f0-9]{3,6}|rgb\([0-9,\s]+\)|rgba\([0-9.,\s]+\)|[a-zA-Z]+)['\x22]?")
+            r"background-color:\s*['\x22]?(#[A-Fa-f0-9]{3,6}|rgba?\([0-9.,\s]+\)|hsla?\([0-9.,%\s]+\)|[a-zA-Z]+)['\x22]?",
+            caseSensitive: false)
         .firstMatch(style);
     if (bgMatch != null) {
       final val = bgMatch.group(1);
@@ -233,12 +244,19 @@ class HtmlBlockParser {
       }
     }
 
-    if (style.contains('text-align: center')) {
-      align = DocxAlign.center;
-    } else if (style.contains('text-align: right')) {
-      align = DocxAlign.right;
-    } else if (style.contains('text-align: justify')) {
-      align = DocxAlign.justify;
+    final alignMatch =
+        RegExp(r'text-align\s*:\s*(\w+)', caseSensitive: false)
+            .firstMatch(style);
+    switch (alignMatch?.group(1)?.toLowerCase()) {
+      case 'center':
+        align = DocxAlign.center;
+        break;
+      case 'right':
+        align = DocxAlign.right;
+        break;
+      case 'justify':
+        align = DocxAlign.justify;
+        break;
     }
 
     return HtmlBlockStyles(
@@ -252,7 +270,24 @@ class HtmlBlockParser {
           ColorUtils.parseCssBorderProperty(style, 'border'),
       borderRight: ColorUtils.parseCssBorderProperty(style, 'border-right') ??
           ColorUtils.parseCssBorderProperty(style, 'border'),
+      indentLeft: _lengthPropertyTwips(style, 'margin-left') ??
+          _lengthPropertyTwips(style, 'padding-left'),
+      indentRight: _lengthPropertyTwips(style, 'margin-right') ??
+          _lengthPropertyTwips(style, 'padding-right'),
+      indentFirstLine: _lengthPropertyTwips(style, 'text-indent'),
     );
+  }
+
+  /// Reads a CSS length property (e.g. `margin-left: 40px`) and converts it
+  /// to twips (1/20th of a point), or null if the property isn't present.
+  int? _lengthPropertyTwips(String style, String property) {
+    final match = RegExp(
+      '$property\\s*:\\s*(-?[\\d.]+\\s*(?:px|pt|em|rem|%)?)',
+      caseSensitive: false,
+    ).firstMatch(style);
+    if (match == null) return null;
+    final points = ColorUtils.parseCssLengthToPoints(match.group(1)!);
+    return points != null ? (points * 20).round() : null;
   }
 
   String _getText(dom.Node node) {

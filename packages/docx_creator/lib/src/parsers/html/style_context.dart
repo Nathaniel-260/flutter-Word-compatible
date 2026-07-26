@@ -1,4 +1,5 @@
 import '../../core/enums.dart';
+import 'color_utils.dart';
 
 /// Style context for inline text formatting inheritance.
 ///
@@ -148,25 +149,39 @@ class HtmlStyleContext {
       }
     }
 
-    // Style attribute based updates
+    // Style attribute based updates. Property lookups below are all
+    // case-insensitive with flexible whitespace around ':' so minified or
+    // uppercase CSS (e.g. "FONT-WEIGHT:BOLD") is recognized, not just the
+    // exact lowercase "property: value" form.
     if (style.isNotEmpty) {
-      if (style.contains('font-weight') &&
-          (style.contains('bold') || style.contains('700'))) {
-        ctx = ctx.copyWith(fontWeight: DocxFontWeight.bold);
+      final fontWeightMatch =
+          RegExp(r'font-weight\s*:\s*([a-z0-9]+)', caseSensitive: false)
+              .firstMatch(style);
+      if (fontWeightMatch != null) {
+        final value = fontWeightMatch.group(1)!.toLowerCase();
+        final numericWeight = int.tryParse(value);
+        // Word (and browsers) render 600+ as visually bold.
+        final isBold = value == 'bold' || (numericWeight != null && numericWeight >= 600);
+        if (isBold) ctx = ctx.copyWith(fontWeight: DocxFontWeight.bold);
       }
 
-      if (style.contains('font-style') && style.contains('italic')) {
+      if (RegExp(r'font-style\s*:\s*italic', caseSensitive: false)
+          .hasMatch(style)) {
         ctx = ctx.copyWith(fontStyle: DocxFontStyle.italic);
       }
 
-      if (style.contains('text-decoration') && style.contains('underline')) {
+      if (RegExp(r'text-decoration\s*:\s*[a-z\s]*underline',
+              caseSensitive: false)
+          .hasMatch(style)) {
         if (!ctx.decorations.contains(DocxTextDecoration.underline)) {
           ctx = ctx.copyWith(
               decorations: [...ctx.decorations, DocxTextDecoration.underline]);
         }
       }
 
-      if (style.contains('text-decoration') && style.contains('line-through')) {
+      if (RegExp(r'text-decoration\s*:\s*[a-z\s]*line-through',
+              caseSensitive: false)
+          .hasMatch(style)) {
         if (!ctx.decorations.contains(DocxTextDecoration.strikethrough)) {
           ctx = ctx.copyWith(decorations: [
             ...ctx.decorations,
@@ -175,15 +190,19 @@ class HtmlStyleContext {
         }
       }
 
-      final sizeMatch = RegExp(r"font-size:\s*(\d+)").firstMatch(style);
+      final sizeMatch =
+          RegExp(r'font-size\s*:\s*([\d.]+\s*(?:px|pt|em|rem|%)?)',
+                  caseSensitive: false)
+              .firstMatch(style);
       if (sizeMatch != null) {
-        final fs = double.tryParse(sizeMatch.group(1)!);
+        final fs = ColorUtils.parseCssLengthToPoints(sizeMatch.group(1)!);
         if (fs != null) ctx = ctx.copyWith(fontSize: fs);
       }
 
       // Color parsing
       final colorMatch = RegExp(
-              r"(?<!-)color:\s*['\x22]?(#[A-Fa-f0-9]{3,6}|rgb\([0-9,\s]+\)|rgba\([0-9.,\s]+\)|[a-zA-Z]+)['\x22]?")
+              r"(?<![-a-zA-Z])color:\s*['\x22]?(#[A-Fa-f0-9]{3,6}|rgba?\([0-9.,\s]+\)|hsla?\([0-9.,%\s]+\)|[a-zA-Z]+)['\x22]?",
+              caseSensitive: false)
           .firstMatch(style);
       if (colorMatch != null) {
         final val = colorMatch.group(1);
@@ -195,7 +214,8 @@ class HtmlStyleContext {
 
       // Background Color (Shading)
       final bgMatch = RegExp(
-              r"background-color:\s*['\x22]?(#[A-Fa-f0-9]{3,6}|rgb\([0-9,\s]+\)|rgba\([0-9.,\s]+\)|[a-zA-Z]+)['\x22]?")
+              r"background-color:\s*['\x22]?(#[A-Fa-f0-9]{3,6}|rgba?\([0-9.,\s]+\)|hsla?\([0-9.,%\s]+\)|[a-zA-Z]+)['\x22]?",
+              caseSensitive: false)
           .firstMatch(style);
       if (bgMatch != null) {
         final bgVal = bgMatch.group(1)?.toLowerCase();
@@ -237,7 +257,7 @@ class HtmlStyleContext {
   }
 }
 
-/// Parsed block-level styles (alignment, borders, shading).
+/// Parsed block-level styles (alignment, borders, shading, indentation).
 class HtmlBlockStyles {
   final String? shadingFill;
   final String? colorHex;
@@ -247,6 +267,15 @@ class HtmlBlockStyles {
   final DocxBorderSide? borderLeft;
   final DocxBorderSide? borderRight;
 
+  /// Left indentation in twips, from CSS `margin-left`/`padding-left`.
+  final int? indentLeft;
+
+  /// Right indentation in twips, from CSS `margin-right`/`padding-right`.
+  final int? indentRight;
+
+  /// First-line indentation in twips, from CSS `text-indent`.
+  final int? indentFirstLine;
+
   HtmlBlockStyles({
     this.shadingFill,
     this.colorHex,
@@ -255,5 +284,8 @@ class HtmlBlockStyles {
     this.borderBottom,
     this.borderLeft,
     this.borderRight,
+    this.indentLeft,
+    this.indentRight,
+    this.indentFirstLine,
   });
 }

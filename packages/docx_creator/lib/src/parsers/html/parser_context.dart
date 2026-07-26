@@ -22,19 +22,30 @@ class HtmlParserContext {
   }
 
   /// Parse CSS classes from <style> tags in the document.
+  ///
+  /// Handles grouped selectors (`.foo, .bar { ... }`) by mapping every
+  /// class named in the group to the shared declaration body, not just
+  /// the first one.
   static Map<String, String> _parseCssClasses(dom.Document document) {
     final cssMap = <String, String>{};
     final styles = document.querySelectorAll('style');
     for (var style in styles) {
       final text = style.text;
-      // Simple regex for .className { ... }
-      final matches =
-          RegExp(r'\.([a-zA-Z0-9_-]+)\s*\{([^}]+)\}').allMatches(text);
-      for (var match in matches) {
-        final className = match.group(1);
-        final styleBody = match.group(2);
-        if (className != null && styleBody != null) {
-          cssMap[className] = styleBody.trim();
+      // Match "<selector-list> { <body> }" rules, then split the selector
+      // list on commas so every class in a group gets the same body.
+      final rules = RegExp(r'([^{}]+)\{([^}]+)\}').allMatches(text);
+      for (var rule in rules) {
+        final selectorList = rule.group(1);
+        final styleBody = rule.group(2)?.trim();
+        if (selectorList == null || styleBody == null) continue;
+
+        for (var selector in selectorList.split(',')) {
+          final classMatch =
+              RegExp(r'^\.([a-zA-Z0-9_-]+)$').firstMatch(selector.trim());
+          final className = classMatch?.group(1);
+          if (className != null) {
+            cssMap[className] = styleBody;
+          }
         }
       }
     }

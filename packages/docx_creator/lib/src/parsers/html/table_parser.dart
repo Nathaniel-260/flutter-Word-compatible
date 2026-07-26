@@ -118,7 +118,23 @@ class HtmlTableParser {
           ColorUtils.parseCssBorderProperty(style, 'border'),
       borderRight: ColorUtils.parseCssBorderProperty(style, 'border-right') ??
           ColorUtils.parseCssBorderProperty(style, 'border'),
+      marginLeft: _lengthPropertyTwips(style, 'padding-left') ??
+          _lengthPropertyTwips(style, 'margin-left'),
+      marginRight: _lengthPropertyTwips(style, 'padding-right') ??
+          _lengthPropertyTwips(style, 'margin-right'),
     );
+  }
+
+  /// Reads a CSS length property (e.g. `padding-left: 10px`) and converts
+  /// it to twips (1/20th of a point), or null if not present.
+  int? _lengthPropertyTwips(String style, String property) {
+    final match = RegExp(
+      '$property\\s*:\\s*(-?[\\d.]+\\s*(?:px|pt|em|rem|%)?)',
+      caseSensitive: false,
+    ).firstMatch(style);
+    if (match == null) return null;
+    final points = ColorUtils.parseCssLengthToPoints(match.group(1)!);
+    return points != null ? (points * 20).round() : null;
   }
 
   Future<List<DocxBlock>> _parseCellContent(List<dom.Node> nodes,

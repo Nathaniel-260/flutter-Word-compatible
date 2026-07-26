@@ -31,6 +31,20 @@ class ColorUtils {
       }
     }
 
+    // Handle hsl/hsla
+    if (trimmed.startsWith('hsl')) {
+      final match = RegExp(
+              r'hsla?\s*\(\s*([\d.]+)\s*,\s*([\d.]+)%\s*,\s*([\d.]+)%(?:\s*,\s*[\d.]+)?\s*\)')
+          .firstMatch(trimmed);
+      if (match != null) {
+        final h = double.tryParse(match.group(1) ?? '0') ?? 0;
+        final s = double.tryParse(match.group(2) ?? '0') ?? 0;
+        final l = double.tryParse(match.group(3) ?? '0') ?? 0;
+        final rgb = _hslToRgb(h, s / 100, l / 100);
+        return '${toHex(rgb[0])}${toHex(rgb[1])}${toHex(rgb[2])}';
+      }
+    }
+
     // CSS named colors lookup
     final namedColor = _cssColors[trimmed];
     if (namedColor != null) return namedColor;
@@ -46,6 +60,68 @@ class ColorUtils {
   /// Convert int to 2-digit hex string.
   static String toHex(int val) {
     return val.toRadixString(16).padLeft(2, '0').toUpperCase();
+  }
+
+  /// Default font size (points) used as the base for relative CSS length
+  /// units (`em`, `rem`, `%`) when no better context is available.
+  static const double defaultBaseFontSizePt = 12;
+
+  /// Converts a CSS length value (e.g. `16px`, `1.2em`, `12pt`, `150%`) to
+  /// points. Relative units (`em`/`rem`/`%`) resolve against
+  /// [defaultBaseFontSizePt], since this parser doesn't track a full CSS
+  /// cascade of computed font sizes.
+  ///
+  /// Returns null if [value] isn't a recognizable CSS length.
+  static double? parseCssLengthToPoints(String value) {
+    final match =
+        RegExp(r'^(-?[\d.]+)\s*(px|pt|em|rem|%)?$').firstMatch(value.trim());
+    if (match == null) return null;
+    final number = double.tryParse(match.group(1)!);
+    if (number == null) return null;
+
+    switch (match.group(2)) {
+      case 'pt':
+      case null: // Bare numbers are historically treated as points here.
+        return number;
+      case 'px':
+        return number * 0.75; // 96px == 1in == 72pt
+      case 'em':
+      case 'rem':
+        return number * defaultBaseFontSizePt;
+      case '%':
+        return number / 100 * defaultBaseFontSizePt;
+      default:
+        return null;
+    }
+  }
+
+  /// Converts HSL (hue in degrees, saturation/lightness as 0-1 fractions)
+  /// to an `[r, g, b]` triple of 0-255 integers.
+  static List<int> _hslToRgb(double h, double s, double l) {
+    if (s == 0) {
+      final gray = (l * 255).round();
+      return [gray, gray, gray];
+    }
+
+    double hueToRgb(double p, double q, double t) {
+      var tt = t;
+      if (tt < 0) tt += 1;
+      if (tt > 1) tt -= 1;
+      if (tt < 1 / 6) return p + (q - p) * 6 * tt;
+      if (tt < 1 / 2) return q;
+      if (tt < 2 / 3) return p + (q - p) * (2 / 3 - tt) * 6;
+      return p;
+    }
+
+    final q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    final p = 2 * l - q;
+    final hNorm = (h % 360) / 360;
+
+    return [
+      (hueToRgb(p, q, hNorm + 1 / 3) * 255).round(),
+      (hueToRgb(p, q, hNorm) * 255).round(),
+      (hueToRgb(p, q, hNorm - 1 / 3) * 255).round(),
+    ];
   }
 
   /// Parse CSS border property value.
