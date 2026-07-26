@@ -1007,16 +1007,34 @@ class PdfExporter {
   /// [_flowWordsVariableWidth]. Shared so drop caps flow their trailing text
   /// through the exact same word model as ordinary paragraphs instead of a
   /// parallel, easily-divergent implementation.
+  /// Falls back to the bundled Unicode-broad font when [content] has a
+  /// character [selectedFontRef] (a standard font, or an embedded font
+  /// that doesn't happen to cover it) can't render. An explicit
+  /// [fontFamily] request always wins - this only fills the gap left when
+  /// the caller didn't ask for a specific font and would otherwise silently
+  /// lose (standard font) or mis-render (an unrelated embedded font)
+  /// characters like Cyrillic/Greek/Vietnamese text.
+  String _withUnicodeFallback(
+      String selectedFontRef, String content, String? fontFamily) {
+    if (fontFamily != null) return selectedFontRef;
+    if (!_fontManager.needsUnicodeFallback(content)) return selectedFontRef;
+    return _fontManager.fallbackUnicodeFontRef;
+  }
+
   List<_Word> _collectWords(List<DocxInline> children,
       PdfContentBuilder builder, double fontSize, bool isHeading) {
     final words = <_Word>[];
     for (final child in children) {
       if (child is DocxText) {
         // Apply bold for headings or if text is explicitly bold
-        final fontRef = _fontManager.selectFont(
-          isBold: child.isBold || isHeading,
-          isItalic: child.isItalic,
-          fontFamily: child.fontFamily,
+        final fontRef = _withUnicodeFallback(
+          _fontManager.selectFont(
+            isBold: child.isBold || isHeading,
+            isItalic: child.isItalic,
+            fontFamily: child.fontFamily,
+          ),
+          child.content,
+          child.fontFamily,
         );
         final color = child.effectiveColorHex ?? '000000';
 
@@ -1431,7 +1449,10 @@ class PdfExporter {
     PdfLayoutEngine layout,
   ) {
     var y = startY;
-    var index = list.startIndex;
+    // Keyed by nesting level so a sub-item restarts at 1 instead of
+    // continuing its parent's count (e.g. "1., 2." then a nested item
+    // showing "3." instead of restarting its own "1.").
+    final orderedCounters = <int, int>{};
     final lineHeight = fontSize * 1.4;
     const bulletIndent = 12.0;
     const textIndent = 14.0;
@@ -1443,7 +1464,16 @@ class PdfExporter {
       final contentX = markerX + textIndent;
       final availableWidth = width - levelIndent - textIndent;
 
-      final marker = list.isOrdered ? '${index++}.' : '•';
+      orderedCounters.removeWhere((level, _) => level > item.level);
+      String marker;
+      if (list.isOrdered) {
+        final start = item.level == 0 ? list.startIndex : 1;
+        final next = (orderedCounters[item.level] ?? (start - 1)) + 1;
+        orderedCounters[item.level] = next;
+        marker = '$next.';
+      } else {
+        marker = '•';
+      }
       builder.beginText();
       builder.setTextMatrix(markerX, y);
       builder.setFont(PdfFontManager.fontRegular, fontSize.toDouble());
@@ -1505,10 +1535,14 @@ class PdfExporter {
     final words = <_Word>[];
     for (final child in paragraph.children) {
       if (child is DocxText) {
-        final fontRef = _fontManager.selectFont(
-          isBold: child.isBold,
-          isItalic: child.isItalic,
-          fontFamily: child.fontFamily,
+        final fontRef = _withUnicodeFallback(
+          _fontManager.selectFont(
+            isBold: child.isBold,
+            isItalic: child.isItalic,
+            fontFamily: child.fontFamily,
+          ),
+          child.content,
+          child.fontFamily,
         );
         final color = child.effectiveColorHex ?? '000000';
 
@@ -1703,10 +1737,14 @@ class PdfExporter {
       final words = <_Word>[];
       for (final child in item.children) {
         if (child is DocxText) {
-          final fontRef = _fontManager.selectFont(
-            isBold: child.isBold,
-            isItalic: child.isItalic,
-            fontFamily: child.fontFamily,
+          final fontRef = _withUnicodeFallback(
+            _fontManager.selectFont(
+              isBold: child.isBold,
+              isItalic: child.isItalic,
+              fontFamily: child.fontFamily,
+            ),
+            child.content,
+            child.fontFamily,
           );
           final color = child.effectiveColorHex ?? '000000';
 

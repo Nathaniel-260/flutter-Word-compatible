@@ -348,6 +348,8 @@ class PdfLayoutEngine {
     } else if (node is DocxTableOfContents) {
       return node.cachedContent
           .fold<double>(0, (sum, block) => sum + measureNode(block));
+    } else if (node is DocxShapeBlock) {
+      return node.shape.height + 10;
     }
     return baseFontSize * 1.5;
   }
