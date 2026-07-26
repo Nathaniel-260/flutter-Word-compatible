@@ -2,14 +2,14 @@ group = "com.example.native_pdf_engine"
 version = "1.0-SNAPSHOT"
 
 buildscript {
-    ext.kotlin_version = "1.9.24"
+    ext.kotlin_version = "2.1.0"
     repositories {
         google()
         mavenCentral()
     }
 
     dependencies {
-        classpath("com.android.tools.build:gradle:8.11.1")
+        classpath("com.android.tools.build:gradle:9.3.1")
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version")
     }
 }
@@ -21,8 +21,22 @@ allprojects {
     }
 }
 
+// AGP 9+ can compile Kotlin itself ("built-in Kotlin"), so the standalone
+// Kotlin Gradle Plugin no longer needs to be applied there; older AGP (or a
+// consumer explicitly opting out via the `android.builtInKotlin` Gradle
+// property) still needs it applied explicitly. Mirrors the pattern real
+// published plugins (e.g. file_picker) use for this migration - see:
+// https://docs.flutter.dev/release/breaking-changes/migrate-to-built-in-kotlin/for-plugin-authors
+def agpMajor = com.android.Version.ANDROID_GRADLE_PLUGIN_VERSION.tokenize('.')[0] as int
+def builtInKotlinProperty = providers.gradleProperty("android.builtInKotlin").orNull
+def isBuiltInKotlinEnabled = agpMajor >= 9 &&
+        (builtInKotlinProperty == null || builtInKotlinProperty.toBoolean())
+def shouldApplyKotlinAndroidPlugin = !isBuiltInKotlinEnabled
+
 apply plugin: "com.android.library"
-apply plugin: "kotlin-android"
+if (shouldApplyKotlinAndroidPlugin) {
+    apply plugin: "kotlin-android"
+}
 
 android {
     namespace = "com.example.native_pdf_engine"
@@ -34,8 +48,10 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_17
+    if (shouldApplyKotlinAndroidPlugin) {
+        kotlinOptions {
+            jvmTarget = JavaVersion.VERSION_17
+        }
     }
 
     sourceSets {

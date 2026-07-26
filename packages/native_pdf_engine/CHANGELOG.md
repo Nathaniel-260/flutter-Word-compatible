@@ -1,3 +1,11 @@
+## 0.0.9
+
+### Android Gradle Plugin 9 Support
+* **AGP bumped to 9.3.1** (from 8.11.1), with the example app's Gradle wrapper updated to 9.6.1 to satisfy AGP 9.3's minimum Gradle requirement.
+* **Built-in Kotlin compatibility**: the plugin's `android/build.gradle` now only applies the standalone Kotlin Gradle Plugin when built-in Kotlin isn't active (`agpMajor < 9`, or the consuming app hasn't opted in via the `android.builtInKotlin` Gradle property) - the same conditional pattern other actively-maintained plugins (e.g. `file_picker`) use, so the plugin keeps building correctly under both older and newer AGP without forcing consumers to update. See [Flutter's built-in Kotlin migration guide for plugin authors](https://docs.flutter.dev/release/breaking-changes/migrate-to-built-in-kotlin/for-plugin-authors).
+* Verified with an actual `flutter build apk --debug` against the example app on AGP 9.3.1, not just a config change.
+* Loosened the `jni_flutter` dependency from an exact pin to `^1.0.1` (flagged by `flutter pub publish --dry-run` as too tight for consumers).
+
 ## 0.0.8
 
 ### Swift Package Manager (SPM) Support
