@@ -6,6 +6,8 @@
 
 A **developer-first DOCX generation library** for Dart. Create, parse, read, and edit Microsoft Word documents with a fluent API, HTML/Markdown parsers, and full OpenXML compliance.
 
+🔗 **[Live Demo / Showcase](https://alihassan143.github.io/flutter-packages/)** — try the Builder API, HTML/Markdown parsers, DOCX/PDF readers, and every export format right in your browser.
+
 ## ✨ Features
 
 | Feature                        | Description                                                |

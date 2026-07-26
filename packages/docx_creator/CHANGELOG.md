@@ -1,3 +1,8 @@
+## 1.3.1
+
+### Docs
+- Added a link to the live [Showcase demo](https://alihassan143.github.io/flutter-packages/) — a web app exercising the Builder API, HTML/Markdown parsers, DOCX/PDF readers, and every export format side by side.
+
 ## 1.3.0
 
 ### Added
