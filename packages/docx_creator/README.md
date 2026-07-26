@@ -15,7 +15,9 @@ A **developer-first DOCX generation library** for Dart. Create, parse, read, and
 | 📝**Markdown Parser**    | Parse Markdown including tables and nested lists           |
 | 📖**DOCX Reader**        | Load and edit existing .docx files                         |
 | 📕**PDF Reader**         | Parse PDF files to DOCX structure                          |
-| 📄**PDF Export**         | Export documents directly to PDF (pure Dart)               |
+| 📄**PDF Export**         | Export documents directly to PDF (pure Dart), with an automatic Unicode fallback font |
+| ⬇️**Markdown Export**    | Export documents directly to Markdown (GFM)                |
+| 🌍**HTML Export**        | Export documents directly to HTML                           |
 | 🎨**Drawing Shapes**     | 70+ preset shapes (rectangles, arrows, stars, etc.)        |
 | 🖼️**Images**           | Embed local, remote, or base64 images (Inline & Floating)  |
 | 📊**Tables**             | Styled tables, merged cells, borders, & conditional styles |
@@ -56,25 +58,27 @@ A **developer-first DOCX generation library** for Dart. Create, parse, read, and
 | Tables spanning multiple pages | N/A (Word reflows natively) | ✅ splits by row automatically |
 | Images: inline & floating, wrapping, alignment | ✅ | ✅ (floating-specific wrap/z-order collapses to normal inline flow in PDF) |
 | Image formats | PNG/JPEG/GIF/BMP as provided | ✅ PNG/GIF/BMP/etc. decoded & re-embedded as JPEG; JPEG passthrough |
-| Image borders | ✅ | ❌ not drawn |
+| Image borders | ✅ | ✅ drawn for both block-level and inline images |
+| Text using non-Latin scripts (Cyrillic, Greek, Vietnamese, etc.) without a custom font | ✅ | ✅ auto-embeds a bundled fallback font (DejaVu Sans) the first time it's needed; CJK/Arabic still need an explicit `addFont()` |
 | Drawing shapes (70+ presets), block-level | ✅ | ✅ |
-| Drawing shapes, inline (inside a paragraph run) | ✅ | ❌ not rendered |
+| Drawing shapes, inline (inside a paragraph run) | ✅ | ✅ |
 | Hyperlinks | ✅ | ✅ real clickable `/Annot` links |
 | Headers & footers | ✅ | ✅ |
 | Section background color/image (stretch/fit/center/tile, opacity) | ✅ | ✅ |
 | Multiple sections (independent page size/orientation/margins) | ✅ | ✅ |
 | Section break type (continuous/nextPage/evenPage/oddPage) | ✅ | N/A (PDF has no section-break concept) |
-| Drop caps | ✅ (true Word text-wrap) | ⚠️ letter + following text preserved, rendered as a large-font run rather than true wrap-around |
+| Drop caps | ✅ (true Word text-wrap) | ✅ true wrap-around: following text flows in a narrower column beside the letter |
 | Footnotes | ✅ | ✅ rendered at the bottom of the page; space is auto-reserved so body text can't overlap it. Font size matches body text (no automatic downscale) |
-| Endnotes | ✅ | ❌ not rendered |
+| Endnotes | ✅ | ✅ rendered on a trailing "Endnotes" page, with a superscript reference marker at the citation point |
 | Table of Contents | ✅ (live field, recalculated by Word) | ⚠️ cached TOC content renders as static text; page numbers aren't recomputed against PDF pagination |
 | Checkboxes (☐ ☑ ☒) | ✅ | ✅ |
-| Multi-page pagination | N/A | ✅ automatic; paragraphs and tables both split cleanly across pages with no overlap |
+| Multi-page pagination | N/A | ✅ automatic; paragraphs and tables both split cleanly across pages with no overlap; a nested list inside a table cell numbers correctly per level |
+| Long words/URLs wider than the line | N/A | ✅ split across lines like any other overflow, instead of drawing past the margin |
 | Raw/unmodeled OOXML passthrough ("Shadow Model") | ✅ | N/A (DOCX-specific fidelity feature) |
 
 **Reading it both ways works too**: `DocxReader` round-trips everything in the DOCX column above — load a `.docx`, every property listed as ✅ comes back onto the AST correctly, not just write-only.
 
-If a gap above (endnotes, inline shapes, image borders, or footnote font size in PDF) matters for your use case, please open an issue — they're tracked, just not implemented yet.
+If a gap above matters for your use case, please open an issue — they're tracked, just not implemented yet.
 
 ---
 
@@ -96,7 +100,7 @@ Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  docx_creator: ^1.2.3
+  docx_creator: ^1.3.0
 ```
 
 Then run:
@@ -175,12 +179,13 @@ await DocxExporter().exportToFile(doc, 'from_markdown.docx');
 6. [Shapes &amp; Drawings](#shapes--drawings)
 7. [HTML Parser](#html-parser)
 8. [Markdown Parser](#markdown-parser)
-9. [DOCX Reader &amp; Editor](#docx-reader--editor)
-10. [PDF Reader](#pdf-reader)
-11. [PDF Export](#pdf-export)
-12. [Sections &amp; Page Layout](#sections--page-layout)
-13. [Font Embedding](#font-embedding)
-14. [API Reference](#api-reference)
+9. [Markdown Export](#markdown-export)
+10. [DOCX Reader &amp; Editor](#docx-reader--editor)
+11. [PDF Reader](#pdf-reader)
+12. [PDF Export](#pdf-export)
+13. [Sections &amp; Page Layout](#sections--page-layout)
+14. [Font Embedding](#font-embedding)
+15. [API Reference](#api-reference)
 
 ---
 
@@ -221,6 +226,17 @@ final mdDoc = DocxBuiltDocument(elements: await MarkdownParser.parse(md));
 await PdfExporter().exportToFile(mdDoc, 'from_markdown.pdf');
 ```
 
+### Automatic Unicode Fallback Font
+
+If your text uses a script a standard PDF font can't render — Cyrillic, Greek, Vietnamese, and other scripts covered by [DejaVu Sans](https://dejavu-fonts.github.io) — the exporter automatically embeds a bundled fallback font the first time it's needed, with **zero network or filesystem access** (it works on web too). You don't need to do anything:
+
+```dart
+final doc = docx().p('Привет, мир! Γειά σου κόσμε!').build();
+await PdfExporter().exportToFile(doc, 'cyrillic_greek.pdf'); // just works
+```
+
+An explicit `addFont()` call always takes priority over the fallback. CJK and Arabic scripts need dedicated, much larger, shaping-aware fonts that aren't reasonable to bundle unconditionally — for those, call `addFont()` with a font that covers them.
+
 ### Supported Features
 
 | Feature                                          | Support |
@@ -230,6 +246,7 @@ await PdfExporter().exportToFile(mdDoc, 'from_markdown.pdf');
 | Custom font sizes, superscript/subscript           | ✅      |
 | Text colors, highlight/background shading          | ✅      |
 | Custom embedded fonts (TTF), incl. in tables/lists | ✅      |
+| Automatic Unicode fallback font (Cyrillic/Greek/etc.) | ✅   |
 | Text alignment (left/center/right/justify)         | ✅      |
 | Paragraph spacing/indent/padding/borders           | ✅      |
 | Forced page breaks (`pageBreakBefore`)             | ✅      |
@@ -238,16 +255,17 @@ await PdfExporter().exportToFile(mdDoc, 'from_markdown.pdf');
 | Tables: real column widths & per-cell/table borders | ✅      |
 | Tables: nested lists/tables in cells               | ✅      |
 | Tables spanning multiple pages                     | ✅ auto-splits by row |
+| Long words/URLs wider than the line                | ✅ split across lines |
 | Images (PNG/JPEG/GIF/BMP), alignment               | ✅      |
 | Inline images inside paragraph text                | ✅      |
+| Image borders                                        | ✅      |
 | Hyperlinks (clickable)                              | ✅      |
 | Headers & footers                                   | ✅      |
 | Section background (color/image, opacity)          | ✅      |
-| Drop caps                                            | ⚠️ content preserved, simplified (no text wrap-around) |
+| Drop caps                                            | ✅ true wrap-around |
 | Footnotes                                            | ✅ auto-reserves page space |
-| Endnotes                                             | ❌      |
-| Inline shapes (shape inside a paragraph run)       | ❌      |
-| Image borders                                        | ❌      |
+| Endnotes                                             | ✅ trailing page with reference markers |
+| Inline shapes (shape inside a paragraph run)       | ✅      |
 | Page sizes (A4, Letter)                              | ✅      |
 | Multi-page pagination                                | ✅ automatic, no overlap |
 
@@ -539,20 +557,27 @@ Over 70 preset shapes including: `rect`, `ellipse`, `triangle`, `diamond`, `star
 | `<hr>`              | Horizontal rule        |
 | `<br>`              | Line break             |
 | `<div>`, `<span>` | Containers with styles |
+| `<dl>`, `<dt>`, `<dd>` | Definition list (term + indented definition) |
 
 ### Supported CSS Properties
 
 ```css
-color: red;                    /* Text color */
+color: red;                    /* Text color: hex, rgb()/rgba(), hsl()/hsla(), or 141 named colors */
 color: #FF5722;               /* Hex color */
 color: dodgerblue;            /* CSS named color (141 supported) */
+color: hsl(210, 80%, 50%);    /* HSL color */
 background-color: yellow;      /* Background/shading */
-font-size: 16px;              /* Font size */
-font-weight: bold;            /* Bold */
+font-size: 16px;              /* Font size: px, pt, em, rem, and % are all converted correctly */
+font-weight: bold;            /* Bold (also matches numeric weights 600-900) */
 font-style: italic;           /* Italic */
 text-align: center;           /* Alignment */
 text-decoration: underline;   /* Underline/strikethrough */
+margin-left: 20px;            /* Paragraph/cell indentation */
+padding-left: 20px;           /* Paragraph/cell indentation */
+text-indent: 20px;            /* First-line indentation */
 ```
+
+Property matching is case- and whitespace-insensitive (`FONT-WEIGHT:BOLD` works the same as `font-weight: bold`), and grouped selectors (`.foo, .bar { ... }`) apply to every class listed.
 
 ### CSS Named Colors
 
@@ -631,6 +656,49 @@ Nested lists are automatically converted to multi-level Word lists with proper i
 |:-----|:------:|------:|
 | L    | C      | R     |
 ```
+
+Column alignment from the `:---`/`:---:`/`---:` delimiter row is applied to each cell.
+
+Ordered lists preserve their start number (`5. Five` starts numbering at 5), and a list item spanning multiple paragraphs (separated by a blank line, indented under the marker) stays one logical item instead of splitting into several.
+
+---
+
+## Markdown Export
+
+Export documents directly to Markdown (GitHub-Flavored Markdown) with `MarkdownExporter` — the reverse direction of the Markdown parser above.
+
+```dart
+import 'package:docx_creator/docx_creator.dart';
+
+final doc = docx()
+  .h1('Report')
+  .p('Body text with **bold** and *italic*.')
+  .bullet(['Item 1', 'Item 2'])
+  .table([
+    ['Name', 'Status'],
+    ['Task 1', 'Done'],
+  ])
+  .build();
+
+final markdown = MarkdownExporter().export(doc);
+await MarkdownExporter().exportToFile(doc, 'report.md');
+```
+
+### Supported Features
+
+| Feature | Support |
+| --- | --- |
+| Headings (H1-H6) | ✅ |
+| Bold/Italic/Bold+Italic/Strikethrough | ✅ |
+| Inline code (CommonMark-correct backtick fencing) | ✅ |
+| Links, superscript/subscript/underline (HTML passthrough), highlighted text | ✅ |
+| Fenced code blocks, blockquotes, horizontal rules | ✅ |
+| Nested bullet/numbered lists, GFM task-list items | ✅ |
+| Tables (synthesized header separator row) | ✅ |
+| Inline/block images (as data URIs) | ✅ |
+| Footnote/endnote references with trailing definitions | ✅ |
+| Table cell merges (colSpan/rowSpan) | ⚠️ collapses to a plain cell — Markdown tables have no merge syntax |
+| Floating images, drawing shapes, raw OOXML, section breaks, TOC fields | ❌ no Markdown equivalent |
 
 ---
 
@@ -952,12 +1020,15 @@ final doc = DocxDocumentBuilder()
 | `section({...})`                  | Various                      | Set page properties  |
 | `build()`                         | -                            | Build document       |
 
-### DocxExporter
+### DocxExporter / PdfExporter / MarkdownExporter / HtmlExporter
+
+All four exporters share the same shape:
 
 | Method                      | Parameters                    | Description  |
 | --------------------------- | ----------------------------- | ------------ |
 | `exportToFile(doc, path)` | `DocxBuiltDocument, String` | Save to file |
-| `exportToBytes(doc)`      | `DocxBuiltDocument`         | Get as bytes |
+| `exportToBytes(doc)`      | `DocxBuiltDocument`         | Get as bytes (`DocxExporter`/`PdfExporter`) |
+| `export(doc)`             | `DocxBuiltDocument`         | Get as a string (`MarkdownExporter`/`HtmlExporter`) |
 
 ### DocxReader
 

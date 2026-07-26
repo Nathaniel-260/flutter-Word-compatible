@@ -638,6 +638,15 @@ class PdfLayoutEngine {
 
   /// Splits a paragraph into two parts: one that fits in availableHeight, and the remainder.
   /// Returns a list of two DocxParagraphs. The second one is null if everything fits.
+  ///
+  /// Known gap: unlike [_wrapText]/[_wrapTextVariableWidth] and
+  /// `PdfExporter._splitOverlongWords`, this method's own word-wrap
+  /// simulation still treats every space-delimited word as fitting on one
+  /// line. A paragraph containing an overlong word/URL that needs to be
+  /// split exactly at a page boundary can therefore have its "fitted" part
+  /// slightly exceed the available height once actually rendered. Tracked
+  /// as a follow-up; the far more common single-page overflow case is
+  /// fixed.
   List<DocxParagraph> _splitParagraph(
       DocxParagraph paragraph, double availableHeight) {
     final fontSize =
@@ -811,6 +820,23 @@ class PdfLayoutEngine {
       for (final word in words) {
         final wordWidth = fontManager.measureText(word, fontSize);
 
+        // A word wider than the whole line will be split across multiple
+        // lines by the renderer (see PdfExporter._splitOverlongWords) -
+        // without this, pagination would reserve too little height and
+        // body content could overlap the page boundary.
+        if (wordWidth > availableWidth && availableWidth > 0) {
+          if (currentLineWidth > 0) lines++;
+          final wholeLines = (wordWidth / availableWidth).ceil();
+          lines += wholeLines - 1;
+          // The word's last chunk only fills the *remainder* of its final
+          // line, not the whole width - carry that forward so the next
+          // word is correctly judged against how much room is actually
+          // left, not treated as if the line were nearly full.
+          currentLineWidth =
+              (wordWidth - (wholeLines - 1) * availableWidth) + spaceWidth;
+          continue;
+        }
+
         if (currentLineWidth + wordWidth > availableWidth &&
             currentLineWidth > 0) {
           lines++;
@@ -848,6 +874,15 @@ class PdfLayoutEngine {
       for (final word in words) {
         final wordWidth = fontManager.measureText(word, fontSize);
         final availableWidth = widthForLine(totalLines + lines - 1);
+
+        if (wordWidth > availableWidth && availableWidth > 0) {
+          if (currentLineWidth > 0) lines++;
+          final wholeLines = (wordWidth / availableWidth).ceil();
+          lines += wholeLines - 1;
+          currentLineWidth =
+              (wordWidth - (wholeLines - 1) * availableWidth) + spaceWidth;
+          continue;
+        }
 
         if (currentLineWidth + wordWidth > availableWidth &&
             currentLineWidth > 0) {

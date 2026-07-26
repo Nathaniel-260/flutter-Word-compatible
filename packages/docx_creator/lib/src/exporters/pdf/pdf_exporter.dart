@@ -419,8 +419,15 @@ class PdfExporter {
     final words =
         _collectWords(dropCap.restOfParagraph, builder, baseFontSize, false);
     final spaceWidth = baseFontSize * 0.278;
+    // Split against the narrower of the two widths so a long word can never
+    // overflow either the column beside the drop cap letter or the
+    // full-width lines below it.
+    final splitWidth = narrowWidth > 0 ? narrowWidth : maxWidth;
+    final splitWords =
+        _splitOverlongWords(words, splitWidth, baseFontSize, builder);
     final lines = _flowWordsVariableWidth(
-        words, spaceWidth, (i) => i < dropCap.lines ? narrowWidth : maxWidth);
+        splitWords, spaceWidth,
+        (i) => i < dropCap.lines ? narrowWidth : maxWidth);
 
     final lineHeights = <double>[];
     for (final line in lines) {
@@ -709,8 +716,8 @@ class PdfExporter {
 
     // Collect words with their formatting
     final isHeading = paragraph.styleId?.startsWith('Heading') ?? false;
-    final words =
-        _collectWords(paragraph.children, builder, fontSize, isHeading);
+    var words = _collectWords(paragraph.children, builder, fontSize, isHeading);
+    words = _splitOverlongWords(words, maxWidth, fontSize, builder);
 
     // Flow words into lines - use proper Helvetica space width (0.278)
     final spaceWidth = fontSize * 0.278;
@@ -857,7 +864,9 @@ class PdfExporter {
     var lineWidth = 0.0;
     for (var j = 0; j < line.length; j++) {
       lineWidth += line[j].width;
-      if (j < line.length - 1) lineWidth += spaceWidth;
+      if (j < line.length - 1 && !line[j + 1].glueToPrevious) {
+        lineWidth += spaceWidth;
+      }
     }
 
     var x = startX;
@@ -868,7 +877,10 @@ class PdfExporter {
     } else if (align == DocxAlign.right) {
       x += lineMaxWidth - lineWidth;
     } else if (align == DocxAlign.justify && !isLastLine) {
-      final spaceCount = line.length - 1;
+      var spaceCount = 0;
+      for (var j = 1; j < line.length; j++) {
+        if (!line[j].glueToPrevious) spaceCount++;
+      }
       if (spaceCount > 0) {
         final slack = lineMaxWidth - lineWidth;
         if (slack > 0 && slack < fontSize * 2) {
@@ -891,7 +903,9 @@ class PdfExporter {
         builder.restoreState();
       }
       bgX += word.width;
-      if (k < line.length - 1) bgX += spaceWidth + wordSpacing;
+      if (k < line.length - 1 && !line[k + 1].glueToPrevious) {
+        bgX += spaceWidth + wordSpacing;
+      }
     }
 
     // Second pass: draw text with manual position tracking
@@ -909,13 +923,13 @@ class PdfExporter {
         _drawImageBorder(builder, word.imageBorder, textX, imgY, word.width,
             word.imageHeight);
         textX += word.width;
-        if (k < line.length - 1) {
+        if (k < line.length - 1 && !line[k + 1].glueToPrevious) {
           textX += spaceWidth + wordSpacing;
         }
       } else if (word.isShape) {
         _drawShape(builder, word.shape!, textX, y - word.shape!.height * 0.8);
         textX += word.width;
-        if (k < line.length - 1) {
+        if (k < line.length - 1 && !line[k + 1].glueToPrevious) {
           textX += spaceWidth + wordSpacing;
         }
       } else if (word.isCheckbox) {
@@ -940,7 +954,7 @@ class PdfExporter {
         builder.restoreState();
         textX += word.width;
 
-        if (k < line.length - 1) {
+        if (k < line.length - 1 && !line[k + 1].glueToPrevious) {
           textX += spaceWidth + wordSpacing;
         }
       } else {
@@ -995,7 +1009,7 @@ class PdfExporter {
 
         textX += word.width;
 
-        if (k < line.length - 1) {
+        if (k < line.length - 1 && !line[k + 1].glueToPrevious) {
           textX += spaceWidth + wordSpacing;
         }
       }
@@ -1192,13 +1206,18 @@ class PdfExporter {
         continue;
       }
 
-      if (currentWidth + word.width + spaceWidth > maxWidth &&
+      // A glued continuation chunk (see _splitOverlongWords) never gets a
+      // space before it - it's part of the same original word.
+      final gap =
+          (currentLine.isNotEmpty && !word.glueToPrevious) ? spaceWidth : 0.0;
+
+      if (currentWidth + gap + word.width > maxWidth &&
           currentLine.isNotEmpty) {
         lines.add(currentLine);
         currentLine = [word];
         currentWidth = word.width;
       } else {
-        if (currentLine.isNotEmpty) currentWidth += spaceWidth;
+        currentWidth += gap;
         currentLine.add(word);
         currentWidth += word.width;
       }
@@ -1229,13 +1248,16 @@ class PdfExporter {
         continue;
       }
 
-      if (currentWidth + word.width + spaceWidth > maxWidth &&
+      final gap =
+          (currentLine.isNotEmpty && !word.glueToPrevious) ? spaceWidth : 0.0;
+
+      if (currentWidth + gap + word.width > maxWidth &&
           currentLine.isNotEmpty) {
         lines.add(currentLine);
         currentLine = [word];
         currentWidth = word.width;
       } else {
-        if (currentLine.isNotEmpty) currentWidth += spaceWidth;
+        currentWidth += gap;
         currentLine.add(word);
         currentWidth += word.width;
       }
@@ -1244,6 +1266,79 @@ class PdfExporter {
     if (currentLine.isNotEmpty) lines.add(currentLine);
     if (lines.isEmpty) lines.add([]);
     return lines;
+  }
+
+  /// Breaks any word wider than [maxWidth] into smaller glued chunks (see
+  /// [_Word.glueToPrevious]) that each individually fit, so a long word or
+  /// URL with no natural break point no longer draws past the right margin
+  /// unbroken. Words that already fit, and non-text words (tabs, images,
+  /// shapes, checkboxes), pass through unchanged.
+  ///
+  /// [defaultFontSize] must be the caller's own resolved paragraph font size
+  /// (e.g. a heading's larger size), not [fontSize] (the exporter's flat
+  /// base size) - it's only used as a fallback for words with no per-run
+  /// [_Word.fontSize] override, exactly like [_collectWords] does.
+  List<_Word> _splitOverlongWords(List<_Word> words, double maxWidth,
+      double defaultFontSize, PdfContentBuilder builder) {
+    if (maxWidth <= 0) return words;
+
+    final result = <_Word>[];
+    for (final word in words) {
+      final canSplit = !word.isTab &&
+          !word.isBreak &&
+          !word.isImage &&
+          !word.isShape &&
+          !word.isCheckbox &&
+          word.width > maxWidth &&
+          word.text.runes.length > 1;
+      if (!canSplit) {
+        result.add(word);
+        continue;
+      }
+
+      var effFontSize = (word.fontSize ?? defaultFontSize).toDouble();
+      if (word.isSuperscript || word.isSubscript) effFontSize *= 0.6;
+      final isBold = word.fontRef == PdfFontManager.fontBold;
+      final runes = word.text.runes.toList();
+
+      // Measure each rune's width once and accumulate a running sum while
+      // extending a chunk, instead of re-measuring the whole growing
+      // substring per character (which is quadratic in the word's length).
+      final runeWidths = List<double>.generate(
+        runes.length,
+        (i) => builder.measureText(String.fromCharCode(runes[i]), effFontSize,
+            isBold: isBold, fontRef: word.fontRef, fontManager: _fontManager),
+      );
+
+      var start = 0;
+      var isFirstChunk = true;
+      while (start < runes.length) {
+        var end = start + 1;
+        var chunkWidth = runeWidths[start];
+        while (end < runes.length && chunkWidth + runeWidths[end] <= maxWidth) {
+          chunkWidth += runeWidths[end];
+          end++;
+        }
+
+        result.add(_Word(
+          String.fromCharCodes(runes, start, end),
+          word.fontRef,
+          word.color,
+          chunkWidth,
+          isUnderline: word.isUnderline,
+          isStrike: word.isStrike,
+          backgroundColor: word.backgroundColor,
+          fontSize: word.fontSize,
+          isSuperscript: word.isSuperscript,
+          isSubscript: word.isSubscript,
+          href: word.href,
+          glueToPrevious: !isFirstChunk,
+        ));
+        isFirstChunk = false;
+        start = end;
+      }
+    }
+    return result;
   }
 
   /// Renders a table with real column widths (from
@@ -1617,7 +1712,9 @@ class PdfExporter {
 
     // 2. Flow words into lines based on cell width - use proper Helvetica space width (0.278)
     final spaceWidth = fontSize * 0.278;
-    final lines = _flowWords(words, width, spaceWidth);
+    final splitWords =
+        _splitOverlongWords(words, width, fontSize.toDouble(), builder);
+    final lines = _flowWords(splitWords, width, spaceWidth);
     final lineHeight = fontSize * 1.4;
 
     // 3. Render each line
@@ -1689,7 +1786,7 @@ class PdfExporter {
           builder.setTextMatrix(textX + word.width, currentY);
         }
 
-        if (k < line.length - 1) {
+        if (k < line.length - 1 && !line[k + 1].glueToPrevious) {
           builder.setTextMatrix(textX + word.width, currentY);
           builder.showText(' ');
           textX += spaceWidth;
@@ -1818,7 +1915,9 @@ class PdfExporter {
 
       if (words.isNotEmpty) {
         final spaceWidth = fontSize * 0.278;
-        final lines = _flowWords(words, availableWidth, spaceWidth);
+        final splitWords = _splitOverlongWords(
+            words, availableWidth, fontSize.toDouble(), builder);
+        final lines = _flowWords(splitWords, availableWidth, spaceWidth);
 
         // Render list item lines
         var currentY = y - fontSize * 0.3; // Align baseline (approx)
@@ -1888,7 +1987,7 @@ class PdfExporter {
               builder.setTextMatrix(textX + word.width, currentY);
             }
 
-            if (k < line.length - 1) {
+            if (k < line.length - 1 && !line[k + 1].glueToPrevious) {
               builder.setTextMatrix(textX + word.width, currentY);
               builder.showText(' ');
               textX += spaceWidth;
@@ -2122,6 +2221,13 @@ class _Word {
   final bool isShape;
   final DocxShape? shape;
 
+  /// True if this word is a continuation chunk of a single original word
+  /// that was too wide to fit on one line and was split by
+  /// [PdfExporter._splitOverlongWords] - the line-flow/draw logic must not
+  /// insert a space before it (it's a piece of one word, not a new word),
+  /// though a line break is still allowed between chunks.
+  final bool glueToPrevious;
+
   _Word(
     this.text,
     this.fontRef,
@@ -2136,6 +2242,7 @@ class _Word {
     this.isCheckbox = false,
     this.checkboxType,
     this.href,
+    this.glueToPrevious = false,
   })  : isTab = false,
         isBreak = false,
         isImage = false,
@@ -2165,7 +2272,8 @@ class _Word {
         imageHeight = 0,
         imageBorder = null,
         isShape = false,
-        shape = null;
+        shape = null,
+        glueToPrevious = false;
 
   _Word.lineBreak()
       : text = '',
@@ -2188,7 +2296,8 @@ class _Word {
         imageHeight = 0,
         imageBorder = null,
         isShape = false,
-        shape = null;
+        shape = null,
+        glueToPrevious = false;
 
   _Word.image(this.imageXObjectName, this.width, this.imageHeight,
       {this.imageBorder})
@@ -2208,7 +2317,8 @@ class _Word {
         href = null,
         isImage = true,
         isShape = false,
-        shape = null;
+        shape = null,
+        glueToPrevious = false;
 
   _Word.shape(this.shape, this.width)
       : text = '',
@@ -2229,7 +2339,8 @@ class _Word {
         imageXObjectName = null,
         imageHeight = 0,
         imageBorder = null,
-        isShape = true;
+        isShape = true,
+        glueToPrevious = false;
 }
 
 /// A pending clickable-link rectangle to attach to the current PDF page once

@@ -1,3 +1,27 @@
+## 1.3.0
+
+### Added
+- **`MarkdownExporter`** (DOCX → Markdown): the missing reverse direction of `MarkdownParser`. Covers headings, inline formatting (bold/italic/strikethrough/inline code/links/superscript/subscript/underline/highlight), fenced code blocks, blockquotes, horizontal rules, nested bullet/numbered/task lists, tables, inline/block images (as data URIs), and footnote/endnote references with trailing definitions.
+- **PDF export — automatic Unicode fallback font**: text using a script a standard PDF font can't render (Cyrillic, Greek, Vietnamese, and other scripts covered by DejaVu Sans) now renders correctly by default instead of silently vanishing or showing `?`. The exporter bundles DejaVu Sans (Bitstream Vera License, embeddable/redistributable — see `lib/src/exporters/pdf/fonts/DEJAVU_SANS_LICENSE.txt`) and lazily embeds it only when actually needed, with zero network or filesystem access so it works identically on web. An explicit `addFont()`/`fontFamily` request always takes priority. Does not cover CJK or Arabic, which need dedicated, much larger, shaping-aware fonts — use `addFont()` for those.
+
+### Fixed
+- **HTML parser — table row/cell colors** (#100): background/text color parsing only matched literal 6-digit hex; named colors (`lightgreen`), `rgb()`, and 3-digit hex now work, `<tr style="...">` is now read (previously only `<td>`/`<th>` own style was), and `<thead>` rows are now marked `DocxTableRow.isHeader`.
+- **HTML parser — whitespace and inline flow** (#101): text nodes are now whitespace-collapsed per normal HTML rules (`<p>Hello\n   World</p>` → "Hello World", not the literal source whitespace); loose inline content next to a block sibling (`<div><p>A</p>loose <span>text</span></div>`) now merges into one paragraph instead of splitting into several.
+- **HTML parser — CSS value parsing** (#102): `font-size` now converts px/em/rem/% to points instead of taking the raw number as points; style-keyword matching (`font-weight`/`font-style`/`text-decoration`/`text-align`) is now case- and whitespace-insensitive; `font-weight: 600`–`900` is now treated as bold; `hsl()`/`hsla()` colors are supported; grouped selectors (`.foo, .bar { ... }`) apply to every class in the group; `margin`/`padding`/`text-indent` now map to paragraph/cell indentation.
+- **HTML parser — lists and definition lists** (#103): `<ol start="n">` is now honored; nested `<ul>`/`<ol>` are stamped with an override style reflecting their own type when flattened into the parent; `<dl>`/`<dt>`/`<dd>` now render as a bold-term paragraph plus an indented definition instead of garbling into one run of concatenated text.
+- **Markdown parser — table alignment** (#104): column alignment (`:---`, `:---:`, `---:`) is now applied; previously parsed by `package:markdown` but never read, so every column rendered left-aligned. Also fixed in the same pass: computed row `isHeader` was never actually passed to `DocxTableRow`.
+- **Markdown parser — list structure** (#105): ordered list start numbers (`5. Five`) are now preserved; a loose list item with multiple paragraphs stays one logical item instead of splitting into one entry per paragraph; nested sublists get the same type-preserving override style as the HTML parser fix above.
+- **PDF export — Unicode text loss**: `PdfFontManager`/`EmbeddedFont` iterated UTF-16 code units instead of Unicode code points, so any character outside the Basic Multilingual Plane (most emoji, some rare CJK) was split into two invalid glyph lookups even on the embedded-font path (#106).
+- **PDF export — shape pagination**: `DocxShapeBlock` had no measurement case and used a fixed ~18pt estimate while rendering at its real (possibly much taller) height, so pagination could judge a tall shape as fitting near a page bottom and then draw past the margin (#107, partial).
+- **PDF export — nested list numbering**: a nested list inside a table cell continued its parent's numbering instead of restarting at 1 per level (#107).
+- **PDF export — long words/URLs overflowing the margin** (#107): a single word or URL wider than the available line width was never broken and drew straight past the right margin; it's now split across lines like any other overflow, in paragraphs, headings, table cells, list items, and drop caps. Pagination's line-count estimates were updated to match, so page breaks stay correctly positioned.
+- **`HtmlExporter` (DOCX → HTML) — missing node types** (#108): `DocxShapeBlock`, `DocxDropCap`, `DocxSectionBreakBlock`, `DocxTableOfContents`, and `DocxRawXml` were silently dropped from the output entirely — worst case, a drop-cap paragraph lost its actual text, not just its styling. All now render (or, for constructs with no HTML equivalent, are marked with an HTML comment instead of vanishing without a trace). `DocxCheckbox`, `DocxFootnoteRef`, and `DocxEndnoteRef` are now handled at the inline level, with footnote/endnote content rendered in a trailing linked "notes" section.
+
+### Changed
+- Dependency lower bounds bumped to versions verified against the full test suite: `markdown` ^7.3.0 → ^7.3.1, `uuid` ^4.5.3 → ^4.6.0, `equatable` ^2.0.8 → ^2.1.0, `test` ^1.30.0 → ^1.31.2 (dev). `xml`/`image` were left on their current major versions pending a compatibility review of their next major releases.
+
+---
+
 ## 1.2.8
 
 ### Fixed
