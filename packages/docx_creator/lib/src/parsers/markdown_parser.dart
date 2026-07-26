@@ -222,43 +222,56 @@ class MarkdownParser {
     int level = 0,
   }) async {
     final items = <DocxListItem>[];
+    final startIndex = int.tryParse(element.attributes['start'] ?? '') ?? 1;
 
     for (var child in element.children ?? []) {
       if (child is md.Element && child.tag == 'li') {
-        final currentInlines = <DocxInline>[];
+        // A "loose" list item can contain more than one <p> (a blank line
+        // between them in the source Markdown); those all belong to one
+        // logical item and must share a single bullet/number, not one each.
+        final itemInlines = <DocxInline>[];
 
-        void flushInlines() {
-          if (currentInlines.isNotEmpty) {
-            items.add(DocxListItem(List.from(currentInlines), level: level));
-            currentInlines.clear();
+        void flushItem() {
+          if (itemInlines.isNotEmpty) {
+            items.add(DocxListItem(List.of(itemInlines), level: level));
+            itemInlines.clear();
           }
         }
 
         // Process children of LI
         for (var node in child.children ?? []) {
           if (node is md.Element && (node.tag == 'ul' || node.tag == 'ol')) {
-            flushInlines();
-            // Found nested list
-            final nested = await _parseList(node,
-                ordered: node.tag == 'ol', level: level + 1);
-            items.addAll(nested.items);
-          } else if (node is md.Element && node.tag == 'p') {
-            flushInlines();
-            // Explicit paragraph in list item
-            final inlines = await _parseInlines(node.children ?? []);
-            if (inlines.isNotEmpty) {
-              items.add(DocxListItem(inlines, level: level));
+            flushItem();
+            // Found nested list. DocxListItem can only hold inline content
+            // (not a nested DocxList), so its items are flattened into this
+            // list; stamping an override style at least preserves the
+            // nested list's own bullet/numbered glyph and indentation.
+            final nestedOrdered = node.tag == 'ol';
+            final nested =
+                await _parseList(node, ordered: nestedOrdered, level: level + 1);
+            for (var nestedItem in nested.items) {
+              items.add(nestedItem.copyWith(
+                overrideStyle: nestedItem.overrideStyle ??
+                    (nestedOrdered
+                        ? DocxListStyle.decimal
+                        : DocxListStyle.disc),
+              ));
             }
+          } else if (node is md.Element && node.tag == 'p') {
+            // Explicit paragraph in list item - append to the same item
+            // rather than starting a new one.
+            if (itemInlines.isNotEmpty) itemInlines.add(DocxLineBreak());
+            itemInlines.addAll(await _parseInlines(node.children ?? []));
           } else {
             // Regular inline content
-            currentInlines.addAll(await _parseInline(node));
+            itemInlines.addAll(await _parseInline(node));
           }
         }
-        flushInlines();
+        flushItem();
       }
     }
 
-    return DocxList(items: items, isOrdered: ordered);
+    return DocxList(items: items, isOrdered: ordered, startIndex: startIndex);
   }
 
   static Future<DocxTable> _parseTable(md.Element element) async {
@@ -304,6 +317,7 @@ class MarkdownParser {
             children: [
               DocxParagraph(
                 children: inlines,
+                align: _cellAlign(child.attributes['align']),
               )
             ],
           ),
@@ -311,7 +325,20 @@ class MarkdownParser {
       }
     }
 
-    return DocxTableRow(cells: cells);
+    return DocxTableRow(cells: cells, isHeader: isHeader);
+  }
+
+  /// Maps a GFM table cell's `align` attribute (derived from the
+  /// `:---`/`:---:`/`---:` delimiter row) to [DocxAlign].
+  static DocxAlign _cellAlign(String? align) {
+    switch (align) {
+      case 'center':
+        return DocxAlign.center;
+      case 'right':
+        return DocxAlign.right;
+      default:
+        return DocxAlign.left;
+    }
   }
 
   static Future<String> _extractText(md.Node node) async {
