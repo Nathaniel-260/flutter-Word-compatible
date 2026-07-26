@@ -29,21 +29,48 @@ class HtmlBlockParser {
   }
 
   /// Parse child nodes into DocxNode elements.
+  ///
+  /// Consecutive siblings that don't produce a block of their own — text
+  /// nodes and inline elements like `<span>`/`<b>` sitting directly next to
+  /// a block sibling (e.g. `<div><p>A</p>loose <span>text</span></div>`) —
+  /// are accumulated and merged into a single paragraph, the same way a
+  /// browser lays them out on one line, instead of each becoming its own
+  /// separate paragraph.
   Future<List<DocxNode>> parseChildren(List<dom.Node> nodes,
       {HtmlStyleContext? styleContext}) async {
+    final ctx = styleContext ?? const HtmlStyleContext();
     final results = <DocxNode>[];
-    for (var node in nodes) {
-      final parsed = await parseNode(node, styleContext: styleContext);
-      results.addAll(parsed);
+    final inlineBuffer = <DocxInline>[];
+
+    void flushInlineBuffer() {
+      if (inlineBuffer.isEmpty) return;
+      results.add(DocxParagraph(children: List.of(inlineBuffer)));
+      inlineBuffer.clear();
     }
+
+    for (var node in nodes) {
+      final isLooseInline = node is dom.Text ||
+          (node is dom.Element && !isBlockTag(node.localName?.toLowerCase()));
+
+      if (isLooseInline) {
+        inlineBuffer.addAll(await _inlineParser.parseInline(node, context: ctx));
+        continue;
+      }
+
+      flushInlineBuffer();
+      results.addAll(await parseNode(node, styleContext: styleContext));
+    }
+    flushInlineBuffer();
+
     return results;
   }
 
-  /// Parse a single DOM node.
+  /// Parse a single DOM node in isolation (i.e. not as part of a run of
+  /// sibling inline content — see [parseChildren] for that merging).
   Future<List<DocxNode>> parseNode(dom.Node node,
       {HtmlStyleContext? styleContext}) async {
     if (node is dom.Text) {
-      final text = node.text.trim();
+      final text = collapseHtmlWhitespace(node.text).trim();
       if (text.isEmpty) return [];
       final built = DocumentBuilder.buildBlockElement(
         tag: 'p',

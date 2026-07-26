@@ -107,10 +107,16 @@ class HtmlInlineParser {
   }
 
   List<DocxInline> _parseTextNode(String text, HtmlStyleContext ctx) {
-    if (text.isEmpty) return [];
+    // HTML collapses runs of whitespace (including newlines from
+    // pretty-printed markup) into a single space; only whitespace-only
+    // text nodes (indentation between sibling tags) are dropped entirely.
+    final collapsed = collapseHtmlWhitespace(text);
+    if (collapsed.trim().isEmpty) return [];
 
-    // Check for checkbox patterns
-    if (text.startsWith('[ ] ')) {
+    // Check for checkbox patterns (allow leading whitespace collapsed
+    // above from e.g. indentation before the marker).
+    final leftTrimmed = collapsed.trimLeft();
+    if (leftTrimmed.startsWith('[ ] ')) {
       return [
         DocumentBuilder.buildCheckbox(
           isChecked: false,
@@ -119,9 +125,10 @@ class HtmlInlineParser {
           fontStyle: ctx.fontStyle,
           color: ctx.colorHex != null ? DocxColor(ctx.colorHex!) : null,
         ),
-        createText(text.substring(4), ctx)
+        createText(leftTrimmed.substring(4), ctx)
       ];
-    } else if (text.startsWith('[x] ') || text.startsWith('[X] ')) {
+    } else if (leftTrimmed.startsWith('[x] ') ||
+        leftTrimmed.startsWith('[X] ')) {
       return [
         DocumentBuilder.buildCheckbox(
           isChecked: true,
@@ -130,11 +137,11 @@ class HtmlInlineParser {
           fontStyle: ctx.fontStyle,
           color: ctx.colorHex != null ? DocxColor(ctx.colorHex!) : null,
         ),
-        createText(text.substring(4), ctx)
+        createText(leftTrimmed.substring(4), ctx)
       ];
     }
 
-    return [createText(text, ctx)];
+    return [createText(collapsed, ctx)];
   }
 
   List<DocxInline> _parseInput(dom.Element node, HtmlStyleContext newCtx) {
