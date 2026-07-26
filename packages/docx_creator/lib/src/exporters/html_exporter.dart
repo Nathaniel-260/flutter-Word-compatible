@@ -4,8 +4,14 @@ import 'dart:typed_data';
 import '../../docx_creator.dart';
 import '../utils/file_saver.dart';
 
-/// Exports [DocxBuiltDocument] to HTML format.
+/// Exports a [DocxBuiltDocument] to a self-contained HTML string.
+///
+/// Every [DocxBlock]/[DocxInline] node type in the AST is handled; nodes
+/// with no meaningful HTML representation (raw OOXML, section breaks) are
+/// still emitted as an HTML comment rather than silently dropped, so their
+/// presence stays visible in the output.
 class HtmlExporter {
+  /// Exports [doc] to HTML and writes it to [filePath].
   Future<void> exportToFile(DocxBuiltDocument doc, String filePath) async {
     try {
       final html = export(doc);
@@ -20,7 +26,7 @@ class HtmlExporter {
     }
   }
 
-  /// Exports to HTML string.
+  /// Exports [doc] to an HTML string.
   String export(DocxBuiltDocument doc) {
     final buffer = StringBuffer();
     buffer.writeln('<!DOCTYPE html>');
@@ -32,6 +38,9 @@ class HtmlExporter {
       buffer.writeln(_convertNode(element));
     }
 
+    final notes = _convertNoteDefinitions(doc);
+    if (notes.isNotEmpty) buffer.writeln(notes);
+
     buffer.writeln('</body></html>');
     return buffer.toString();
   }
@@ -41,7 +50,49 @@ class HtmlExporter {
     if (node is DocxTable) return _convertTable(node);
     if (node is DocxList) return _convertList(node);
     if (node is DocxImage) return _convertBlockImage(node);
+    if (node is DocxDropCap) return _convertDropCap(node);
+    if (node is DocxShapeBlock) return _convertShapeBlock(node);
+    if (node is DocxTableOfContents) return _convertTableOfContents(node);
+    if (node is DocxSectionBreakBlock) return '<!-- section break -->';
+    if (node is DocxRawXml) return '<!-- raw OOXML content omitted -->';
     return '';
+  }
+
+  /// A drop cap is a paragraph split across two AST nodes (the large
+  /// initial letter and [DocxDropCap.restOfParagraph]) purely to carry
+  /// DOCX's `w:framePr` positioning; in HTML that's one paragraph with the
+  /// first letter styled to float, so both parts are rendered together.
+  String _convertDropCap(DocxDropCap dropCap) {
+    final letter = _escapeHtml(dropCap.letter);
+    final rest = dropCap.restOfParagraph.map(_convertInline).join();
+    return '<p><span class="drop-cap">$letter</span>$rest</p>';
+  }
+
+  String _convertShapeBlock(DocxShapeBlock shapeBlock) {
+    final shape = shapeBlock.shape;
+    final styles = <String>[
+      'display: inline-block',
+      'width: ${shape.width}pt',
+      'height: ${shape.height}pt',
+    ];
+    if (shape.fillColor != null) {
+      styles.add('background-color: #${shape.fillColor!.hex}');
+    }
+    if (shape.outlineColor != null) {
+      styles.add(
+        'border: ${shape.outlineWidth}pt solid #${shape.outlineColor!.hex}',
+      );
+    }
+    final containerStyle = shapeBlock.align != DocxAlign.left
+        ? ' style="text-align: ${shapeBlock.align.name}"'
+        : '';
+    final text = shape.text != null ? _escapeHtml(shape.text!) : '';
+    return '<div$containerStyle><div style="${styles.join(';')}">$text</div></div>';
+  }
+
+  String _convertTableOfContents(DocxTableOfContents toc) {
+    final content = toc.cachedContent.map(_convertNode).join();
+    return '<nav class="toc">$content</nav>';
   }
 
   String _convertParagraph(DocxParagraph para) {
@@ -107,6 +158,13 @@ class HtmlExporter {
     if (inline is DocxText) return _convertText(inline);
     if (inline is DocxLineBreak) return '<br>';
     if (inline is DocxInlineImage) return _convertInlineImage(inline);
+    if (inline is DocxCheckbox) return inline.isChecked ? '☒' : '☐';
+    if (inline is DocxFootnoteRef) {
+      return _convertNoteRef('fn', inline.footnoteId);
+    }
+    if (inline is DocxEndnoteRef) {
+      return _convertNoteRef('en', inline.endnoteId);
+    }
     if (inline is DocxPageNumber) {
       return '<span class="page-number">[Page]</span>';
     }
@@ -114,6 +172,39 @@ class HtmlExporter {
       return '<span class="page-count">[Total]</span>';
     }
     return '';
+  }
+
+  String _convertNoteRef(String prefix, int id) {
+    return '<sup id="$prefix-ref-$id">'
+        '<a href="#$prefix-$id">[$id]</a></sup>';
+  }
+
+  /// Renders footnote/endnote *definitions* at the end of the document,
+  /// linked back to their in-text [_convertNoteRef] markers. Word keeps
+  /// these in separate parts (`footnotes.xml`/`endnotes.xml`); HTML has no
+  /// such concept, so they're appended as a single "Notes" section.
+  String _convertNoteDefinitions(DocxBuiltDocument doc) {
+    final footnotes = doc.footnotes ?? const <DocxFootnote>[];
+    final endnotes = doc.endnotes ?? const <DocxEndnote>[];
+    if (footnotes.isEmpty && endnotes.isEmpty) return '';
+
+    final buffer = StringBuffer('<hr><section class="notes"><ol>');
+    for (final footnote in footnotes) {
+      final content = footnote.content.map<String>(_convertNode).join();
+      buffer.write(
+        '<li id="fn-${footnote.footnoteId}">$content '
+        '<a href="#fn-ref-${footnote.footnoteId}">&#8617;</a></li>',
+      );
+    }
+    for (final endnote in endnotes) {
+      final content = endnote.content.map<String>(_convertNode).join();
+      buffer.write(
+        '<li id="en-${endnote.endnoteId}">$content '
+        '<a href="#en-ref-${endnote.endnoteId}">&#8617;</a></li>',
+      );
+    }
+    buffer.write('</ol></section>');
+    return buffer.toString();
   }
 
   String _convertInlineImage(DocxInlineImage image) {
@@ -249,5 +340,7 @@ class HtmlExporter {
     li { margin-bottom: 0.5em; }
     a { color: #0563C1; }
     img { max-width: 100%; height: auto; }
+    .drop-cap { float: left; font-size: 300%; line-height: 0.8; padding-right: 4px; }
+    section.notes { font-size: 0.9em; }
   ''';
 }

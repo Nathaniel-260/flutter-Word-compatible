@@ -176,6 +176,25 @@ class ColorUtils {
     return null;
   }
 
+  /// Extracts a color-valued CSS property (e.g. `color`, `background-color`)
+  /// from a style string and resolves it to a hex string via [parseColor],
+  /// so named colors (`lightgreen`), `rgb()`/`rgba()`, and 3-digit hex are
+  /// all recognized — not just literal 6-digit hex.
+  ///
+  /// The negative lookbehind on [property] avoids `color` matching inside
+  /// `background-color`.
+  static String? parseCssColorProperty(String style, String property) {
+    final regex = RegExp(
+      '(?<![-a-zA-Z])$property:\\s*[\'"]?'
+      r"(#[A-Fa-f0-9]{3,8}|rgba?\([0-9.,\s]+\)|[a-zA-Z]+)"
+      '[\'"]?',
+      caseSensitive: false,
+    );
+    final match = regex.firstMatch(style);
+    if (match == null) return null;
+    return parseColor(match.group(1)!);
+  }
+
   /// W3C CSS3 Extended Color Keywords (141 named colors).
   static const _cssColors = <String, String>{
     // Basic colors
