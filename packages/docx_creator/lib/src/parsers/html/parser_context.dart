@@ -1,5 +1,17 @@
 import 'package:html/dom.dart' as dom;
 
+/// Collapses runs of HTML whitespace (space, tab, newline, carriage
+/// return, form feed) into a single space, matching how a browser
+/// collapses whitespace in normal (non-`<pre>`) text content.
+///
+/// This intentionally does not trim the result — a single leading or
+/// trailing space is often significant (e.g. the space between
+/// `<b>bold</b> text`), so trimming is left to call sites that know
+/// whether they're at a boundary where it's safe to drop.
+String collapseHtmlWhitespace(String text) {
+  return text.replaceAll(RegExp(r'[ \t\r\n\f]+'), ' ');
+}
+
 /// Shared context for all HTML parser modules.
 ///
 /// Holds the CSS class map and provides access to parsed styles.
