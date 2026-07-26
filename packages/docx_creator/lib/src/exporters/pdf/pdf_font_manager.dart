@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 
+import 'fonts/fallback_font_data.dart';
 import 'pdf_document_writer.dart';
 import 'ttf_parser.dart';
 
@@ -316,6 +317,38 @@ class PdfFontManager {
     }
     return null;
   }
+
+  /// True if [text] contains a character with no WinAnsi representation -
+  /// one that a standard PDF font can't render and [escapeText] would
+  /// otherwise have to substitute with '?'.
+  bool needsUnicodeFallback(String text) {
+    for (final code in text.runes) {
+      if (code >= 32 && code <= 255) continue;
+      if (_unicodeToWinAnsi(code) != null) continue;
+      return true;
+    }
+    return false;
+  }
+
+  String? _fallbackFontRef;
+
+  /// Lazily embeds the bundled Unicode-broad fallback font (DejaVu Sans,
+  /// Bitstream Vera License - see `fonts/DEJAVU_SANS_LICENSE.txt`) the
+  /// first time it's actually needed, and returns its font reference.
+  ///
+  /// This exists so that text using a script the standard PDF fonts can't
+  /// represent (Cyrillic, Greek, Vietnamese, and other scripts DejaVu Sans
+  /// covers - not CJK or Arabic, which need dedicated shaping-aware fonts
+  /// far larger than is reasonable to bundle unconditionally) still
+  /// renders correctly by default, without the caller having to call
+  /// `addFont` themselves. Embedding only happens on first use, so
+  /// documents that don't need it pay no size/processing cost for it.
+  String get fallbackUnicodeFontRef {
+    return _fallbackFontRef ??=
+        embedFont(_kFallbackFontName, base64Decode(kFallbackUnicodeFontBase64));
+  }
+
+  static const _kFallbackFontName = 'DejaVu Sans (docx_creator fallback)';
 
   /// Selects the appropriate font reference based on text properties.
   String selectFont({

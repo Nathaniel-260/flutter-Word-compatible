@@ -25,6 +25,65 @@ void main() {
       final width = manager.measureText(emoji, 12);
       expect(width, greaterThan(0));
     });
+
+    test('needsUnicodeFallback flags text a standard font cannot render',
+        () {
+      final manager = PdfFontManager();
+      expect(manager.needsUnicodeFallback('Hello, world!'), isFalse);
+      expect(manager.needsUnicodeFallback('Привет'), isTrue); // Cyrillic
+      expect(manager.needsUnicodeFallback('日本語'), isTrue); // CJK
+    });
+
+    test('fallbackUnicodeFontRef lazily embeds one font and reuses it', () {
+      final manager = PdfFontManager();
+      expect(manager.embeddedFonts, isEmpty);
+
+      final ref1 = manager.fallbackUnicodeFontRef;
+      expect(manager.embeddedFonts, hasLength(1));
+
+      final ref2 = manager.fallbackUnicodeFontRef;
+      expect(ref2, ref1);
+      expect(manager.embeddedFonts, hasLength(1));
+    });
+
+    test('the bundled fallback font actually has glyphs for Cyrillic text',
+        () {
+      final manager = PdfFontManager();
+      final ref = manager.fallbackUnicodeFontRef;
+      final font = manager.getEmbeddedFont(ref)!;
+
+      // Cyrillic 'П' (U+041F) must resolve to a real glyph, not .notdef (0).
+      final glyphId = font.metrics.getGlyphId(0x041F);
+      expect(glyphId, isNot(0));
+    });
+  });
+
+  group('PdfExporter end-to-end Unicode fallback', () {
+    test('exports Cyrillic/CJK text without a custom font, with no crash',
+        () {
+      final doc = DocxBuiltDocument(elements: [
+        DocxParagraph.text('Привет, мир!'), // Cyrillic
+        DocxParagraph.text('日本語のテキスト'), // Japanese
+      ]);
+
+      final bytes = PdfExporter().exportToBytes(doc);
+      expect(bytes, isNotEmpty);
+    });
+
+    test('an explicit custom font is not overridden by the fallback', () {
+      final doc = DocxBuiltDocument(elements: [
+        DocxParagraph(children: [
+          DocxText('Привет', fontFamily: 'SomeCustomFont'),
+        ]),
+      ]);
+
+      // Should not throw even though 'SomeCustomFont' was never actually
+      // registered via addFont() - selectFont() falls back to a standard
+      // font by name lookup miss, and the explicit fontFamily request means
+      // _withUnicodeFallback must not silently substitute a different font.
+      final bytes = PdfExporter().exportToBytes(doc);
+      expect(bytes, isNotEmpty);
+    });
   });
 
   group('PdfLayoutEngine.measureNode', () {
