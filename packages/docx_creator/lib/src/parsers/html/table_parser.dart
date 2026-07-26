@@ -26,9 +26,11 @@ class HtmlTableParser {
       final childTag = child.localName?.toLowerCase();
 
       if (childTag == 'tbody' || childTag == 'thead' || childTag == 'tfoot') {
+        final isHeaderSection = childTag == 'thead';
         for (var tr in child.children) {
           if (tr.localName?.toLowerCase() == 'tr') {
-            final row = await _parseTableRow(tr);
+            final row =
+                await _parseTableRow(tr, isHeaderSection: isHeaderSection);
             if (row != null) rows.add(row);
           }
         }
@@ -72,38 +74,58 @@ class HtmlTableParser {
     );
   }
 
-  Future<DocxTableRow?> _parseTableRow(dom.Element tr) async {
-    final cells = <DocxTableCell>[];
+  Future<DocxTableRow?> _parseTableRow(
+    dom.Element tr, {
+    bool isHeaderSection = false,
+  }) async {
+    final rowStyle = context.mergeStyles(tr.attributes['style'], tr.classes);
+    final rowShadingFill =
+        ColorUtils.parseCssColorProperty(rowStyle, 'background-color');
+    final rowColorHex = ColorUtils.parseCssColorProperty(rowStyle, 'color');
 
+    final cells = <DocxTableCell>[];
     for (var child in tr.children) {
       final tag = child.localName?.toLowerCase();
       if (tag == 'td' || tag == 'th') {
-        final cell = await _parseTableCell(child, isHeader: tag == 'th');
+        final cell = await _parseTableCell(
+          child,
+          isHeader: isHeaderSection || tag == 'th',
+          rowShadingFill: rowShadingFill,
+          rowColorHex: rowColorHex,
+        );
         cells.add(cell);
       }
     }
 
     if (cells.isEmpty) return null;
-    return DocxTableRow(cells: cells);
+    return DocxTableRow(cells: cells, isHeader: isHeaderSection);
   }
 
-  Future<DocxTableCell> _parseTableCell(dom.Element td,
-      {bool isHeader = false}) async {
+  Future<DocxTableCell> _parseTableCell(
+    dom.Element td, {
+    bool isHeader = false,
+    String? rowShadingFill,
+    String? rowColorHex,
+  }) async {
     final style = context.mergeStyles(td.attributes['style'], td.classes);
 
-    String? shadingFill;
-    final bgMatch =
-        RegExp(r'background-color:\s*#([A-Fa-f0-9]{6})').firstMatch(style);
-    if (bgMatch != null) {
-      shadingFill = bgMatch.group(1);
-    } else if (isHeader) {
-      shadingFill = 'E0E0E0';
-    }
+    // A cell's own background wins over its row's, which wins over the
+    // default header shading.
+    final shadingFill =
+        ColorUtils.parseCssColorProperty(style, 'background-color') ??
+            rowShadingFill ??
+            (isHeader ? 'E0E0E0' : null);
+    final colorHex =
+        ColorUtils.parseCssColorProperty(style, 'color') ?? rowColorHex;
 
     final colSpan = int.tryParse(td.attributes['colspan'] ?? '1') ?? 1;
     final rowSpan = int.tryParse(td.attributes['rowspan'] ?? '1') ?? 1;
 
-    final content = await _parseCellContent(td.nodes, isHeader: isHeader);
+    final content = await _parseCellContent(
+      td.nodes,
+      isHeader: isHeader,
+      colorHex: colorHex,
+    );
 
     return DocxTableCell(
       children: content,
@@ -121,14 +143,27 @@ class HtmlTableParser {
     );
   }
 
-  Future<List<DocxBlock>> _parseCellContent(List<dom.Node> nodes,
-      {bool isHeader = false}) async {
+  Future<List<DocxBlock>> _parseCellContent(
+    List<dom.Node> nodes, {
+    bool isHeader = false,
+    String? colorHex,
+  }) async {
     if (blockParser != null) {
-      final results = await blockParser!.parseChildren(nodes);
+      // Seed the row/cell's own text color and header weight as inherited
+      // style, the same way a nested <span style="..."> would inherit from
+      // an ancestor, so it reaches text nodes even when the cell has no
+      // per-run style of its own.
+      final seedContext = HtmlStyleContext(
+        colorHex: colorHex,
+        fontWeight: isHeader ? DocxFontWeight.bold : DocxFontWeight.normal,
+      );
+      final results = await blockParser!
+          .parseChildren(nodes, styleContext: seedContext);
       return results.whereType<DocxBlock>().toList();
     }
     final blocks = <DocxBlock>[];
     final inlines = <DocxInline>[];
+    final color = colorHex != null ? DocxColor(colorHex) : null;
 
     void flushInlines() {
       if (inlines.isNotEmpty) {
@@ -141,7 +176,9 @@ class HtmlTableParser {
       if (node is dom.Text) {
         final text = node.text.trim();
         if (text.isNotEmpty) {
-          inlines.add(isHeader ? DocxText.bold(text) : DocxText(text));
+          inlines.add(isHeader
+              ? DocxText.bold(text, color: color)
+              : DocxText(text, color: color));
         }
       } else if (node is dom.Element) {
         final tag = node.localName?.toLowerCase();
