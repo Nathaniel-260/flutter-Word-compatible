@@ -29,7 +29,7 @@ Add `docx_file_viewer` to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  docx_file_viewer: ^1.0.1
+  docx_file_viewer: ^1.0.3
 ```
 
 Then run:
@@ -227,7 +227,7 @@ DocxViewTheme.dark()
 | Text Alignment | ✅ | Left, center, right, justify |
 | Line Spacing | ✅ | Single, 1.5, double, exact |
 | Indentation | ✅ | Left, right, first-line, hanging |
-| Paragraph Borders | ✅ | All sides with colors |
+| Paragraph Borders | ✅ | All sides with colors; dotted/dashed styles render as solid (Flutter has no dashed `BorderSide`) |
 | Paragraph Shading | ✅ | Background colors |
 | Drop Caps | ✅ | With text wrap |
 | **Lists** | | |
@@ -238,7 +238,7 @@ DocxViewTheme.dark()
 | **Tables** | | |
 | Basic Tables | ✅ | Rows, columns, cells |
 | Cell Merging | ✅ | Horizontal and vertical |
-| Cell Borders | ✅ | All sides with colors |
+| Cell Borders | ✅ | All sides with colors; dotted/dashed styles render as solid |
 | Cell Shading | ✅ | Background colors |
 | Conditional Formatting | ✅ | First/last row/col, banding |
 | **Images & Shapes** | | |

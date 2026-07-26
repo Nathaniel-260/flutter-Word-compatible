@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.3] - 2026-07-26
+
+### 🐛 Bug Fixes
+
+- **Image/shape sizing was too small** — `DocxImage`/`DocxInlineImage`/`DocxShapeBlock` dimensions are stored in points, but were passed straight through to Flutter's `width`/`height` as if already logical pixels; they're now correctly scaled via `DocxUnits.pointsToPixels` (points × 96/72), matching how the same document renders in Word
+- **`DocxUnits.twipsToPixels`** divided by 20 (twips → points) and stopped there instead of continuing on to pixels; fixed to twips → points → pixels (`twips / 20 * 1.333`)
+- **List bullets stored as Word's Symbol/Wingdings Private-Use-Area glyphs** (e.g. `U+F0B7`) rendered as a "tofu" box on platforms without that exact font installed; these now fall back to a portable Unicode bullet instead
+- **Dotted/dashed paragraph and table borders were invisible** — Flutter's `BorderSide` only supports solid or none, and they were previously mapped to `BorderStyle.none`; they're now drawn solid instead of silently disappearing (the closer of the two approximations)
+
+### 🔧 Improvements
+
+- Bumped `docx_creator` dependency to `1.3.0`
+
+### 🧪 Tests
+
+- Added `test/rendering_accuracy_fixes_test.dart` — covers the twips/points → pixel scaling fix (image and shape sizing) and the Private-Use-Area bullet fallback
+
 ## [1.0.2] - 2026-05-16
 
 ### ✨ New Features
