@@ -2,6 +2,7 @@ import 'package:docx_creator/docx_creator.dart';
 import 'package:flutter/material.dart';
 
 import '../docx_view_config.dart';
+import '../utils/docx_units.dart';
 
 /// Builds Flutter widgets from [DocxShape] and [DocxShapeBlock] elements.
 class ShapeBuilder {
@@ -42,13 +43,16 @@ class ShapeBuilder {
   }
 
   Widget _buildShape(DocxShape shape) {
+    final width = DocxUnits.pointsToPixels(shape.width);
+    final height = DocxUnits.pointsToPixels(shape.height);
+
     // Determine shape decoration based on preset
     BoxDecoration decoration;
     BorderRadius? borderRadius;
 
     switch (shape.preset) {
       case DocxShapePreset.ellipse:
-        borderRadius = BorderRadius.circular(shape.height / 2);
+        borderRadius = BorderRadius.circular(height / 2);
         break;
       case DocxShapePreset.roundRect:
         borderRadius = BorderRadius.circular(8);
@@ -95,8 +99,8 @@ class ShapeBuilder {
 
     // Apply rotation if specified
     Widget container = Container(
-      width: shape.width,
-      height: shape.height,
+      width: width,
+      height: height,
       decoration: decoration,
       child: shape.text != null
           ? Center(
@@ -127,8 +131,8 @@ class ShapeBuilder {
 
   Widget _buildComplexShape(DocxShape shape) {
     return SizedBox(
-      width: shape.width,
-      height: shape.height,
+      width: DocxUnits.pointsToPixels(shape.width),
+      height: DocxUnits.pointsToPixels(shape.height),
       child: CustomPaint(
         painter: _ShapePainter(shape, docxTheme),
         child: shape.text != null

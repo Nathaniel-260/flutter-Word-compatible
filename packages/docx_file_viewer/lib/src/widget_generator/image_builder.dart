@@ -2,6 +2,7 @@ import 'package:docx_creator/docx_creator.dart';
 import 'package:flutter/material.dart';
 
 import '../docx_view_config.dart';
+import '../utils/docx_units.dart';
 
 /// Builds Flutter [Image] widgets from [DocxImage] elements.
 class ImageBuilder {
@@ -11,13 +12,15 @@ class ImageBuilder {
 
   /// Build a block-level image widget.
   Widget buildBlockImage(DocxImage image) {
+    final width = DocxUnits.pointsToPixels(image.width);
+    final height = DocxUnits.pointsToPixels(image.height);
     Widget imageWidget = Image.memory(
       image.bytes,
-      width: image.width,
-      height: image.height,
+      width: width,
+      height: height,
       fit: BoxFit.contain,
       errorBuilder: (context, error, stackTrace) =>
-          _buildErrorPlaceholder(image),
+          _buildErrorPlaceholder(width, height),
     );
 
     // Apply alignment
@@ -42,13 +45,15 @@ class ImageBuilder {
 
   /// Build an inline image widget.
   Widget buildInlineImage(DocxInlineImage image) {
+    final width = DocxUnits.pointsToPixels(image.width);
+    final height = DocxUnits.pointsToPixels(image.height);
     Widget imageWidget = Image.memory(
       image.bytes,
-      width: image.width,
-      height: image.height,
+      width: width,
+      height: height,
       fit: BoxFit.contain,
       errorBuilder: (context, error, stackTrace) =>
-          _buildInlineErrorPlaceholder(image),
+          _buildInlineErrorPlaceholder(width, height),
     );
 
     // If it's a floating image, we might want to wrap it or handle alignment
@@ -67,10 +72,10 @@ class ImageBuilder {
     return imageWidget;
   }
 
-  Widget _buildErrorPlaceholder(DocxImage image) {
+  Widget _buildErrorPlaceholder(double width, double height) {
     return Container(
-      width: image.width,
-      height: image.height,
+      width: width,
+      height: height,
       color: Colors.grey.shade200,
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -86,10 +91,10 @@ class ImageBuilder {
     );
   }
 
-  Widget _buildInlineErrorPlaceholder(DocxInlineImage image) {
+  Widget _buildInlineErrorPlaceholder(double width, double height) {
     return Container(
-      width: image.width,
-      height: image.height,
+      width: width,
+      height: height,
       color: Colors.grey.shade200,
       child: Icon(Icons.broken_image, size: 24, color: Colors.grey.shade400),
     );

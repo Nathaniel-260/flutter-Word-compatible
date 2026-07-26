@@ -75,15 +75,6 @@ class ListBuilder {
     // Calculate initial indent based on level
     double indent = 16.0 + (level * indentPerLevel.clamp(16.0, 48.0));
 
-    // Apply hanging indent if specified
-    if (style.hangingIndent > 0) {
-      // Hanging indent shifts the first line (marker) left
-      // But in this Row layout, 'indent' is the stored left padding.
-      // If we increase stored padding to accommodate hanging, we might just shift marker.
-      // Standard logic: Indent Left - Hanging Indent.
-      // Here we just accept that 'indent' is the start of content.
-    }
-
     // Build content from all inline children with search support
     List<InlineSpan> spans;
     Key? key;
@@ -104,10 +95,6 @@ class ListBuilder {
       spans = paragraphBuilder.buildInlineSpans(item.children);
     }
 
-    // ... (rest of method)
-
-    // Apply style properties from DocxListStyle to the marker
-
     // Resolve theme color for marker
     final markerColor = _resolveColor(
           style.color.hex,
@@ -122,6 +109,18 @@ class ListBuilder {
         ? docxTheme!.fonts.getFont(style.themeFont!)
         : null;
 
+    // Word commonly stores bullet glyphs as Private-Use-Area codepoints in
+    // the "Symbol"/"Wingdings" font, which map to a bullet shape only when
+    // rendered through that exact font. Those fonts aren't bundled/available
+    // on iOS/Android/web/Linux/macOS, so applying them here would render as
+    // a missing-glyph "tofu" box; _getBulletMarker already substitutes a
+    // portable Unicode bullet character in that case, so the font family
+    // must not be forced to Symbol/Wingdings for it.
+    final requestedFont = markerFont ?? style.fontFamily;
+    final isUnsupportedSymbolFont = requestedFont != null &&
+        (requestedFont.toLowerCase() == 'symbol' ||
+            requestedFont.toLowerCase() == 'wingdings');
+
     final markerStyle = TextStyle(
       color: markerColor,
       fontSize: style.fontSize != null
@@ -130,8 +129,9 @@ class ListBuilder {
       fontWeight: style.fontWeight == DocxFontWeight.bold
           ? FontWeight.bold
           : FontWeight.normal,
-      fontFamily:
-          markerFont ?? style.fontFamily ?? theme.defaultTextStyle.fontFamily,
+      fontFamily: isUnsupportedSymbolFont
+          ? theme.defaultTextStyle.fontFamily
+          : requestedFont ?? theme.defaultTextStyle.fontFamily,
     );
 
     // Build marker widget
@@ -183,12 +183,24 @@ class ListBuilder {
 
   /// Get bullet marker based on level and style.
   String _getBulletMarker(int level, DocxListStyle style) {
-    // If style has a custom bullet, use it
-    if (style.bullet.isNotEmpty && style.bullet != '•') {
+    // A custom bullet is usable as-is only if it's an ordinary character.
+    // Word frequently stores bullet glyphs as a Private-Use-Area codepoint
+    // (U+E000-U+F8FF) that only renders as a bullet shape through the
+    // "Symbol"/"Wingdings" font - without that font, it's a "tofu" box, so
+    // fall back to a portable default bullet instead.
+    if (style.bullet.isNotEmpty &&
+        style.bullet != '•' &&
+        !_isPrivateUseCharacter(style.bullet)) {
       return style.bullet;
     }
     // Otherwise use level-based default bullets
     return _defaultBullets[level];
+  }
+
+  bool _isPrivateUseCharacter(String text) {
+    if (text.isEmpty) return false;
+    final code = text.runes.first;
+    return code >= 0xE000 && code <= 0xF8FF;
   }
 
   /// Get ordered marker based on number format.

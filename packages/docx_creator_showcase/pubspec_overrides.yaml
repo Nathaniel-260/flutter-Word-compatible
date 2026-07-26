@@ -1,0 +1,6 @@
+# melos_managed_dependency_overrides: docx_creator,docx_file_viewer
+dependency_overrides:
+  docx_creator:
+    path: ../docx_creator
+  docx_file_viewer:
+    path: ../docx_file_viewer

@@ -7,6 +7,8 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../docx_view_config.dart';
 import '../theme/docx_view_theme.dart';
+
+import '../utils/docx_units.dart';
 import '../widgets/drop_cap_text.dart';
 
 /// Builds Flutter widgets from [DocxParagraph] elements.
@@ -246,8 +248,8 @@ class ParagraphBuilder {
         if (child is DocxInlineImage) {
           centerWidget = Image.memory(
             child.bytes,
-            width: child.width,
-            height: child.height,
+            width: DocxUnits.pointsToPixels(child.width),
+            height: DocxUnits.pointsToPixels(child.height),
             fit: BoxFit.contain,
           );
         } else if (child is DocxShape) {
@@ -289,34 +291,6 @@ class ParagraphBuilder {
     return _wrapWithParagraphStyle(paragraph, finalContent, key: key);
   }
 
-  // ... (keeping internal helper structures same) ...
-  // [Lines 226-433 omitted in replace request to save space if unchanged, assuming tool can handle partial replacments.
-  // Wait, I am replacing a large chunk. I should just update _buildTextSpans separately?
-  // No, I need _buildNativeParagraph to manage currentTextOffset.
-  // So I'll assume lines 226-432 are safe or I'll just use the provided range carefully.]
-  // NOTE: I am replacing `build`, `buildExcludingFloats`, `_buildNativeParagraph` fully.
-  // I need to skip `_buildFloatingLayout`, `_wrapWithParagraphStyle`, `_buildParagraphDecoration`, `_buildBorderSide`.
-  // The provided `_buildNativeParagraph` implementation above ends around line 224 which is correct.
-  // Below I will implement `_buildTextSpans` and `_buildTextSpan`.
-
-  // ... (omitting lines 226-433 in this prompt, I will assume I only replace up to 224 and then replace 433 separately)
-  // THE TOOL replace_file_content replaces a CONTIGUOUS BLOCK.
-  // So I must provide the whole block or do two calls.
-  // `_buildNativeParagraph` spans lines 44 to 224.
-  // `_buildTextSpans` starts at 434.
-  // So I will split this into two calls or one giant call.
-  // Giant call is risky if I miss lines.
-  // I'll do two calls.
-  // Call 1: Update `build` and `_buildNativeParagraph`
-  // Call 2: Update `_buildTextSpans` and `_buildTextSpan`.
-
-  // Let's refine for Call 1: Replace lines 31 to 224.
-  // I will submit specific content for that.
-
-  // Wait, the `blockIndex` is passed to `build`.
-
-  // Okay, in THIS tool call, I will do Call 1: `build` through `_buildNativeParagraph`.
-
   /// Builds a layout that wraps text around left and/or right floating elements.
   ///
   /// Uses IntrinsicHeight with Row for proper alignment of floating images and text.
@@ -335,8 +309,8 @@ class ParagraphBuilder {
       if (element is DocxInlineImage) {
         return Image.memory(
           element.bytes,
-          width: element.width,
-          height: element.height,
+          width: DocxUnits.pointsToPixels(element.width),
+          height: DocxUnits.pointsToPixels(element.height),
           fit: BoxFit.contain,
         );
       } else if (element is DocxShape) {
@@ -526,13 +500,11 @@ class ParagraphBuilder {
             side.color.hex, side.themeColor, side.themeTint, side.themeShade) ??
         Colors.black;
 
-    return BorderSide(
-      color: color,
-      width: width,
-      style: side.style == DocxBorder.dotted
-          ? BorderStyle.none
-          : BorderStyle.solid,
-    );
+    // Flutter's Border/BorderSide only supports solid or none - there is no
+    // native dotted/dashed line style. Any DOCX border style other than
+    // "none" (dotted, dashed, double, etc.) is drawn as solid rather than
+    // silently disappearing, which is the closer approximation of the two.
+    return BorderSide(color: color, width: width, style: BorderStyle.solid);
   }
 
   /// Build TextSpans from inline elements.
@@ -579,16 +551,18 @@ class ParagraphBuilder {
         currentOffset += 2;
       } else if (inline is DocxInlineImage) {
         // Inline images with proper vertical alignment
+        final imageWidth = DocxUnits.pointsToPixels(inline.width);
+        final imageHeight = DocxUnits.pointsToPixels(inline.height);
         spans.add(WidgetSpan(
           alignment: PlaceholderAlignment.middle,
           child: Image.memory(
             inline.bytes,
-            width: inline.width,
-            height: inline.height,
+            width: imageWidth,
+            height: imageHeight,
             fit: BoxFit.contain,
             errorBuilder: (context, error, stackTrace) => Container(
-              width: inline.width,
-              height: inline.height,
+              width: imageWidth,
+              height: imageHeight,
               color: Colors.grey.shade200,
               child: const Icon(Icons.broken_image, size: 24),
             ),
@@ -608,8 +582,6 @@ class ParagraphBuilder {
 
     return spans;
   }
-
-  // ... (keep checkbox span same) ...
 
   /// Build a TextSpan for a DocxCheckbox.
   TextSpan _buildCheckboxSpan(DocxCheckbox checkbox, {double? lineHeight}) {
@@ -1129,8 +1101,8 @@ class ParagraphBuilder {
 
   Widget _buildInlineShape(DocxShape shape) {
     return Container(
-      width: shape.width,
-      height: shape.height,
+      width: DocxUnits.pointsToPixels(shape.width),
+      height: DocxUnits.pointsToPixels(shape.height),
       decoration: BoxDecoration(
         color: _resolveColor(shape.fillColor?.hex, shape.fillColor?.themeColor,
             shape.fillColor?.themeTint, shape.fillColor?.themeShade),
@@ -1205,12 +1177,6 @@ class ParagraphBuilder {
         return Colors.white;
       case DocxHighlight.darkBlue:
         return Colors.blue.shade900;
-// ... (omitted for brevity in prompt but I will be careful in actual replacement)
-// Actually I should just target specific methods.
-
-// 1. Fixing highlighting color
-// 2. Fixing _ParagraphSliceWalker
-
       case DocxHighlight.darkCyan:
         return Colors.cyan.shade900;
       case DocxHighlight.darkGreen:

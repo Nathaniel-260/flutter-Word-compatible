@@ -37,9 +37,6 @@ class TableBuilder {
     if (table.rows.isEmpty) {
       return const SizedBox.shrink();
     }
-// ... (rest of build method unchanged until we hit _buildCell logic, but imports and class def are change)
-// Wait, I cannot use '...' in replacement content safely if I am replacing the top of the file.
-// I need to provide the full content for the replaced section.
 
     // 1. Resolve Grid Columns (Widths)
     final gridCols = table.resolvedGridColumns;
@@ -442,14 +439,10 @@ class TableBuilder {
         borderWidth = (tableStyle.borderWidth / 8.0).clamp(0.5, 5.0);
       }
 
-      return BorderSide(
-        color: borderColor,
-        width: borderWidth,
-        style: effectiveSide.style == DocxBorder.dotted ||
-                effectiveSide.style == DocxBorder.dashed
-            ? BorderStyle.none
-            : BorderStyle.solid,
-      );
+      // Flutter's Border/BorderSide only supports solid or none - dotted
+      // and dashed styles are drawn as solid rather than silently
+      // disappearing, which is the closer approximation of the two.
+      return BorderSide(color: borderColor, width: borderWidth, style: BorderStyle.solid);
     }
 
     // Determine which table-level border to use based on position

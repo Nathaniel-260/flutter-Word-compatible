@@ -1,0 +1,54 @@
+name: Deploy docx_creator Showcase to GitHub Pages
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "packages/docx_creator_showcase/**"
+      - "packages/docx_creator/**"
+      - "packages/docx_file_viewer/**"
+      - ".github/workflows/showcase_pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: "stable"
+
+      - name: Install dependencies
+        working-directory: packages/docx_creator_showcase
+        run: flutter pub get
+
+      - name: Build web
+        working-directory: packages/docx_creator_showcase
+        # Project Pages are served from https://<user>.github.io/<repo>/, so
+        # the app needs to know it isn't running at the domain root.
+        run: flutter build web --release --base-href "/${{ github.event.repository.name }}/"
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: packages/docx_creator_showcase/build/web
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

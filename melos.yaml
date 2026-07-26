@@ -28,6 +28,7 @@ scripts:
     run: |
       melos run test:dart
       melos run test:flutter
+      melos run test:flutter:web
 
   test:dart:
     run: dart test
@@ -46,6 +47,23 @@ scripts:
     packageFilters:
       flutter: true
       dirExists: test
+      ignore:
+        - "docx_creator_showcase"
+
+  test:flutter:web:
+    run: flutter test --platform chrome
+    exec:
+      concurrency: 1
+    description: |
+      Run flutter test on the chrome platform for web-only packages (no
+      android/ios/linux/macos/windows folders), since those unconditionally
+      import dart:js_interop/dart:ui_web and can't even compile for the VM
+      test platform that `flutter test` otherwise defaults to.
+    packageFilters:
+      flutter: true
+      dirExists: test
+      scope:
+        - "docx_creator_showcase"
 
   format:
     run: dart format .

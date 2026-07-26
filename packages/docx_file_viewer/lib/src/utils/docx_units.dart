@@ -11,14 +11,12 @@ class DocxUnits {
   ///
   /// Twips are 1/20th of a point. At 96 DPI:
   /// - 1 point = 96/72 pixels = 1.333 pixels
-  /// - 1 twip = 1/20 point = 1.333/20 pixels = 0.0667 pixels
-  ///
-  /// Simplified: twips / 20 gives approximate pixel value.
-  static double twipsToPixels(int twips) => twips / 20.0;
+  /// - 1 twip = 1/20 point = 1.333/20 pixels ≈ 0.0667 pixels (i.e. twips/15)
+  static double twipsToPixels(int twips) => twips / 20.0 * 1.333;
 
   /// Converts twips to pixels (nullable version).
   static double? twipsToPixelsOrNull(int? twips) =>
-      twips != null ? twips / 20.0 : null;
+      twips != null ? twipsToPixels(twips) : null;
 
   /// Converts half-points to logical pixels.
   ///
