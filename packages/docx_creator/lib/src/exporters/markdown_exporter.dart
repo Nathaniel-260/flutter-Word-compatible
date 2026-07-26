@@ -87,7 +87,7 @@ class MarkdownExporter {
 
     if (_isCodeBlock(para)) {
       final code = (para.children.single as DocxText).content;
-      return '```\n$code\n```';
+      return '${_codeFence(code)}\n$code\n${_codeFence(code)}';
     }
 
     final content = para.children.map(_convertInline).join();
@@ -95,6 +95,37 @@ class MarkdownExporter {
       return content.split('\n').map((line) => '> $line').join('\n');
     }
 
+    return _escapeLeadingBlockMarker(content);
+  }
+
+  /// A fenced code block's own fence must be longer than any run of
+  /// backticks already inside the code, or the block would close early
+  /// (mirrors [_inlineCodeSpan]'s reasoning for inline code spans).
+  String _codeFence(String code) {
+    final runLengths =
+        RegExp('`+').allMatches(code).map((m) => m.group(0)!.length);
+    final longest = runLengths.isEmpty ? 0 : runLengths.reduce((a, b) => a > b ? a : b);
+    return '`' * (longest < 3 ? 3 : longest + 1);
+  }
+
+  /// Escapes a paragraph-initial sequence that would otherwise be
+  /// re-parsed as block-level Markdown syntax (heading, bullet/ordered
+  /// list, or blockquote) even though it's just plain text content, e.g. a
+  /// paragraph that literally starts with "# " or "1. ". Only punctuation
+  /// can be backslash-escaped in CommonMark, so for an ordered-list marker
+  /// the escaped character is the trailing `.`/`)`, not the leading digit.
+  String _escapeLeadingBlockMarker(String content) {
+    final headingOrBullet =
+        RegExp(r'^(#{1,6}|[-+*]|>)(?=\s)').firstMatch(content);
+    if (headingOrBullet != null) {
+      final marker = headingOrBullet.group(1)!;
+      return '\\$marker${content.substring(marker.length)}';
+    }
+    final ordered = RegExp(r'^\d+([.)])(?=\s)').firstMatch(content);
+    if (ordered != null) {
+      final end = ordered.end;
+      return '${content.substring(0, end - 1)}\\${content.substring(end - 1)}';
+    }
     return content;
   }
 
@@ -145,7 +176,8 @@ class MarkdownExporter {
         .reduce((a, b) => a > b ? a : b);
     if (columnCount == 0) return '';
 
-    final rows = table.rows.map(_convertTableRow).toList();
+    final rows =
+        table.rows.map((row) => _convertTableRow(row, columnCount)).toList();
     final separator = '| ${List.filled(columnCount, '---').join(' | ')} |';
     // A Markdown table requires a header row syntactically, so the first
     // row always becomes the header regardless of DocxTable.hasHeader.
@@ -153,8 +185,14 @@ class MarkdownExporter {
     return rows.join('\n');
   }
 
-  String _convertTableRow(DocxTableRow row) {
+  String _convertTableRow(DocxTableRow row, int columnCount) {
     final cells = row.cells.map(_convertTableCell).toList();
+    // A row with fewer cells than the widest row (e.g. from a collapsed
+    // colSpan) still needs a cell per column, or the row desyncs from the
+    // separator row and produces invalid GFM table syntax.
+    if (cells.length < columnCount) {
+      cells.addAll(List.filled(columnCount - cells.length, ''));
+    }
     return '| ${cells.join(' | ')} |';
   }
 
@@ -185,15 +223,16 @@ class MarkdownExporter {
       var marker = '-';
       var checkboxPrefix = '';
 
-      if (children.isNotEmpty && children.first is DocxCheckbox) {
-        final checkbox = children.first as DocxCheckbox;
-        checkboxPrefix = checkbox.isChecked ? '[x] ' : '[ ] ';
-        children = children.skip(1).toList();
-      } else if (list.isOrdered) {
+      if (list.isOrdered) {
         final start = list.startIndex;
         final next = (orderedCounters[item.level] ?? (start - 1)) + 1;
         orderedCounters[item.level] = next;
         marker = '$next.';
+      }
+      if (children.isNotEmpty && children.first is DocxCheckbox) {
+        final checkbox = children.first as DocxCheckbox;
+        checkboxPrefix = checkbox.isChecked ? '[x] ' : '[ ] ';
+        children = children.skip(1).toList();
       }
 
       final indent = '  ' * item.level;
@@ -273,7 +312,7 @@ class MarkdownExporter {
     final dataUri =
         Uri.dataFromBytes(image.bytes, mimeType: 'image/${image.extension}')
             .toString();
-    final alt = (image.altText ?? '').replaceAll('[', '(').replaceAll(']', ')');
+    final alt = _escapeMarkdown(image.altText ?? '');
     return '![$alt]($dataUri)';
   }
 

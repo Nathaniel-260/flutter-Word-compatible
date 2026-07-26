@@ -1,3 +1,6 @@
+import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:docx_creator/docx_creator.dart';
 import 'package:test/test.dart';
 
@@ -87,6 +90,32 @@ void main() {
       expect(md, contains('```\nprint("hi");\n```'));
     });
 
+    test('widens the code-block fence past any backtick run in the code',
+        () {
+      final doc = DocxBuiltDocument(elements: [
+        DocxParagraph.code('```\nnested fence\n```'),
+      ]);
+
+      final md = exporter.export(doc);
+      // The code contains a run of 3 backticks, so the wrapping fence must
+      // be at least 4 long or the block would close early.
+      expect(md, contains('````\n```\nnested fence\n```\n````'));
+    });
+
+    test('escapes a paragraph that literally starts with a heading/list '
+        'marker', () {
+      final doc = DocxBuiltDocument(elements: [
+        DocxParagraph.text('# Not a heading'),
+        DocxParagraph.text('1. Not a list item'),
+        DocxParagraph.text('- Not a bullet'),
+      ]);
+
+      final md = exporter.export(doc);
+      expect(md, contains(r'\# Not a heading'));
+      expect(md, contains(r'1\. Not a list item'));
+      expect(md, contains(r'\- Not a bullet'));
+    });
+
     test('renders a blockquote from DocxParagraph.quote', () {
       final doc = DocxBuiltDocument(elements: [
         DocxParagraph.quote('Wisdom'),
@@ -164,6 +193,19 @@ void main() {
       expect(md, contains('- [ ] Todo'));
     });
 
+    test('keeps a numeric marker for a task item inside an ordered list',
+        () {
+      final list = DocxList(
+        isOrdered: true,
+        items: const [
+          DocxListItem([DocxCheckbox(isChecked: true), DocxText('Done')]),
+        ],
+      );
+      final doc = DocxBuiltDocument(elements: [list]);
+
+      expect(exporter.export(doc), contains('1. [x] Done'));
+    });
+
     test('renders a table with a header separator row', () {
       final doc = DocxBuiltDocument(elements: [
         DocxTable.fromData(
@@ -192,6 +234,35 @@ void main() {
       expect(exporter.export(doc), contains(r'a\|b'));
     });
 
+    test('pads a row with fewer cells than the widest row', () {
+      final doc = DocxBuiltDocument(elements: [
+        DocxTable(rows: [
+          DocxTableRow(cells: [
+            DocxTableCell.text('A'),
+            DocxTableCell.text('B'),
+          ]),
+          // Simulates a collapsed colSpan: only one cell in this row.
+          DocxTableRow(cells: [DocxTableCell.text('merged')]),
+        ]),
+      ]);
+
+      final lines = exporter.export(doc).trim().split('\n');
+      expect(lines[2], '| merged |  |');
+    });
+
+    test('escapes literal brackets in image alt text instead of mangling '
+        'them', () {
+      final doc = DocxBuiltDocument(elements: [
+        DocxImage(
+          bytes: Uint8List(0),
+          extension: 'png',
+          altText: 'Diagram [draft]',
+        ),
+      ]);
+
+      expect(exporter.export(doc), contains(r'![Diagram \[draft\]]'));
+    });
+
     test('renders footnote references and trailing definitions', () {
       final doc = DocxBuiltDocument(
         elements: [
@@ -213,8 +284,7 @@ void main() {
       expect(md, contains('[^1]: Explanation.'));
     });
 
-    test('round trip through file export and back produces the same string',
-        () async {
+    test('exportToFile writes the same content export() returns', () async {
       final doc = DocxBuiltDocument(elements: [
         DocxParagraph.heading1('Report'),
         DocxParagraph.text('Body text.'),
@@ -223,6 +293,15 @@ void main() {
       final expected = exporter.export(doc);
       expect(expected, startsWith('# Report'));
       expect(expected, contains('Body text.'));
+
+      final tempDir = await Directory.systemTemp.createTemp('markdown_exporter_');
+      try {
+        final path = '${tempDir.path}/report.md';
+        await exporter.exportToFile(doc, path);
+        expect(await File(path).readAsString(), expected);
+      } finally {
+        await tempDir.delete(recursive: true);
+      }
     });
   });
 }
