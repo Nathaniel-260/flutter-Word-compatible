@@ -514,11 +514,13 @@ class PdfFontManager {
       // Filter can be FlateDecode for size.
       final fontStreamId = writer.createObject(_createFontStream(font.ttfData));
 
+      final pdfName = _pdfNameFor(font.name);
+
       // B. Font Descriptor
       final bbox = font.metrics.getScaledBbox();
       final flags = font.metrics.flags;
       final descriptorId = writer.createObject('<< /Type /FontDescriptor\n'
-          '/FontName /${font.name.replaceAll(" ", "")}\n'
+          '/FontName /$pdfName\n'
           '/Flags $flags\n'
           '/FontBBox [${bbox[0]} ${bbox[1]} ${bbox[2]} ${bbox[3]}]\n'
           '/ItalicAngle ${font.metrics.italicAngle}\n'
@@ -540,7 +542,7 @@ class PdfFontManager {
 
       final cidFontId =
           writer.createObject('<< /Type /Font /Subtype /CIDFontType2\n'
-              '/BaseFont /${font.name.replaceAll(" ", "")}\n'
+              '/BaseFont /$pdfName\n'
               '/CIDSystemInfo $cidSystemInfo\n'
               '/FontDescriptor $descriptorId 0 R\n'
               '/DW 1000\n'
@@ -555,7 +557,7 @@ class PdfFontManager {
       // F. Type0 Font (The one referenced in content)
       final type0Id = writer
           .createObject('<< /Type /Font /Subtype /Type0\n' // Composite font
-              '/BaseFont /${font.name.replaceAll(" ", "")}\n'
+              '/BaseFont /$pdfName\n'
               '/Encoding /Identity-H\n'
               '/DescendantFonts [$cidFontId 0 R]\n'
               '/ToUnicode $cmapId 0 R\n'
@@ -565,6 +567,39 @@ class PdfFontManager {
     }
 
     return fontIds;
+  }
+
+  /// Turns an arbitrary font name (e.g. the bundled fallback font's
+  /// `'DejaVu Sans (docx_creator fallback)'`, or whatever a caller passes to
+  /// `addFont`/`registerFont`) into a syntactically valid PDF name object.
+  ///
+  /// PDF name syntax (spec 7.3.5) forbids whitespace and the delimiter
+  /// characters `( ) < > [ ] { } / %` appearing literally in a name - they
+  /// must be written as `#XX` hex escapes instead. The previous
+  /// implementation only stripped spaces, so a name containing parentheses
+  /// (like the fallback font's) was written straight through as e.g.
+  /// `/DejaVuSans(docx_creatorfallback)`: to a PDF parser that's the name
+  /// `/DejaVuSans` followed by a *stray literal string* `(docx_creatorfallback)`
+  /// sitting where the next dictionary key was expected, corrupting the
+  /// rest of that dictionary. Viewers that recover from the resulting parse
+  /// error typically can't resolve the font at all and fall back to
+  /// rendering the raw character/glyph codes with a substitute font -
+  /// producing wrong/garbled glyphs instead of the intended text, even
+  /// though the font is otherwise correctly embedded and referenced.
+  String _pdfNameFor(String name) {
+    final buffer = StringBuffer();
+    for (final byte in utf8.encode(name)) {
+      final isRegular = byte > 0x20 &&
+          byte < 0x7F &&
+          byte != 0x23 && // # itself must always be escaped
+          !'()<>[]{}/%'.codeUnits.contains(byte);
+      if (isRegular) {
+        buffer.writeCharCode(byte);
+      } else {
+        buffer.write('#${byte.toRadixString(16).padLeft(2, '0').toUpperCase()}');
+      }
+    }
+    return buffer.toString();
   }
 
   /// Maps common Unicode code points to WinAnsi octal codes.

@@ -381,9 +381,44 @@ class PdfLayoutEngine {
     }
 
     final text = textBuffer.toString();
-    final lines = _wrapText(text, availableWidth, fontSize);
+    final lines = _wrapText(text, availableWidth, fontSize,
+        fontRef: _fallbackFontRefFor(paragraph.children));
 
-    return lines * lineHeight + fontSize * 0.5 + extra;
+    return lines * lineHeight +
+        fontSize * 0.5 +
+        extra +
+        _inlineMediaExtraHeight(paragraph.children, lineHeight);
+  }
+
+  /// Extra height to reserve for inline images/shapes taller than a normal
+  /// text line, on top of the plain word-wrap line count above - which,
+  /// like `PdfExporter._collectWords`, only ever looks at [DocxText]/
+  /// [DocxLineBreak]/[DocxTab] and so is otherwise blind to inline media
+  /// entirely. Without this, a paragraph with e.g. an inline badge icon
+  /// measures as if it were pure text, pagination reserves far too little
+  /// space for it, and the next node on the page gets drawn starting well
+  /// inside the image instead of below it.
+  ///
+  /// Conservative rather than exact: each oversized image/shape adds its
+  /// own full overhang regardless of which wrapped line it actually lands
+  /// on (in principle two could share a line and this would double-count
+  /// the overhang), so this can only ever reserve more height than the
+  /// renderer's own per-line max ends up needing - never less, which is the
+  /// direction that would risk the overlap this exists to prevent.
+  double _inlineMediaExtraHeight(List<DocxInline> children, double lineHeight) {
+    var extra = 0.0;
+    for (final child in children) {
+      double? mediaHeight;
+      if (child is DocxInlineImage) {
+        mediaHeight = child.height;
+      } else if (child is DocxShape) {
+        mediaHeight = child.height;
+      }
+      if (mediaHeight != null && mediaHeight > lineHeight) {
+        extra += mediaHeight - lineHeight;
+      }
+    }
+    return extra;
   }
 
   /// Measures a drop cap's height: the letter's own `dropCap.lines`-line
@@ -418,7 +453,8 @@ class PdfLayoutEngine {
     }
 
     final wrappedLines = _wrapTextVariableWidth(
-        text, baseFontSize, (i) => i < node.lines ? narrowWidth : contentWidth);
+        text, baseFontSize, (i) => i < node.lines ? narrowWidth : contentWidth,
+        fontRef: _fallbackFontRefFor(node.restOfParagraph));
     final textHeight = wrappedLines <= node.lines
         ? dropCapBlockHeight
         : dropCapBlockHeight + (wrappedLines - node.lines) * dropCapLineHeight;
@@ -561,7 +597,8 @@ class PdfLayoutEngine {
       if (child is DocxText) textBuffer.write(child.content);
     }
 
-    final lines = _wrapText(textBuffer.toString(), width, fontSize);
+    final lines = _wrapText(textBuffer.toString(), width, fontSize,
+        fontRef: _fallbackFontRefFor(paragraph.children));
     return lines * lineHeight;
   }
 
@@ -620,9 +657,39 @@ class PdfLayoutEngine {
     }
 
     final text = textBuffer.toString();
-    final lines = _wrapText(text, availableWidth, fontSize);
+    final lines = _wrapText(text, availableWidth, fontSize,
+        fontRef: _fallbackFontRefFor(item.children));
 
     return lines * lineHeight + fontSize * 0.5;
+  }
+
+  /// If any run in [children] needs the Unicode fallback font (any
+  /// character outside WinAnsi, e.g. an emoji or unembedded non-Latin
+  /// script - see [PdfFontManager.needsUnicodeFallback]), returns that
+  /// font's ref so callers can measure with it; otherwise null (plain
+  /// metrics).
+  ///
+  /// `PdfExporter._withUnicodeFallback` makes this choice per *run* - a
+  /// [DocxText] whose content contains a fallback-needing character has
+  /// its *entire* run, plain-ASCII words included, drawn through the
+  /// (generally wider) fallback font, not just that one character. This
+  /// file's measurement methods build one plain-text buffer by
+  /// concatenating every run before wrapping, which loses run boundaries -
+  /// so the best it can do without a structural rewrite is apply the
+  /// fallback font to the *whole* wrap pass whenever any run in the
+  /// paragraph/item needs it. That over-measures pure-ASCII runs sharing a
+  /// paragraph with a fallback-needing one by a small amount, but that's
+  /// the safe direction: measuring every word with plain metrics while the
+  /// renderer actually draws some of them (possibly wider) through the
+  /// fallback font is what previously undercounted wrapped lines and let
+  /// the overflow spill into whatever was drawn next.
+  String? _fallbackFontRefFor(List<DocxInline> children) {
+    for (final child in children) {
+      if (child is DocxText && fontManager.needsUnicodeFallback(child.content)) {
+        return fontManager.fallbackUnicodeFontRef;
+      }
+    }
+    return null;
   }
 
   /// Gets font size for a style.
@@ -670,7 +737,6 @@ class PdfLayoutEngine {
     var currentLine = 1;
     var currentLineWidth = 0.0;
     var splitOccurred = false;
-    final spaceWidth = fontManager.measureText(' ', fontSize);
 
     // Iterate children
     for (var i = 0; i < paragraph.children.length; i++) {
@@ -682,6 +748,16 @@ class PdfLayoutEngine {
       }
 
       if (child is DocxText) {
+        // Unlike [_wrapText] (which measures a concatenation of every run
+        // and so can only apply the fallback font paragraph-wide, see
+        // [_fallbackFontRefFor]), this loop already visits each run
+        // separately - so it can match `PdfExporter._withUnicodeFallback`'s
+        // actual per-run decision exactly.
+        final runFontRef = fontManager.needsUnicodeFallback(child.content)
+            ? fontManager.fallbackUnicodeFontRef
+            : null;
+        final spaceWidth =
+            fontManager.measureText(' ', fontSize, fontRef: runFontRef);
         final text = child.content;
         final lines = text.split('\n');
 
@@ -718,7 +794,8 @@ class PdfLayoutEngine {
           final words = line.split(' ');
           for (var w = 0; w < words.length; w++) {
             final word = words[w];
-            final wordWidth = fontManager.measureText(word, fontSize);
+            final wordWidth =
+                fontManager.measureText(word, fontSize, fontRef: runFontRef);
 
             if (currentLineWidth + wordWidth > availableWidth &&
                 currentLineWidth > 0) {
@@ -799,8 +876,11 @@ class PdfLayoutEngine {
     return original.copyWith(content: newContent);
   }
 
-  /// Counts lines needed for text in given width.
-  int _wrapText(String text, double availableWidth, double fontSize) {
+  /// Counts lines needed for text in given width. [fontRef] - see
+  /// [_fallbackFontRefFor] - measures every word through that font instead
+  /// of the plain metrics when set.
+  int _wrapText(String text, double availableWidth, double fontSize,
+      {String? fontRef}) {
     // 1. Split by explicit newlines
     final paragraphs = text.split('\n');
     int totalLines = 0;
@@ -815,10 +895,10 @@ class PdfLayoutEngine {
       final words = para.split(' ');
       var currentLineWidth = 0.0;
       var lines = 1;
-      final spaceWidth = fontManager.measureText(' ', fontSize);
+      final spaceWidth = fontManager.measureText(' ', fontSize, fontRef: fontRef);
 
       for (final word in words) {
-        final wordWidth = fontManager.measureText(word, fontSize);
+        final wordWidth = fontManager.measureText(word, fontSize, fontRef: fontRef);
 
         // A word wider than the whole line will be split across multiple
         // lines by the renderer (see PdfExporter._splitOverlongWords) -
@@ -856,7 +936,8 @@ class PdfLayoutEngine {
   /// [_measureDropCap] since the lines beside the drop cap letter are
   /// narrower than the ones below it.
   int _wrapTextVariableWidth(String text, double fontSize,
-      double Function(int lineIndex) widthForLine) {
+      double Function(int lineIndex) widthForLine,
+      {String? fontRef}) {
     final paragraphs = text.split('\n');
     int totalLines = 0;
 
@@ -869,10 +950,10 @@ class PdfLayoutEngine {
       final words = para.split(' ');
       var currentLineWidth = 0.0;
       var lines = 1;
-      final spaceWidth = fontManager.measureText(' ', fontSize);
+      final spaceWidth = fontManager.measureText(' ', fontSize, fontRef: fontRef);
 
       for (final word in words) {
-        final wordWidth = fontManager.measureText(word, fontSize);
+        final wordWidth = fontManager.measureText(word, fontSize, fontRef: fontRef);
         final availableWidth = widthForLine(totalLines + lines - 1);
 
         if (wordWidth > availableWidth && availableWidth > 0) {

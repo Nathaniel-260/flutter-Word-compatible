@@ -102,7 +102,7 @@ Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  docx_creator: ^1.3.0
+  docx_creator: ^1.3.2
 ```
 
 Then run:

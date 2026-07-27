@@ -118,6 +118,19 @@ class ImageResolver {
 
     if (bytes == null) return null;
 
+    // Reject bytes that aren't actually a decodable raster image - e.g. an
+    // SVG (shields.io badges and similar are a common real-world source),
+    // an HTML error page returned instead of the expected image, or a
+    // truncated/corrupt download. Without this check, non-raster bytes
+    // still make it all the way to the PDF/DOCX writers under a guessed
+    // `extension` like 'png', which then either fail to embed or - worse,
+    // in the PDF writer's raw-bytes-as-pixel-buffer fallback - get drawn as
+    // a block of solid garbage that overlaps whatever content follows it,
+    // since its declared size has nothing to do with the actual byte
+    // count. Better to skip the image (callers fall back to a text
+    // placeholder) than embed noise.
+    if (img.findDecoderForData(bytes) == null) return null;
+
     double? wPt = (width != null && width > 0) ? width : null;
     double? hPt = (height != null && height > 0) ? height : null;
 

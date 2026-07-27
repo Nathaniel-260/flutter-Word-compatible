@@ -40,6 +40,11 @@ class PdfExporter {
   final _pageLinks = <_PendingLink>[];
   late final PdfFontManager _fontManager;
 
+  /// Fully-rendered pages awaiting finalization - see [exportToBytes] for
+  /// why page content is rendered in one pass and only turned into actual
+  /// PDF page objects in a second pass afterwards.
+  final _pendingPages = <_PendingPage>[];
+
   /// Creates a PDF exporter with configurable defaults.
   PdfExporter({
     this.pageWidth = 612.0,
@@ -75,21 +80,38 @@ class PdfExporter {
   }
 
   /// Exports the document to bytes.
+  ///
+  /// Rendering happens in two passes. Pass one (the `_processSection` calls
+  /// below) builds every page's content stream and collects them into
+  /// [_pendingPages] *without* creating PDF page objects yet. Fonts used
+  /// only via automatic fallback (e.g. [PdfFontManager.fallbackUnicodeFontRef],
+  /// embedded the first time a character needs it) are embedded lazily
+  /// during this pass, as content is generated - so which fonts end up
+  /// used is only fully known once every page has been rendered.
+  ///
+  /// Pass two writes the font objects (`_fontManager.writeFonts`) now that
+  /// the full set is known, then turns each pending page into an actual PDF
+  /// page object referencing them. Previously fonts were written *before*
+  /// rendering, so any font embedded lazily during rendering (the Unicode
+  /// fallback font being the common case - anything outside WinAnsi, e.g.
+  /// an emoji, triggers it) was never included in the `/Resources /Font`
+  /// dictionary of any page: its object was never even written, and every
+  /// page's font list had already been serialized without it. The content
+  /// stream would still reference it via a `Tf` operator pointing at an
+  /// undefined resource, which viewers handle by falling back to
+  /// substituting a default font using the raw character codes - silently
+  /// turning readable text using that font into garbled/wrong glyphs.
   Uint8List exportToBytes(DocxBuiltDocument doc) {
     _writer = PdfDocumentWriter();
+    _pendingPages.clear();
     final sections = _splitSections(doc);
-
-    // Write fonts (including embedded TTF bytes) exactly once per document
-    // instead of once per section, otherwise every section re-serializes
-    // and re-embeds the full raw font bytes, bloating multi-section output.
-    final fontIds = _fontManager.writeFonts(_writer!);
 
     final footnotesById = <int, DocxFootnote>{
       for (final f in doc.footnotes ?? const <DocxFootnote>[]) f.footnoteId: f,
     };
 
     for (final section in sections) {
-      _processSection(section, fontIds, footnotesById);
+      _processSection(section, footnotesById);
     }
 
     final endnotes = doc.endnotes;
@@ -104,7 +126,37 @@ class PdfExporter {
         marginRight: lastSection.marginRight,
         nodes: _buildEndnoteNodes(endnotes),
       );
-      _processSection(endnoteSection, fontIds, const {});
+      _processSection(endnoteSection, const {});
+    }
+
+    // Every page's content has now been rendered, so every font that will
+    // ever be needed - standard, custom (`registerFont`), and lazily
+    // auto-embedded fallback fonts alike - has been embedded. Only now is
+    // it safe to write the font objects and materialize page objects that
+    // reference them.
+    final fontIds = _fontManager.writeFonts(_writer!);
+
+    for (final pending in _pendingPages) {
+      final pageId = _writer!.addPage(
+        contentStream: pending.content,
+        width: pending.width,
+        height: pending.height,
+        xObjectIds: pending.xObjectIds,
+        fonts: fontIds,
+        extGStateIds: pending.extGStateIds,
+        compress: compressContent,
+      );
+
+      for (final link in pending.links) {
+        _writer!.addLinkAnnotation(
+          x: link.x,
+          y: link.y,
+          width: link.width,
+          height: link.height,
+          uri: link.uri,
+          pageId: pageId,
+        );
+      }
     }
 
     return _writer!.save();
@@ -131,8 +183,8 @@ class PdfExporter {
     return nodes;
   }
 
-  void _processSection(_SectionData section, Map<String, int> fontIds,
-      Map<int, DocxFootnote> footnotesById) {
+  void _processSection(
+      _SectionData section, Map<int, DocxFootnote> footnotesById) {
     final layout = PdfLayoutEngine(
       pageWidth: section.width,
       pageHeight: section.height,
@@ -185,28 +237,18 @@ class PdfExporter {
         backgroundExtGStateName: bgExtGStateId != null ? bgGStateName : null,
       );
 
-      final pageId = _writer!.addPage(
-        contentStream: content,
+      // Defer actually creating the PDF page object - and, by extension,
+      // finalizing which fonts its /Resources dict lists - until every
+      // page across every section has been rendered. See [exportToBytes].
+      _pendingPages.add(_PendingPage(
+        content: content,
         width: section.width,
         height: section.height,
         xObjectIds: Map.from(_pageImages),
-        fonts: fontIds, // Pass dynamic fonts
         extGStateIds:
             bgExtGStateId != null ? {bgGStateName: bgExtGStateId} : null,
-        compress: compressContent,
-      );
-
-      // Attach clickable link annotations now that the page object exists.
-      for (final link in _pageLinks) {
-        _writer!.addLinkAnnotation(
-          x: link.x,
-          y: link.y,
-          width: link.width,
-          height: link.height,
-          uri: link.uri,
-          pageId: pageId,
-        );
-      }
+        links: List.of(_pageLinks),
+      ));
 
       _pageImages.clear();
       _imageCount = 0;
@@ -435,12 +477,7 @@ class PdfExporter {
         lineHeights.add(dropCapLineHeight);
         continue;
       }
-      var maxFontInLine = baseFontSize;
-      for (final word in line) {
-        final wordFontSize = (word.fontSize ?? baseFontSize).toDouble();
-        if (wordFontSize > maxFontInLine) maxFontInLine = wordFontSize;
-      }
-      lineHeights.add(maxFontInLine * 1.4);
+      lineHeights.add(_lineHeightFor(line, baseFontSize));
     }
 
     // Draw the drop cap letter so its glyph roughly fills the block of
@@ -726,18 +763,16 @@ class PdfExporter {
     // Track decoration positions for drawing after text
     final decorations = <_TextDecoration>[];
 
-    // Calculate per-line heights based on max font size in each line
+    // Calculate per-line heights based on max font size in each line (and
+    // any inline image/shape taller than the text, so the cursor advances
+    // far enough to clear it instead of overlapping whatever is drawn next
+    // - see [_lineHeightFor]).
     final lineHeights = <double>[];
     for (final line in lines) {
       if (line.isEmpty) {
         lineHeights.add(lineHeight);
       } else {
-        var maxFontInLine = fontSize.toDouble();
-        for (final word in line) {
-          final wordFontSize = (word.fontSize ?? fontSize).toDouble();
-          if (wordFontSize > maxFontInLine) maxFontInLine = wordFontSize;
-        }
-        lineHeights.add(maxFontInLine * 1.4);
+        lineHeights.add(_lineHeightFor(line, fontSize));
       }
     }
 
@@ -833,6 +868,33 @@ class PdfExporter {
     // Add extra spacing after paragraphs (especially headings)
     final spacing = isHeading ? fontSize * 0.8 : fontSize * 0.5;
     return y - spacing;
+  }
+
+  /// Height a flowed line needs to draw without clipping/overlapping
+  /// whatever comes next: the tallest text run on the line (`fontSize *
+  /// 1.4`, matching every other line-height computation in this file), or
+  /// an inline image/shape's own height when that's taller. Inline images
+  /// and shapes carry no [_Word.fontSize] (they're not text), so a plain
+  /// max-of-fontSize scan silently ignores them - previously the line
+  /// advance after a line containing e.g. a badge icon or inline shape used
+  /// only the text line height, leaving the cursor far short of clearing
+  /// the image and causing every following line/paragraph to be drawn on
+  /// top of it.
+  double _lineHeightFor(List<_Word> line, double fontSize) {
+    var maxFontInLine = fontSize;
+    var maxBlockHeight = 0.0;
+    for (final word in line) {
+      final wordFontSize = (word.fontSize ?? fontSize).toDouble();
+      if (wordFontSize > maxFontInLine) maxFontInLine = wordFontSize;
+      if (word.isImage) {
+        if (word.imageHeight > maxBlockHeight) maxBlockHeight = word.imageHeight;
+      } else if (word.isShape) {
+        final shapeHeight = word.shape!.height;
+        if (shapeHeight > maxBlockHeight) maxBlockHeight = shapeHeight;
+      }
+    }
+    final textLineHeight = maxFontInLine * 1.4;
+    return maxBlockHeight > textLineHeight ? maxBlockHeight : textLineHeight;
   }
 
   /// Draws one already-flowed line of words (text, images, shapes,
@@ -2341,6 +2403,28 @@ class _Word {
         imageBorder = null,
         isShape = true,
         glueToPrevious = false;
+}
+
+/// A fully-rendered page's content stream plus everything [PdfExporter]
+/// needs to turn it into an actual PDF page object, minus the font map -
+/// which isn't known until every pending page has been collected. See
+/// [PdfExporter.exportToBytes].
+class _PendingPage {
+  final String content;
+  final double width;
+  final double height;
+  final Map<String, int> xObjectIds;
+  final Map<String, int>? extGStateIds;
+  final List<_PendingLink> links;
+
+  const _PendingPage({
+    required this.content,
+    required this.width,
+    required this.height,
+    required this.xObjectIds,
+    required this.extGStateIds,
+    required this.links,
+  });
 }
 
 /// A pending clickable-link rectangle to attach to the current PDF page once
