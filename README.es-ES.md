@@ -1,5 +1,3 @@
-
-
 # Espacio de Trabajo de Paquetes Flutter
 
 ¡Bienvenido al monorepo `flutter-packages`! Este repositorio contiene paquetes para convertir HTML y Markdown a PDF en Flutter, utilizando diferentes motores de renderizado.
