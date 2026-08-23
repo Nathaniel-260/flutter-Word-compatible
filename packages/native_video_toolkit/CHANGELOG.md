@@ -1,3 +1,9 @@
+## 0.0.2
+
+* Fix `homepage`/`repository`/`issue_tracker` to point at the canonical
+  `flutter-packages` repo.
+* Add badges and a License section to the README.
+
 ## 0.0.1
 
 Initial release.
