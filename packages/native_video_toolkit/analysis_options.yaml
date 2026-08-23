@@ -1,0 +1,17 @@
+include: package:flutter_lints/flutter.yaml
+analyzer:
+  errors:
+    # Both bindings files are entirely ffigen/jnigen-generated — never
+    # hand-edited, regenerated wholesale by tool/generate_bindings.dart and
+    # tool/generate_android_bindings.dart. These specific lints only ever
+    # fire inside them (unused C constants ffigen has no way to filter out
+    # ahead of time, and jnigen's generated constructors not using Dart's
+    # initializing-formal shorthand) and aren't worth hand-patching
+    # generated output for, matching this repo's native_pdf_engine package.
+    invalid_use_of_internal_member: ignore
+    unused_element: ignore
+    unused_field: ignore
+    prefer_initializing_formals: ignore
+
+# Additional information about this file can be found at
+# https://dart.dev/guides/language/analysis-options
