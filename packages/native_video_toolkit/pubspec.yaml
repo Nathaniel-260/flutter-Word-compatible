@@ -5,9 +5,9 @@ description: >-
   package:objective_c) and android.media (Android, via jni/jnigen). No
   MethodChannel, no hand-written native glue.
 version: 0.0.1
-homepage: https://github.com/alihassan143/htmltopdfwidgets/tree/main/packages/native_video_toolkit
-repository: https://github.com/alihassan143/htmltopdfwidgets/tree/main/packages/native_video_toolkit
-issue_tracker: https://github.com/alihassan143/htmltopdfwidgets/issues
+homepage: https://github.com/alihassan143/flutter-packages/tree/main/packages/native_video_toolkit
+repository: https://github.com/alihassan143/flutter-packages/tree/main/packages/native_video_toolkit
+issue_tracker: https://github.com/alihassan143/flutter-packages/issues
 topics:
   - video
   - ffi
