@@ -1,5 +1,9 @@
 # native_video_toolkit
 
+[![pub package](https://img.shields.io/pub/v/native_video_toolkit.svg?color=blue&style=flat-square)](https://pub.dev/packages/native_video_toolkit)
+[![License: MIT](https://img.shields.io/badge/License-MIT-lightgrey.svg?style=flat-square)](https://opensource.org/licenses/MIT)
+[![platform](https://img.shields.io/badge/platform-ios%20%7C%20macos%20%7C%20android-lightgrey.svg?style=flat-square)](#platform-support)
+
 Compress, merge, mute, reverse, and thumbnail video — bound **directly**
 to each platform's own native media stack, with no bundled video engine
 and no hand-written native glue beyond a trivial plugin-registration stub:
@@ -239,3 +243,7 @@ only shows up at a clip boundary with real audio). If you're extending
 this package, especially anything touching `MediaCodec` directly, verify
 against a real device/emulator and real files before trusting a clean
 `flutter analyze`.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

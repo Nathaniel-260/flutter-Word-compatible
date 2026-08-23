@@ -1,6 +1,12 @@
 # Flutter Packages Workspace
 
-Welcome to the `flutter-packages` monorepo! This repository contains packages for converting HTML and Markdown to PDF in Flutter, using different rendering engines.
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=flat-square)](LICENSE)
+[![melos](https://img.shields.io/badge/maintained%20with-melos-f700ff.svg?style=flat-square)](https://melos.invertase.dev/)
+
+Welcome to the `htmltopdfwidgets` monorepo! It hosts a family of independent
+Flutter/Dart packages for document and media generation — converting HTML
+and Markdown to PDF, creating and viewing DOCX files, and compressing/
+merging/reversing video — each with its own native rendering engine.
 
 ## Packages
 
