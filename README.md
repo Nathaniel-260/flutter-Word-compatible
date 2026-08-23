@@ -11,6 +11,7 @@ Welcome to the `flutter-packages` monorepo! This repository contains packages fo
 | [docx_creator](packages/docx_creator) | [![pub package](https://img.shields.io/pub/v/docx_creator.svg)](https://pub.dev/packages/docx_creator)  | ![downloads](https://img.shields.io/pub/dm/docx_creator) | A developer-first Dart package for creating professional DOCX documents with fluent API, Markdown/HTML parsing, and comprehensive formatting. |
 | [docx_file_viewer](packages/docx_file_viewer) | [![pub package](https://img.shields.io/pub/v/docx_file_viewer.svg)](https://pub.dev/packages/docx_file_viewer) | ![downloads](https://img.shields.io/pub/dm/docx_file_viewer) |  A native Flutter DOCX viewer that renders Word documents using Flutter widgets. |
 | [native_pdf_engine](packages/native_pdf_engine) | [![pub package](https://img.shields.io/pub/v/native_pdf_engine.svg)](https://pub.dev/packages/native_pdf_engine)  | ![downloads](https://img.shields.io/pub/dm/native_pdf_engine) | A high-performance, FFI-based Flutter package to convert HTML and URLs to PDF using native OS webviews. |
+| [native_video_toolkit](packages/native_video_toolkit) | [![pub package](https://img.shields.io/pub/v/native_video_toolkit.svg)](https://pub.dev/packages/native_video_toolkit) | ![downloads](https://img.shields.io/pub/dm/native_video_toolkit) | Compress, merge, mute, and reverse video bound directly to AVFoundation (iOS/macOS) and android.media (Android) via FFI/JNI — no MethodChannel. |
 
 ## Workspace Management
 

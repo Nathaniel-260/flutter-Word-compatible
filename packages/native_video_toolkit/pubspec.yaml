@@ -1,0 +1,60 @@
+name: native_video_toolkit
+description: >-
+  Compress, merge, mute, and reverse video with zero bundled native
+  dependencies — bound directly to AVFoundation (iOS/macOS, via ffigen +
+  package:objective_c) and android.media (Android, via jni/jnigen). No
+  MethodChannel, no hand-written native glue.
+version: 0.0.1
+homepage: https://github.com/alihassan143/flutter-packages/tree/main/packages/native_video_toolkit
+repository: https://github.com/alihassan143/flutter-packages/tree/main/packages/native_video_toolkit
+issue_tracker: https://github.com/alihassan143/flutter-packages/issues
+topics:
+  - video
+  - ffi
+  - jni
+  - avfoundation
+  - mediacodec
+
+environment:
+  sdk: ^3.12.2
+  flutter: '>=3.3.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # Used directly by the ffigen-generated bindings (package:ffi/ffi.dart) —
+  # must be declared explicitly even though objective_c already pulls it in
+  # transitively, or `dart pub publish` rejects the package.
+  ffi: ^2.2.0
+  objective_c: ^9.5.0
+  # Pre-processing fallback for containers AVFoundation has no native
+  # demuxer for (AVI, WMV, FLV, MKV, OGV, ...), and the sole engine behind
+  # compressVideo/generateThumbnail/probing on every platform — see
+  # lib/src/format_compat.dart.
+  ffmpeg_kit_flutter_new: ^4.5.3
+  path: ^1.9.1
+  path_provider: ^2.1.5
+  jni: ^1.0.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  ffigen: ^21.0.0
+  jnigen: ^0.17.0
+  logging: ^1.3.0
+
+# For information on the generic Dart part of this file, see the
+# following page: https://dart.dev/tools/pub/pubspec
+
+# The following section is specific to Flutter packages.
+flutter:
+  plugin:
+    platforms:
+      macos:
+        pluginClass: NativeVideoToolkitPlugin
+      ios:
+        pluginClass: NativeVideoToolkitPlugin
+      android:
+        package: dev.alihassan.native_video_toolkit
+        pluginClass: NativeVideoToolkitPlugin
