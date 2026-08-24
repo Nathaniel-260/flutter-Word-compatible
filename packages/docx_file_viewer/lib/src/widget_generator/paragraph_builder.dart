@@ -1,9 +1,12 @@
+import 'dart:ui' as ui;
+
 import 'package:docx_creator/docx_creator.dart';
 import 'package:docx_file_viewer/src/search/docx_search_controller.dart';
 import 'package:docx_file_viewer/src/utils/block_index_counter.dart';
 import 'package:docx_file_viewer/src/utils/text_direction_detector.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../docx_view_config.dart';
@@ -252,13 +255,32 @@ class ParagraphBuilder {
         return;
       }
 
-      final spans = buildInlineSpans(
+      // A `w:strike`/`w:dstrike` run is painted by a line-aware overlay
+      // ([_StrikeText]) instead of Flutter's own line-through, which blurs on a
+      // sub-pixel row and (for double) drops the second line below the centre.
+      // When present, the run's Flutter strike is suppressed here (`customStrike`)
+      // and re-drawn over the run's real glyph boxes — keeping the text flowing,
+      // so Hebrew order and wrapping are preserved (a boxed run reverses under
+      // bidi). The overlay queries the *rendered* `RenderParagraph`, so it only
+      // applies to the plain `RichText` path (not selection/floats), which keep
+      // Flutter's own line-through.
+      final useStrikeOverlay = !config.enableSelection &&
+          currentLeftFloats.isEmpty &&
+          currentRightFloats.isEmpty &&
+          currentInlines
+              .any((i) => i is DocxText && (i.isStrike || i.isDoubleStrike));
+      final flIndent = isFirstFlush ? firstLineIndentPx : bodyLineIndentPx;
+      final strikeRanges = useStrikeOverlay ? <_StrikeRange>[] : null;
+
+      final spans = _buildInlineSpans(
         currentInlines,
         lineHeight: lineHeightScale,
         matches: matches,
         startOffset: currentTextOffset,
-        firstLineIndentPx: isFirstFlush ? firstLineIndentPx : bodyLineIndentPx,
+        firstLineIndentPx: flIndent,
         autoBackground: autoBackground,
+        customStrike: useStrikeOverlay,
+        strikeRanges: strikeRanges,
       );
       isFirstFlush = false;
 
@@ -307,11 +329,17 @@ class ParagraphBuilder {
             strutStyle: strut,
           );
         } else {
-          rowWidget = RichText(
+          Widget rich = RichText(
             text: fullTextSpan,
             textAlign: textAlign,
             strutStyle: strut,
           );
+          // Paint the crisp, centred strike line(s) directly over the rendered
+          // paragraph's own glyph boxes (so they always line up exactly).
+          if (strikeRanges != null && strikeRanges.isNotEmpty) {
+            rich = _StrikeText(ranges: strikeRanges, child: rich);
+          }
+          rowWidget = rich;
         }
         // Ensure it takes width to respect alignment
         rowWidget = SizedBox(width: double.infinity, child: rowWidget);
@@ -803,6 +831,28 @@ class ParagraphBuilder {
     int startOffset = 0,
     double firstLineIndentPx = 0.0,
     Color? autoBackground,
+  }) =>
+      _buildInlineSpans(
+        inlines,
+        lineHeight: lineHeight,
+        matches: matches,
+        startOffset: startOffset,
+        firstLineIndentPx: firstLineIndentPx,
+        autoBackground: autoBackground,
+      );
+
+  /// Implementation of [buildInlineSpans] with the internal strike-overlay hooks
+  /// ([customStrike] suppresses a struck run's own line-through; [strikeRanges]
+  /// collects its painter-space range for [_StrikeText]) kept off the public API.
+  List<InlineSpan> _buildInlineSpans(
+    List<DocxInline> inlines, {
+    double? lineHeight,
+    List<SearchMatch>? matches,
+    int startOffset = 0,
+    double firstLineIndentPx = 0.0,
+    Color? autoBackground,
+    bool customStrike = false,
+    List<_StrikeRange>? strikeRanges,
   }) {
     final spans = <InlineSpan>[];
 
@@ -815,8 +865,13 @@ class ParagraphBuilder {
     }
 
     int currentOffset = startOffset;
+    // Offset in the *painter* text (placeholders count as one `U+FFFC`), used to
+    // record struck-run ranges for [_StrikeText]. It differs from [currentOffset]
+    // (search/content space) whenever a run renders as a placeholder box.
+    int painterOffset = _painterLen(spans);
 
     for (final inline in inlines) {
+      final spanStart = spans.length;
       if (inline is DocxText) {
         if (inline.hidden) continue; // w:vanish — not rendered or measured.
         spans.addAll(_buildTextSpan(
@@ -825,6 +880,7 @@ class ParagraphBuilder {
           matches: matches,
           offset: currentOffset,
           autoBackground: autoBackground,
+          customStrike: customStrike,
         ));
         currentOffset += inline.content.length;
       } else if (inline is DocxLineBreak) {
@@ -902,9 +958,54 @@ class ParagraphBuilder {
       } else if (inline is DocxBookmark) {
         // Zero-width anchor; nothing to render.
       }
+
+      // Record the painter-space range of a flowing struck run so [_StrikeText]
+      // can draw the crisp/centred line(s) over its glyph boxes. A boxed struck
+      // run (super/subscript, `w:bdr`) produces a [WidgetSpan] — skip it (it
+      // keeps Flutter's own line-through).
+      final added = spans.getRange(spanStart, spans.length);
+      final dlen = _painterLen(added);
+      if (strikeRanges != null &&
+          inline is DocxText &&
+          (inline.isStrike || inline.isDoubleStrike) &&
+          dlen > 0 &&
+          added.every((s) => s is TextSpan)) {
+        TextStyle? first;
+        for (final s in added) {
+          if (s is TextSpan && s.style != null) {
+            first = s.style;
+            break;
+          }
+        }
+        strikeRanges.add(_StrikeRange(
+          start: painterOffset,
+          end: painterOffset + dlen,
+          isDouble: inline.isDoubleStrike,
+          fontSize: first?.fontSize ?? 14,
+          color: first?.color ?? const Color(0xFF000000),
+        ));
+      }
+      painterOffset += dlen;
     }
 
     return spans;
+  }
+
+  /// Number of characters [spans] contribute to the painter text — each
+  /// [TextSpan]'s text (recursing into children) plus one `U+FFFC` per
+  /// [WidgetSpan] placeholder — matching how the rendered `RenderParagraph`
+  /// counts offsets for [RenderParagraph.getBoxesForSelection].
+  static int _painterLen(Iterable<InlineSpan> spans) {
+    var n = 0;
+    for (final s in spans) {
+      if (s is TextSpan) {
+        n += s.text?.length ?? 0;
+        if (s.children != null) n += _painterLen(s.children!);
+      } else if (s is WidgetSpan) {
+        n += 1;
+      }
+    }
+    return n;
   }
 
   /// A span for a `w:sym` glyph (Plan §K.5). Delegates to the shared
@@ -965,6 +1066,7 @@ class ParagraphBuilder {
     List<SearchMatch>? matches,
     int offset = 0,
     Color? autoBackground,
+    bool customStrike = false,
   }) {
     // Script-split run segments come from the shared [SpanFactory] so the
     // measurer (Part C/L) builds byte-identical geometry. Link colour, search
@@ -1060,11 +1162,64 @@ class ParagraphBuilder {
       }
     }
 
+    // Super/subscript (`w:vertAlign`): render the shrunk text inside a
+    // baseline-aligned [WidgetSpan] and lift/drop it with a paint-only
+    // [Transform.translate]. Works for every font (Hebrew included), unlike the
+    // OpenType `sups`/`subs` features which silently no-op on fonts without them.
+    // The box is atomic — the measurer reserves a same-size, baseline-aligned
+    // placeholder (span_factory `needsVerticalShiftBox`) so the shift is
+    // invisible to line layout (measure ≡ render). A super/subscript run is
+    // short (a digit, a footnote-like mark) and usually LTR, so the single
+    // placeholder does not disturb bidi ordering. Search-match highlighting is
+    // not threaded into this short box (a documented edge).
+    //
+    // NOTE: strike (`w:strike`/`w:dstrike`) is deliberately NOT boxed here — a
+    // strike run is frequently Hebrew and several can sit side by side, and a
+    // sequence of placeholder boxes reverses under bidi (the double-strike word
+    // jumped before the single-strike word). It stays flowing text with
+    // Flutter's own line-through; faithful crisp/centred strike needs a
+    // line-aware paint overlay, not an inline box.
+    if (_spanFactory.needsVerticalShiftBox(text)) {
+      final fontSize = segments.first.style.fontSize ?? 14;
+      final dy = _spanFactory.verticalShiftPx(text, fontSize);
+      final childSpans = <InlineSpan>[];
+      for (final s in segments) {
+        var st = autoColor != null ? s.style.copyWith(color: autoColor) : s.style;
+        if (linkColor != null) st = st.copyWith(color: linkColor);
+        if (linkDecoration != null) st = st.copyWith(decoration: linkDecoration);
+        childSpans.add(TextSpan(text: s.text, style: st, recognizer: tapRecognizer));
+      }
+      return [
+        WidgetSpan(
+          alignment: PlaceholderAlignment.baseline,
+          baseline: TextBaseline.alphabetic,
+          child: Transform.translate(
+            offset: Offset(0, dy),
+            child: Text.rich(
+              TextSpan(children: childSpans),
+              softWrap: false,
+              maxLines: 1,
+              // Pin the scaler so the box stays the exact size the measurer
+              // reserved even when the host app sets an OS text-scale ≠ 1.0.
+              textScaler: TextScaler.noScaling,
+            ),
+          ),
+        )
+      ];
+    }
+
     final out = <InlineSpan>[];
     for (final s in segments) {
+      // When a line-aware strike overlay will paint the strike (the main
+      // paragraph path for a `w:strike`/`w:dstrike` run), drop Flutter's own
+      // line-through here so it is not drawn twice. Stripping a decoration is
+      // metric-neutral, so measure ≡ render is untouched. The run stays flowing
+      // text — keeping correct bidi order and wrapping — and the overlay draws
+      // crisp, centred line(s) over its real glyph boxes.
+      final segStyle = customStrike ? _stripLineThrough(s.style) : s.style;
       out.addAll(_overlaySegment(
         s.text,
-        autoColor != null ? s.style.copyWith(color: autoColor) : s.style,
+        autoColor != null ? segStyle.copyWith(color: autoColor) : segStyle,
         offset + s.start,
         matches,
         tapRecognizer,
@@ -1073,6 +1228,24 @@ class ParagraphBuilder {
       ));
     }
     return out;
+  }
+
+  /// Returns [style] with [TextDecoration.lineThrough] removed (keeping any
+  /// underline/overline), resetting the shared decoration style to solid so a
+  /// coexisting underline is not left doubled by the strike's old
+  /// `decorationStyle.double`. Returns the same instance when there is no strike.
+  TextStyle _stripLineThrough(TextStyle style) {
+    final d = style.decoration;
+    if (d == null || !d.contains(TextDecoration.lineThrough)) return style;
+    final kept = <TextDecoration>[
+      if (d.contains(TextDecoration.underline)) TextDecoration.underline,
+      if (d.contains(TextDecoration.overline)) TextDecoration.overline,
+    ];
+    return style.copyWith(
+      decoration:
+          kept.isEmpty ? TextDecoration.none : TextDecoration.combine(kept),
+      decorationStyle: kept.isEmpty ? null : TextDecorationStyle.solid,
+    );
   }
 
   /// Lays the link colour/decoration and search-match highlighting over one
@@ -1305,3 +1478,102 @@ class ParagraphBuilder {
     }
   }
 }
+
+/// One flowing `w:strike`/`w:dstrike` run to be painted by [_RenderStrike], in
+/// the row's painter-text space ([start], [end]). [fontSize] scales the line
+/// thickness/gap; [color] is the run's text colour.
+class _StrikeRange {
+  const _StrikeRange({
+    required this.start,
+    required this.end,
+    required this.isDouble,
+    required this.fontSize,
+    required this.color,
+  });
+
+  final int start;
+  final int end;
+  final bool isDouble;
+  final double fontSize;
+  final Color color;
+}
+
+/// Wraps a [RichText] and draws crisp, centred strike line(s) over its struck
+/// [ranges], replacing Flutter's own (sub-pixel-blurred, low-sitting-double)
+/// line-through. The text stays flowing — so Hebrew bidi order and line wrapping
+/// are preserved, unlike pulling the run into an inline box, which reverses a
+/// run of struck words. Paint-only: the child's layout is untouched, so measure
+/// ≡ render holds.
+class _StrikeText extends SingleChildRenderObjectWidget {
+  const _StrikeText({required this.ranges, required Widget child})
+      : super(child: child);
+
+  final List<_StrikeRange> ranges;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderStrike(ranges);
+
+  @override
+  void updateRenderObject(BuildContext context, _RenderStrike renderObject) {
+    renderObject.ranges = ranges;
+  }
+}
+
+/// Paints the child (a [RenderParagraph]) and then, querying *that same* render
+/// object for its real glyph boxes ([RenderParagraph.getBoxesForSelection],
+/// already bidi-correct and pixel-accurate to the rendered text), strikes the
+/// line(s) through each struck range — one for single, two straddling lines for
+/// double — pixel-snapped with anti-aliasing off so they stay crisp.
+class _RenderStrike extends RenderProxyBox {
+  _RenderStrike(this._ranges);
+
+  List<_StrikeRange> _ranges;
+  set ranges(List<_StrikeRange> value) {
+    if (identical(value, _ranges)) return;
+    _ranges = value;
+    markNeedsPaint();
+  }
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    super.paint(context, offset); // the flowing text
+    final rp = child;
+    if (rp is! RenderParagraph) return;
+    final canvas = context.canvas;
+
+    for (final r in _ranges) {
+      final boxes = rp.getBoxesForSelection(
+        TextSelection(baseOffset: r.start, extentOffset: r.end),
+        boxHeightStyle: ui.BoxHeightStyle.tight,
+        boxWidthStyle: ui.BoxWidthStyle.tight,
+      );
+      if (boxes.isEmpty) continue;
+      final paint = Paint()
+        ..color = r.color
+        ..isAntiAlias = false; // crisp horizontal edges
+      final thickness = (r.fontSize * 0.065).clamp(1.0, 2.5);
+      void lineAt(ui.TextBox b, double y) {
+        // Snap the (global) top edge to a whole pixel so the band stays sharp.
+        final top = (y + offset.dy - thickness / 2).roundToDouble();
+        canvas.drawRect(
+            Rect.fromLTWH(b.left + offset.dx, top, b.right - b.left, thickness),
+            paint);
+      }
+
+      for (final b in boxes) {
+        // The strike sits through the vertical middle of the run's tight glyph
+        // box — the letters' centre for Hebrew and Latin alike.
+        final centre = (b.top + b.bottom) / 2;
+        if (r.isDouble) {
+          final gap = (r.fontSize * 0.15).clamp(thickness + 1.0, 6.0);
+          lineAt(b, centre - gap);
+          lineAt(b, centre + gap);
+        } else {
+          lineAt(b, centre);
+        }
+      }
+    }
+  }
+}
+

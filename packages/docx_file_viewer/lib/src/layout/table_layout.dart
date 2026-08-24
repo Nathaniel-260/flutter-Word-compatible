@@ -15,6 +15,25 @@ const double kTwipsToPx = 1 / 15.0;
 /// margins.
 const int kDefaultCellSideMarginTwips = 108;
 
+/// Vertical padding (px) the renderer wraps **above and below** a top-level table
+/// block (the `Padding(vertical:)` around `TableBuilder.build`'s output). Shared
+/// with the paginator so a table's measured footprint includes this gap and the
+/// page-packing height equals the painted height (measure ≡ render). Nested
+/// tables (rendered inside a cell) get no such wrapper, so the measurer adds it
+/// only for top-level tables.
+const double kTableBlockVerticalPaddingPx = 8.0;
+
+/// The Flutter `BorderSide` width (px) for a resolved Word table border [side],
+/// matching `TableBuilder._convertSide`: a null/`none` side paints nothing (0),
+/// any other style is at least a 0.5px hairline, capped at 5px. [style] supplies
+/// the table-wide default weight (`w:tblBorders` `w:sz`, in eighths of a point)
+/// for a side that declares no size of its own.
+double tableBorderSidePx(DocxBorderSide? side, DocxTableStyle style) {
+  if (side == null || side.style == DocxBorder.none) return 0.0;
+  final eighths = side.size > 0 ? side.size : style.borderWidth;
+  return (eighths / 8.0).clamp(0.5, 5.0);
+}
+
 /// `w:tblW w:type="pct"` is expressed in fiftieths of a percent (5000 = 100%).
 const double _pctDenominator = 5000.0;
 

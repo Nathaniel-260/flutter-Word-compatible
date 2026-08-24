@@ -1187,13 +1187,20 @@ class Paginator {
             availableWidth: _activeContentWidth,
             minColumnWidths: _minWidthsOf(table))
         .columns;
-    final headerHeight = _measureRows(headerRows, table, cols);
+    // Both the head and tail are top-level tables, so each carries the outer
+    // padding band (kTableBlockVerticalPaddingPx ×2). Reserve it from the head's
+    // budget and add it back to the recorded head height (measure ≡ render).
+    const pad = 2 * kTableBlockVerticalPaddingPx;
+    final budget = remaining - pad;
+    final headerHeight = _measureRows(headerRows, table, cols,
+        rowOffset: 0, totalRows: rows.length);
 
     var used = headerHeight;
     var fitBody = 0;
-    for (final row in bodyRows) {
-      final rh = _measureRow(row, table, cols);
-      if (used + rh <= remaining + 0.5) {
+    for (var j = 0; j < bodyRows.length; j++) {
+      final rh = _measureRow(bodyRows[j], table, cols,
+          rowIndex: headerCount + j, totalRows: rows.length);
+      if (used + rh <= budget + 0.5) {
         used += rh;
         fitBody++;
       } else {
@@ -1206,7 +1213,9 @@ class Paginator {
       // oversized row and continue; otherwise move the whole table down.
       if (atPageStart && bodyRows.length > 1) {
         fitBody = 1;
-        used = headerHeight + _measureRow(bodyRows.first, table, cols);
+        used = headerHeight +
+            _measureRow(bodyRows.first, table, cols,
+                rowIndex: headerCount, totalRows: rows.length);
       } else {
         return null;
       }
@@ -1219,7 +1228,7 @@ class Paginator {
     final tailTable = table.copyWith(rows: tailRows);
 
     return _Split(
-      head: BlockSlice(headTable, used),
+      head: BlockSlice(headTable, used + pad),
       tail: tailTable,
     );
   }
@@ -1241,12 +1250,16 @@ class Paginator {
   static const double _minContentWidthPx = 8.0;
 
   /// Measures the full vertical footprint of [block] at [width] pixels.
-  double _measureBlock(DocxNode block, double width) {
+  ///
+  /// [nested] is true when [block] is measured as a table cell's child, so a
+  /// nested table does not add the top-level table's outer padding band (the
+  /// renderer wraps only top-level tables in it).
+  double _measureBlock(DocxNode block, double width, {bool nested = false}) {
     if (block is DocxParagraph) {
       return _measureParagraph(block, width);
     }
     if (block is DocxTable) {
-      return _measureTable(block, width);
+      return _measureTable(block, width, nested: nested);
     }
     if (block is DocxList) {
       return _measureList(block, width);
@@ -1328,12 +1341,19 @@ class Paginator {
   /// Measures a table's height with the real per-column widths resolved by Part
   /// F's [resolveTableColumnWidths] (Plan §F.1), so the page-packing height
   /// matches the painted table (no longer an equal-column approximation).
-  double _measureTable(DocxTable table, double width) {
+  ///
+  /// A top-level table is wrapped by the renderer in a vertical padding band
+  /// ([kTableBlockVerticalPaddingPx] top and bottom); that band is part of the
+  /// block's painted footprint, so it is added here too (measure ≡ render). A
+  /// [nested] table (inside a cell) gets no such wrapper.
+  double _measureTable(DocxTable table, double width, {bool nested = false}) {
     if (table.rows.isEmpty) return 0;
     final cols = resolveTableColumnWidths(table,
             availableWidth: width, minColumnWidths: _minWidthsOf(table))
         .columns;
-    return _measureRows(table.rows, table, cols);
+    final rowsHeight = _measureRows(table.rows, table, cols,
+        rowOffset: 0, totalRows: table.rows.length);
+    return rowsHeight + (nested ? 0 : 2 * kTableBlockVerticalPaddingPx);
   }
 
   /// The content-width floor vector for [table] (longest-word px per grid
@@ -1342,16 +1362,25 @@ class Paginator {
   List<double> _minWidthsOf(DocxTable table) => _minColWidths.putIfAbsent(
       table, () => computeMinColumnWidths(table, measurer.spanFactory));
 
+  /// [rowOffset] is the index of `rows[0]` within the full table and [totalRows]
+  /// the full table's row count, so each row resolves its outer-edge vs
+  /// inside-horizontal border correctly even when [rows] is a header/body subset
+  /// (table splitting).
   double _measureRows(
-      List<DocxTableRow> rows, DocxTable table, List<double> cols) {
+      List<DocxTableRow> rows, DocxTable table, List<double> cols,
+      {required int rowOffset, required int totalRows}) {
     var total = 0.0;
-    for (final row in rows) {
-      total += _measureRow(row, table, cols);
+    for (var i = 0; i < rows.length; i++) {
+      total += _measureRow(rows[i], table, cols,
+          rowIndex: rowOffset + i, totalRows: totalRows);
     }
     return total;
   }
 
-  double _measureRow(DocxTableRow row, DocxTable table, List<double> cols) {
+  double _measureRow(DocxTableRow row, DocxTable table, List<double> cols,
+      {required int rowIndex, required int totalRows}) {
+    final isFirstRow = rowIndex == 0;
+    final isLastRow = rowIndex == totalRows - 1;
     var rowHeight = 0.0;
     // Walk the row's cells across the grid, honouring `w:gridBefore` and each
     // cell's `w:gridSpan`, so every cell is measured at its true content width.
@@ -1361,9 +1390,22 @@ class Paginator {
       final margins = resolveCellMargins(table, cell);
       final cellWidth = cellContentWidthPx(cols, gridIndex, span, margins)
           .clamp(_minContentWidthPx, double.infinity);
-      var cellHeight = margins.top + margins.bottom;
+      // The renderer's cell `Container` insets its content by both the cell
+      // padding and the painted border, so the cell box height is
+      // border-top + padding-top + content + padding-bottom + border-bottom.
+      // The border source mirrors `TableBuilder._resolveCellBorder`: a per-cell
+      // override, else the table's outer edge on the first/last row or its
+      // inside-horizontal rule between rows (measure ≡ render, Plan §F.2).
+      final topSide = cell.borderTop ??
+          (isFirstRow ? table.style.borderTop : table.style.borderInsideH);
+      final bottomSide = cell.borderBottom ??
+          (isLastRow ? table.style.borderBottom : table.style.borderInsideH);
+      var cellHeight = margins.top +
+          margins.bottom +
+          tableBorderSidePx(topSide, table.style) +
+          tableBorderSidePx(bottomSide, table.style);
       for (final block in cell.children) {
-        cellHeight += _measureBlock(block, cellWidth);
+        cellHeight += _measureBlock(block, cellWidth, nested: true);
       }
       if (cellHeight > rowHeight) rowHeight = cellHeight;
       gridIndex += span;

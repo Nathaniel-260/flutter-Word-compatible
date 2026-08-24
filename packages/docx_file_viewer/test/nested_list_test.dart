@@ -27,6 +27,38 @@ void main() {
       .toList();
 
   group('Nested lists', () {
+    testWidgets('list height is immune to the host Scaffold DefaultTextStyle',
+        (tester) async {
+      // Regression: the bullet/number marker is a `Text`, which inherits the
+      // ambient `DefaultTextStyle`. A Material `Scaffold` injects `bodyMedium`
+      // (~1.43 line height); since the marker style leaves `height` null to
+      // match the body, that 1.43 leaked in and made every marker taller than
+      // the body line — inflating each item ~4px past what the paginator packed,
+      // so the last block on a page overflowed and was clipped. The list now
+      // roots itself in the document theme, so its height must not depend on
+      // whether a Scaffold (or any other ambient text style) sits above it.
+      final list = DocxList(items: const [
+        DocxListItem([DocxText('פריט ברמה ראשונה')], level: 0),
+        DocxListItem([DocxText('תת-פריט ברמה שנייה')], level: 1),
+        DocxListItem([DocxText('תת תת פריט ברמה שלישית')], level: 2),
+      ]);
+
+      final underScaffold = makeBuilder().build(list);
+      await tester.pumpWidget(MaterialApp(
+          home: Scaffold(
+              body: Align(
+                  alignment: Alignment.topLeft, child: underScaffold))));
+      final scaffoldHeight = tester.getSize(find.byWidget(underScaffold)).height;
+
+      final bare = makeBuilder().build(list);
+      await tester.pumpWidget(MaterialApp(
+          home: Align(alignment: Alignment.topLeft, child: bare)));
+      final bareHeight = tester.getSize(find.byWidget(bare)).height;
+
+      expect(scaffoldHeight, moreOrLessEquals(bareHeight, epsilon: 0.5),
+          reason: 'the marker must not inherit the Scaffold line height');
+    });
+
     testWidgets('3.1 nested bullet list cascades •, ◦, ▪ by depth',
         (tester) async {
       final list = DocxList(items: const [

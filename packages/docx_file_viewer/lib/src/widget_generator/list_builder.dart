@@ -120,15 +120,25 @@ class ListBuilder {
       ));
     }
 
-    return Container(
-      // A DOCX list reproduces Word's spacing per item, so it needs no extra
-      // margin around the whole list; factory lists keep a small gap.
-      margin: listHasSourceParagraphs(list)
-          ? EdgeInsets.zero
-          : const EdgeInsets.symmetric(vertical: 4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: itemWidgets,
+    return DefaultTextStyle(
+      // Isolate the list from the host app's ambient `DefaultTextStyle` (a
+      // Material `Scaffold` injects `bodyMedium`, whose ~1.43 line height would
+      // leak into the bullet/number marker `Text` — whose own style leaves
+      // `height` null to match the body — making each marker taller than the
+      // body line and inflating every item ~4px past what the paginator packed.
+      // Rooting it in the document theme (height null → the font's natural line,
+      // exactly what the measurer uses) keeps measure ≡ render.
+      style: theme.defaultTextStyle,
+      child: Container(
+        // A DOCX list reproduces Word's spacing per item, so it needs no extra
+        // margin around the whole list; factory lists keep a small gap.
+        margin: listHasSourceParagraphs(list)
+            ? EdgeInsets.zero
+            : const EdgeInsets.symmetric(vertical: 4),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: itemWidgets,
+        ),
       ),
     );
   }
@@ -332,10 +342,19 @@ class ListBuilder {
             ),
             SizedBox(width: markerGap),
             Expanded(
+              // Root the item text in the theme's default style — exactly as the
+              // paragraph builder does (ParagraphBuilder.build) and as the
+              // paginator measures it. Without this base the `RichText` inherits
+              // the ambient `DefaultTextStyle` (Material's `bodyMedium`, with a
+              // ~1.43 line height under a Scaffold), so each item rendered ~4px
+              // taller than the paginator packed — overflowing the page and
+              // clipping the last block (measure ≡ render).
               child: config.enableSelection
-                  ? SelectableText.rich(TextSpan(children: spans))
+                  ? SelectableText.rich(
+                      TextSpan(style: theme.defaultTextStyle, children: spans))
                   : RichText(
-                      text: TextSpan(children: spans),
+                      text: TextSpan(
+                          style: theme.defaultTextStyle, children: spans),
                       textDirection: direction,
                     ),
             ),

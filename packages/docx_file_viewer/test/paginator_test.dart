@@ -1,10 +1,15 @@
 import 'package:docx_creator/docx_creator.dart';
 import 'package:docx_file_viewer/docx_file_viewer.dart';
 import 'package:docx_file_viewer/src/layout/span_factory.dart';
+import 'package:docx_file_viewer/src/layout/table_layout.dart';
 import 'package:docx_file_viewer/src/layout/text_measurer.dart';
 import 'package:docx_file_viewer/src/pagination/page_model.dart';
 import 'package:docx_file_viewer/src/pagination/paginator.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+/// The vertical padding band the renderer wraps a top-level table in, now also
+/// part of the measured slice height (measure ≡ render — TableBuilder.build).
+const double _tablePad = 2 * kTableBlockVerticalPaddingPx;
 
 /// Page geometry for the test config (mirrors [Paginator._computeGeometry] for
 /// the default section: all margins 1440tw = 96px, header distance 48px, no
@@ -578,15 +583,20 @@ void main() {
 
     test('an empty auto row imposes no minimum height', () {
       // The renderer (_buildRow) adds no floor to an auto row, so the measurer
-      // must not either — the old _minRowHeightPx=18 over-estimated it.
+      // must not either — the old _minRowHeightPx=18 over-estimated it. The slice
+      // height is now just the table's outer padding band (no row floor); with
+      // an 18px floor it would have been _tablePad + 18.
       final h = measuredHeight(
           oneRow(const DocxTableRow(cells: [DocxTableCell(children: [])])));
-      expect(h, lessThan(18.0),
+      expect(h, lessThan(_tablePad + 18.0),
           reason: 'an auto row sizes to its (empty) content, not a 18px floor');
+      expect(h, closeTo(_tablePad, 1.0),
+          reason: 'only the table padding band, no row floor');
     });
 
     test('an atLeast row still floors to its height (unchanged)', () {
-      // 2000tw ÷ 15 = 133.3px, far above any single-line content.
+      // 2000tw ÷ 15 = 133.3px, far above any single-line content; the slice adds
+      // the table's outer padding band (measure ≡ render).
       final h = measuredHeight(oneRow(DocxTableRow(
         height: 2000,
         heightRule: DocxTableRowHeightRule.atLeast,
@@ -594,7 +604,7 @@ void main() {
           DocxTableCell(children: [para('x')])
         ],
       )));
-      expect(h, closeTo(2000 / 15, 0.5));
+      expect(h, closeTo(2000 / 15 + _tablePad, 0.5));
     });
   });
 }

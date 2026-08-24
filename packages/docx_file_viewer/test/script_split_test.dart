@@ -316,4 +316,89 @@ void main() {
           reason: 'measured ${measured.textHeight} vs rendered $rendered');
     });
   });
+
+  // 03-run-rpr.md item 15 (vertAlign): super/subscript must actually raise/lower
+  // the glyph for *every* font, not only those carrying the OpenType `sups`/`subs`
+  // features (most Hebrew fonts lack them — the glyph used to render merely
+  // shrunk, on the baseline). It is now a real baseline shift inside an atomic
+  // inline box, mirrored by the measurer so measure ≡ render holds.
+  group('w:vertAlign super/subscript → baseline-shift box', () {
+    test('superscript shrinks size and no longer emits the sup font feature',
+        () {
+      final s = spanFactory.resolveRunStyle(
+          const DocxText('2', isSuperscript: true, fontSize: 10));
+      expect(s.fontSize, closeTo(10 * 1.333 * 0.7, 0.01));
+      expect(s.fontFeatures ?? const <FontFeature>[],
+          isNot(contains(const FontFeature.superscripts())));
+    });
+
+    test('verticalShiftPx raises superscript (up) and lowers subscript (down)',
+        () {
+      expect(spanFactory.needsVerticalShiftBox(const DocxText('x')), isFalse);
+      expect(
+          spanFactory
+              .verticalShiftPx(const DocxText('x', isSuperscript: true), 10),
+          lessThan(0));
+      expect(
+          spanFactory
+              .verticalShiftPx(const DocxText('x', isSubscript: true), 10),
+          greaterThan(0));
+    });
+
+    test('measurer reserves one baseline-aligned placeholder (atomic, len 1)',
+        () {
+      final built = spanFactory
+          .buildMeasurementSpans(const [DocxText('2', isSuperscript: true)]);
+      final root = built.root as TextSpan;
+      final widgetSpans = root.children!.whereType<WidgetSpan>().toList();
+      expect(widgetSpans, hasLength(1));
+      expect(widgetSpans.single.alignment, PlaceholderAlignment.baseline);
+      expect(built.placeholders, hasLength(1));
+      expect(
+          built.placeholders.single.alignment, PlaceholderAlignment.baseline);
+      expect(built.placeholders.single.baselineOffset, isNotNull);
+      expect(built.segments.single.length, 1);
+      expect(built.segments.single.atomic, isTrue);
+    });
+
+    testWidgets('renderer emits a baseline WidgetSpan wrapping a Transform',
+        (tester) async {
+      final spans =
+          builder.buildInlineSpans(const [DocxText('2', isSuperscript: true)]);
+      final widgetSpans = spans.whereType<WidgetSpan>().toList();
+      expect(widgetSpans, hasLength(1));
+      expect(widgetSpans.single.alignment, PlaceholderAlignment.baseline);
+      expect(widgetSpans.single.child, isA<Transform>());
+    });
+
+    testWidgets('measure ≡ render for a paragraph mixing super/subscript runs',
+        (tester) async {
+      Future<double> renderedHeight(DocxParagraph p, double width) async {
+        await tester.pumpWidget(MaterialApp(
+          home: Scaffold(
+            body: Align(
+              alignment: Alignment.topLeft,
+              child: SizedBox(width: width, child: builder.build(p)),
+            ),
+          ),
+        ));
+        return tester.getSize(find.byType(RichText).first).height;
+      }
+
+      final p = DocxParagraph(
+        children: const [
+          DocxText('E = mc'),
+          DocxText('2', isSuperscript: true),
+          DocxText(' and the formula H'),
+          DocxText('2', isSubscript: true),
+          DocxText('O appears again and again to force several wrapped lines '
+              'for the parity check across the paragraph width here.'),
+        ],
+      );
+      final measured = measurer.measureParagraph(p, 200.0);
+      final rendered = await renderedHeight(p, 200.0);
+      expect(measured.textHeight, closeTo(rendered, 0.5),
+          reason: 'measured ${measured.textHeight} vs rendered $rendered');
+    });
+  });
 }

@@ -403,28 +403,27 @@ class SpanFactory {
 
     // Kerning (`w:kern`): Word enables pair kerning at/above the given size.
     // Flutter's 'kern' feature is usually on by default; enabling it explicitly
-    // when requested keeps measurement and rendering identical. Sub/superscript
-    // already claim fontFeatures, so only set kern when they don't.
+    // when requested keeps measurement and rendering identical.
     final wantsKern = text.kernMinHalfPoints != null &&
         text.kernMinHalfPoints! > 0 &&
         (fontSize ?? 0) >= (text.kernMinHalfPoints! / 2.0 * 96.0 / 72.0);
 
     // Build the feature list additively so small-caps can coexist with kerning.
-    // Sub/superscript claim the vertical-variant slot, so smcp/kern are not
-    // combined with them (matching the pre-existing behaviour).
-    final bool variantClaimed = text.isSuperscript || text.isSubscript;
+    // Sub/superscript are NOT rendered via the OpenType `sups`/`subs` features
+    // anymore: those silently no-op on a font without them (most Hebrew fonts),
+    // which left the glyph un-raised — only shrunk. The run is now shrunk here
+    // and lifted/dropped by a real baseline shift in an atomic inline box
+    // ([needsVerticalShiftBox] / [verticalShiftPx]); see the renderer/measurer.
     final features = <FontFeature>[];
-    if (text.isSuperscript) features.add(const FontFeature.superscripts());
-    if (text.isSubscript) features.add(const FontFeature.subscripts());
     // smallCaps (`w:smallCaps`): real OpenType small caps — lowercase → small
     // capitals, real uppercase stays full height (Word's behaviour). Falls back
     // gracefully to plain lowercase for a font without an `smcp` table (rare;
     // the common Word/clone fonts ship it). `caps` already uppercased, so smcp
     // is a no-op there and is skipped (03-run-rpr.md item 13).
-    if (text.isSmallCaps && !text.isAllCaps && !variantClaimed) {
+    if (text.isSmallCaps && !text.isAllCaps) {
       features.add(const FontFeature.enable('smcp'));
     }
-    if (wantsKern && !variantClaimed) {
+    if (wantsKern) {
       features.add(const FontFeature.enable('kern'));
     }
     final List<FontFeature>? fontFeatures = features.isEmpty ? null : features;
@@ -458,6 +457,56 @@ class SpanFactory {
       shadows: shadows,
       fontFeatures: fontFeatures,
     );
+  }
+
+  /// True when a run must render as an atomic, baseline-shifted inline box
+  /// instead of flowing text: `w:vertAlign` super/subscript. Flutter's
+  /// [TextStyle] has no baseline offset, and the OpenType `sups`/`subs` features
+  /// silently no-op on fonts without them (most Hebrew fonts) — leaving the
+  /// glyph merely shrunk and sitting on the baseline. Both the measurer (a
+  /// same-size, baseline-aligned placeholder) and the renderer (the shrunk text
+  /// inside a paint-only `Transform.translate`) route such a run through this
+  /// box so measure ≡ render is preserved, the same way `w:bdr` does. A
+  /// super/subscript run is short in practice; one wider than the line stays
+  /// single-line, a documented edge shared with `w:bdr`.
+  bool needsVerticalShiftBox(DocxText text) =>
+      text.isSuperscript || text.isSubscript;
+
+  /// The paint-only vertical offset in px (negative = up) for a
+  /// [needsVerticalShiftBox] run whose shrunk segment font size is [fontSizePx].
+  /// Superscript raises the baseline by ~1/3 of the *original* size and
+  /// subscript lowers it by ~1/7 (Word's fixed font-relative offsets); since
+  /// [fontSizePx] is already the ×0.7-shrunk size, the factors are scaled up by
+  /// 1/0.7. The shift never changes line metrics — it is applied by a
+  /// `Transform` that does not affect the placeholder's layout box.
+  double verticalShiftPx(DocxText text, double fontSizePx) {
+    if (text.isSuperscript) return -fontSizePx * 0.45;
+    if (text.isSubscript) return fontSizePx * 0.20;
+    return 0;
+  }
+
+  /// Single-line intrinsic size and alphabetic baseline of [segs], laid out with
+  /// no text scaling (the box pins `TextScaler.noScaling`). Used by the measurer
+  /// to size the super/subscript placeholder so it matches the rendered box
+  /// (measure ≡ render). Decorations are paint-only, so the result is
+  /// independent of any strike/underline on the segments.
+  ({double width, double height, double baseline}) measureRunSegments(
+      List<RunSegment> segs) {
+    final tp = TextPainter(
+      text: TextSpan(
+        children: [for (final s in segs) TextSpan(text: s.text, style: s.style)],
+      ),
+      textDirection: TextDirection.ltr, // width is direction-independent
+      textScaler: TextScaler.noScaling,
+      maxLines: 1,
+    )..layout();
+    final result = (
+      width: tp.width,
+      height: tp.height,
+      baseline: tp.computeDistanceToActualBaseline(TextBaseline.alphabetic),
+    );
+    tp.dispose();
+    return result;
   }
 
   /// Splits a [DocxText] run's resolved content into script-homogeneous
@@ -684,6 +733,26 @@ class SpanFactory {
           placeholders.add(PlaceholderDimensions(
             size: Size(w, h),
             alignment: PlaceholderAlignment.middle,
+          ));
+          seg(1, inline); // atomic box → one U+FFFC, not splittable
+        } else if (needsVerticalShiftBox(inline) && segs.isNotEmpty) {
+          // Super/subscript (`w:vertAlign`): the renderer boxes the run as an
+          // *atomic* baseline-aligned `WidgetSpan` — the shrunk text lifted or
+          // dropped by a paint-only `Transform`. The shift is paint-only, so
+          // reserve a placeholder of the run's single-line intrinsic size and —
+          // crucially — its alphabetic baseline, so the box sits on the line
+          // exactly where the rendered box does (measure ≡ render).
+          final m = measureRunSegments(segs);
+          spans.add(WidgetSpan(
+            alignment: PlaceholderAlignment.baseline,
+            baseline: TextBaseline.alphabetic,
+            child: SizedBox(width: m.width, height: m.height),
+          ));
+          placeholders.add(PlaceholderDimensions(
+            size: Size(m.width, m.height),
+            alignment: PlaceholderAlignment.baseline,
+            baseline: TextBaseline.alphabetic,
+            baselineOffset: m.baseline,
           ));
           seg(1, inline); // atomic box → one U+FFFC, not splittable
         } else {

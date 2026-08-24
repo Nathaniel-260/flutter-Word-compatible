@@ -79,7 +79,10 @@ class TableBuilder {
     // the page is scaled down proportionally (Word-like autofit) rather than
     // clipped; an equal-or-narrower one keeps its width with horizontal scroll.
     Widget scrollableTable = Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      // Shared with the paginator's table measurement so the packed height equals
+      // the painted height (measure ≡ render).
+      padding: const EdgeInsets.symmetric(
+          vertical: kTableBlockVerticalPaddingPx),
       child: LayoutBuilder(
         builder: (context, constraints) {
           final hasBound =
